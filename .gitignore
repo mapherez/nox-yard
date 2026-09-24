@@ -1,0 +1,36 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Persistent application data
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Go outputs
+bin/
+coverage/
+*.test
+*.out
+
+# Frontend outputs and dependencies
+node_modules/
+web/dist/
+web/.vite/
+*.tsbuildinfo
+
+# Logs and local tooling
+*.log
+.cache/
+.tmp/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
