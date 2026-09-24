@@ -1,48 +1,8 @@
-# Progress and checkpoints
+# Current checkpoint
 
-Update this file when a checkpoint is reached or the next step changes. Keep status claims tied to what has actually been verified.
+**Updated:** 2026-09-24  
+**Phase:** 1 — Foundation
 
-## 2026-09-24 — Initial repository scaffold
+The corrected Linux `arm64` image starts on Raspberry Pi 5. The user completed administrator setup and reached the authenticated dashboard. The dashboard is an application shell; Docker inventory is the next implementation phase.
 
-**Status:** complete. Created root project configuration, toolchain manifests, placeholder source directories, and the canonical developer documentation.
-
-## 2026-09-24 — Phase 1 foundation in progress
-
-Implemented:
-
-- Go HTTP service with health endpoint and production frontend asset serving.
-- SQLite schema version 1 for the administrator and hashed sessions, with WAL enabled and a persistent `data/` directory.
-- First-run administrator creation, Argon2id passwords, login, logout, session cookies, origin and CSRF protection, rate limiting, and interactive local password reset.
-- React setup/login screens and responsive authenticated dashboard shell, with centralized dark tokens and CSS Modules.
-- Multi-stage Dockerfile, local Compose configuration, example environment, and frontend lockfile.
-
-**Verification:** `go test ./...` passed, `npm run build` passed, and `docker compose config` parsed the deployment. Browser checks covered setup, logout, and login at desktop and mobile widths; the browser reported no console errors after the username pattern correction. The temporary Go server and browser were stopped, their test data was removed, and port 8080 was free. The Docker daemon was unavailable, so image build and Compose runtime behavior on Linux remain unverified.
-
-**Next checkpoint:** run the Phase 1 image and Compose installation on Linux `arm64` and `amd64`, verify persistence across restart and password recovery, then begin Phase 2 Docker inventory and direct management. The current dashboard deliberately shows an inventory placeholder.
-
-## 2026-09-24 — Manual image publication prepared
-
-Added a manually dispatched GitHub Actions workflow that publishes a multi-platform `latest` image to GHCR from `master`. Updated the Compose installation to pull that image without a local build context, and documented host deployment and package visibility. No workflow has run and no image has been published by this change. The first GitHub Actions build and Linux host pull remain to be verified.
-
-## 2026-09-24 — CI workflow prepared
-
-Added read-only CI checks for Go tests, frontend type-check/build, and Compose configuration. They trigger on pull requests into `master` and pushes to `master`; image publication remains manual. The workflow has not run on GitHub yet. Requiring passing checks before merging needs repository branch protection configuration.
-
-## 2026-09-24 — Host port changed
-
-Changed the Compose default host port and `.env.example` to 8095 after a host-side 8080 binding conflict. The application and health check continue to use port 8080 inside the container. Copy the updated Compose file to the host; if an existing `.env` defines `NOX_PORT`, update that value too.
-
-## 2026-09-24 — ARM64 image startup fix prepared
-
-The first published `arm64` image was reported to restart on Raspberry Pi 5. Its executable ELF header identified `amd64` (machine 62), matching the Pi's inability to execute it. Updated the Dockerfile to inherit BuildKit target architecture arguments, cross-compile on the build platform, and reject a binary whose `GOARCH` differs from the target. The manual publication workflow now builds without cache. The corrected image has not yet been built or published; the next manual Actions run and Pi startup remain to be verified.
-
-## Phase status
-
-| Phase | Status |
-| --- | --- |
-| Repository preparation and developer documentation | Complete |
-| 1. Foundation application and authentication | In progress; Linux Compose runtime checkpoint pending |
-| 2. Inventory and direct Docker management | Not started |
-| 3. Managed Compose projects | Not started |
-| 4. Safe update and scheduled operations | Not started |
-| 5. Validation and release | Not started |
+Before closing Phase 1, confirm that account data survives a container restart, verify local password recovery on the Pi, and validate the Linux `amd64` image.

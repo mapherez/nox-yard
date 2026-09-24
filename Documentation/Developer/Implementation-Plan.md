@@ -1,6 +1,6 @@
 # MVP implementation plan
 
-**Status:** approved direction; Phase 1 is in progress. This plan records the MVP scope and acceptance checkpoints. See [Progress](Progress.md) for what is implemented and verified.
+This plan records the MVP scope and acceptance checkpoints. Current work is tracked in [Progress](Progress.md).
 
 ## Outcome and constraints
 

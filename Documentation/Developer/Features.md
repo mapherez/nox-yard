@@ -15,7 +15,3 @@ Authentication state lives in `data/nox-yard.sqlite`. Keep `data/` persistent an
 ## Application shell
 
 The Go service serves the Vite production build and exposes `/healthz`, which checks SQLite access. The React UI has responsive setup/login screens, a compact dashboard sidebar, sign-out, loading/error states, and an inventory placeholder. It does not currently query Docker or show real projects. UI styles use the semantic tokens in `web/src/styles/tokens.css` and feature CSS Modules.
-
-## Verification and limits
-
-Go endpoint tests cover setup persistence and concurrency, login, logout CSRF, origin checks, secure cookies, and password reset session invalidation. A browser run covered setup, logout, and login at desktop and mobile widths. The Docker Compose file parses, but no Linux Docker runtime check has been performed yet because the daemon was unavailable in the development environment.

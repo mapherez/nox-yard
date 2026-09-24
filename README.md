@@ -2,15 +2,11 @@
 
 NoX Yard is a lightweight, self-hosted Docker management web application for a personal homelab. Linux is the target platform, with Raspberry Pi 5 as the primary device.
 
-## Current status
-
-The Phase 1 foundation is implemented: a Go service serves a React application with first-run administrator setup, login, logout, SQLite persistence, and an authenticated dashboard shell. Docker inventory and management are planned for the next phases; the dashboard does not yet show host containers. The Compose installation has been configured but has not been run against a Linux Docker Engine yet.
-
 ## Stack
 
 - Go 1.26 service with SQLite and server-side sessions.
 - React 19, TypeScript 6, and Vite 8 frontend with a dark-only design system.
-- Multi-stage Docker image and a single-service Compose installation. A manually triggered GitHub Actions workflow publishes `linux/arm64` and `linux/amd64` images to GHCR; the first publication and runtime validation are pending.
+- Multi-stage Docker image and a single-service Compose installation. A manually triggered GitHub Actions workflow publishes `linux/arm64` and `linux/amd64` images to GHCR.
 
 ## CI and image publication
 

@@ -1,7 +1,5 @@
 # Design system and UI conventions
 
-**Status:** Phase 1 tokens, global styles, authentication screens, and dashboard shell are implemented. Project cards, drawers, dialogs, and Docker views below remain design guidance.
-
 ## Direction
 
 The interface is dark-only, desktop-first, and usable on tablets and phones. Use the current Sealos visual direction as inspiration: clean dark surfaces, compact icon navigation, subtle boundaries, spacious cards and panels, blue accent, and low visual noise. This is a product-specific design, not a pixel copy.

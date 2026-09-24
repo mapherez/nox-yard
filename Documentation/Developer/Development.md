@@ -1,7 +1,5 @@
 # Development and maintenance guide
 
-**Current state:** the Phase 1 application foundation runs locally. Linux Docker Compose runtime validation and Docker inventory remain pending.
-
 ## Toolchains
 
 - Go 1.26 for the root module `github.com/mapherez/nox-yard`.
@@ -54,7 +52,7 @@ CI runs the Go tests, frontend type-check/build, and Compose validation on pull 
 
 The **Publish Docker image** workflow has only a `workflow_dispatch` trigger. It runs only when started in GitHub Actions with `master` selected, and publishes `ghcr.io/mapherez/nox-yard:latest` for `linux/amd64` and `linux/arm64`. It uses the repository's `GITHUB_TOKEN` with `packages: write`; no personal token is needed for publication. No push or tag starts the workflow automatically. Concurrent manual runs queue instead of canceling an active publication. Publication builds without cache. The Dockerfile cross-compiles the Go executable for each target architecture and fails the build if its recorded `GOARCH` differs from the target.
 
-The image package may be private after its first publication. Set its visibility to public in GitHub package settings for an unauthenticated host pull. For a private package, authenticate the host to `ghcr.io` with a token that has `read:packages` access. The Compose file references the published image and has no local `build:` context, so the host needs only `compose.yaml` and optional `.env` configuration. Run `docker compose pull` followed by `docker compose up -d` to deploy a manually published version.
+The image package may be private. Set its visibility to public in GitHub package settings for an unauthenticated host pull. For a private package, authenticate the host to `ghcr.io` with a token that has `read:packages` access. The Compose file references the published image and has no local `build:` context, so the host needs only `compose.yaml` and optional `.env` configuration. Run `docker compose pull` followed by `docker compose up -d` to deploy a manually published version.
 
 ## Configuration, data, and recovery
 
@@ -75,6 +73,6 @@ For a local run, stop the server and run `go run ./cmd/nox-yard reset-admin-pass
 1. Read the relevant architecture, design, and feature notes. Add a decision entry if a new choice changes an earlier one.
 2. Implement behavior across the relevant backend, API, frontend, and documentation. Keep errors actionable and in English.
 3. Verify the smallest relevant checks. Docker lifecycle and recovery need a real Linux Engine; UI work needs desktop, tablet, mobile, and keyboard checks where relevant.
-4. Update [Progress](Progress.md) with completed work and remaining limits, and [Features](Features.md) with implemented behavior.
+4. Update [Features](Features.md) when product behavior changes. Update the single [checkpoint](Progress.md) when a phase milestone or its remaining work changes.
 
 Do not mark a phase complete based on scaffolding or a successful build alone. Use the acceptance checkpoint in [Implementation Plan](Implementation-Plan.md).

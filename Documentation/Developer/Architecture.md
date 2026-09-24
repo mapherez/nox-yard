@@ -1,7 +1,5 @@
 # Architecture
 
-**Status:** Phase 1 service, authentication, persistence, and UI shell are implemented. Docker integration, inventory, streaming, Compose management, and jobs below remain planned.
-
 ## System boundary
 
 NoX Yard manages one local Linux Docker Engine. The browser talks only to the NoX Yard web service; Docker socket access stays on the server side. The product is designed for a trusted LAN or VPN and may sit behind a user-managed HTTPS reverse proxy. Docker socket access gives the application broad control of the host, so the installation must not be exposed to untrusted users or networks.
@@ -18,15 +16,7 @@ Local Docker Engine ---- containers, images, networks, volumes
   | temporary job container (Compose and self-update operations)
 ```
 
-The multi-stage Dockerfile is configured for Linux `arm64` and `amd64`; those runtime builds still need validation on Linux. Frontend and Go builder stages run on BuildKit's build platform. The Go compiler receives the target OS and architecture, and the build checks the resulting binary's `GOARCH` before copying it into the target-platform Alpine image. A manually dispatched GitHub Actions workflow publishes a multi-platform image to GHCR. The host's Docker Compose installation pulls that image and does not build locally. The current `./data:/data` mount holds the SQLite database. Managed Compose sources will also live there. The Docker Unix socket will be mounted when inventory is implemented; it is absent from the current Compose file. The backend serves the built frontend, so production does not need a separate web server.
-
-## Implemented Phase 1 paths
-
-- `cmd/nox-yard/main.go` loads environment configuration, opens SQLite, starts the HTTP server, handles shutdown, and provides the interactive `reset-admin-password` command.
-- `internal/store` owns schema migration, administrator data, and sessions. SQLite uses WAL, a busy timeout, and foreign keys. The database schema version is 1.
-- `internal/auth` validates passwords and creates/verifies Argon2id hashes.
-- `internal/httpapi` serves `/healthz`, `/api/bootstrap`, `/api/setup`, `/api/login`, `/api/logout`, and built frontend assets. Mutations check the request Origin; logout also checks a CSRF token. Session cookies are HttpOnly and SameSite Strict, with Secure cookies for HTTPS public origins.
-- `web/src` contains the typed API client and React setup, login, and empty authenticated dashboard views. `web/src/styles/tokens.css` defines palette and semantic design tokens.
+The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go builder stages run on BuildKit's build platform. The Go compiler receives the target OS and architecture, and the build checks the resulting binary's `GOARCH` before copying it into the target-platform Alpine image. A manually dispatched GitHub Actions workflow publishes a multi-platform image to GHCR. The host's Docker Compose installation pulls that image and does not build locally. The `./data:/data` mount holds the SQLite database and, later, managed Compose sources. The Docker Unix socket is mounted when inventory is implemented; it is absent from the initial Compose file. The backend serves the built frontend, so production does not need a separate web server.
 
 ## Backend boundaries
 
