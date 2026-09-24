@@ -1,6 +1,6 @@
 # MVP implementation plan
 
-**Status:** approved direction, not implemented. This plan records the product decisions made before the initial scaffold. Update it if a later decision changes the MVP.
+**Status:** approved direction; Phase 1 is in progress. This plan records the MVP scope and acceptance checkpoints. See [Progress](Progress.md) for what is implemented and verified.
 
 ## Outcome and constraints
 

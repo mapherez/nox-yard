@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** planned architecture. No service or API described here is implemented yet.
+**Status:** Phase 1 service, authentication, persistence, and UI shell are implemented. Docker integration, inventory, streaming, Compose management, and jobs below remain planned.
 
 ## System boundary
 
@@ -18,7 +18,15 @@ Local Docker Engine ---- containers, images, networks, volumes
   | temporary job container (Compose and self-update operations)
 ```
 
-The release image is planned for Linux `arm64` and `amd64`. The host uses Docker Compose to install NoX Yard. A single persistent data mount holds the database and managed Compose sources; the Docker Unix socket is mounted for local Engine access. The backend serves the built frontend, so production does not need a separate web server.
+The multi-stage Dockerfile is configured for Linux `arm64` and `amd64`; those runtime builds still need validation on Linux. The host uses Docker Compose to install NoX Yard. The current `./data:/data` mount holds the SQLite database. Managed Compose sources will also live there. The Docker Unix socket will be mounted when inventory is implemented; it is absent from the current Compose file. The backend serves the built frontend, so production does not need a separate web server.
+
+## Implemented Phase 1 paths
+
+- `cmd/nox-yard/main.go` loads environment configuration, opens SQLite, starts the HTTP server, handles shutdown, and provides the interactive `reset-admin-password` command.
+- `internal/store` owns schema migration, administrator data, and sessions. SQLite uses WAL, a busy timeout, and foreign keys. The database schema version is 1.
+- `internal/auth` validates passwords and creates/verifies Argon2id hashes.
+- `internal/httpapi` serves `/healthz`, `/api/bootstrap`, `/api/setup`, `/api/login`, `/api/logout`, and built frontend assets. Mutations check the request Origin; logout also checks a CSRF token. Session cookies are HttpOnly and SameSite Strict, with Secure cookies for HTTPS public origins.
+- `web/src` contains the typed API client and React setup, login, and empty authenticated dashboard views. `web/src/styles/tokens.css` defines palette and semantic design tokens.
 
 ## Backend boundaries
 
@@ -29,7 +37,7 @@ The release image is planned for Linux `arm64` and `amd64`. The host uses Docker
 - **Job runner:** durable operations for pulls, deploys, recreation, updates, and removal. A temporary helper container continues operations if the web service is restarted or updates itself. Jobs record progress, outcome, and recoverable errors.
 - **Storage:** SQLite for the initial administrator, hashed sessions, managed-project metadata, URL sources, update settings, and job history. Secrets and Compose variables remain server-side with restrictive file permissions.
 
-Planned Go packages under `internal/` should follow these boundaries. Keep Docker SDK types out of public HTTP responses; map them to stable application models.
+New Go packages under `internal/` should follow these boundaries. Keep Docker SDK types out of public HTTP responses; map them to stable application models.
 
 ## Project model
 
@@ -61,7 +69,7 @@ Pull downloads images without replacing containers. Update uses the stored Compo
 
 ## Authentication and failure handling
 
-While no administrator exists, the first-run screen accepts a username and password. A single atomic transaction prevents two administrators being created concurrently. After creation, only login is available. This intentionally leaves setup open until completed; initial access must be restricted to a trusted LAN/VPN. Passwords use Argon2id, sessions use opaque server-side tokens, and mutations require CSRF protection. A local container command will reset the administrator password.
+While no administrator exists, the first-run screen accepts a username and password. The database's single administrator row prevents two accounts from being created concurrently. After creation, only login is available. This intentionally leaves setup open until completed; initial access must be restricted to a trusted LAN/VPN. Passwords use Argon2id, sessions use opaque server-side tokens, and mutations require an exact Origin match; logout additionally requires a CSRF token. A local interactive command resets the administrator password and invalidates sessions. Future mutations must apply the same session and CSRF protections.
 
 If Docker is unavailable, show the inventory as unavailable instead of stale success. Jobs must report partial failure, preserve enough state to retry or roll back, and never claim an update succeeded solely because the web request returned. SQLite and managed source files require persistent storage across restarts.
 

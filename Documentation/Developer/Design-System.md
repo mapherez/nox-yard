@@ -1,6 +1,6 @@
 # Design system and UI conventions
 
-**Status:** implementation guide. No UI component or stylesheet exists yet.
+**Status:** Phase 1 tokens, global styles, authentication screens, and dashboard shell are implemented. Project cards, drawers, dialogs, and Docker views below remain design guidance.
 
 ## Direction
 
@@ -10,7 +10,7 @@ Use one clear primary action per view. Keep operational status visible without m
 
 ## Token architecture
 
-Create `web/src/styles/tokens.css` before adding feature styles. Define primitive palette values separately from semantic tokens. Components must consume semantic tokens rather than hard-coded colors, spacing, radii, shadows, or animation timings.
+`web/src/styles/tokens.css` defines primitive palette values separately from semantic tokens. Components consume semantic tokens rather than hard-coded colors, spacing, radii, shadows, or animation timings. Add new palette values and semantic aliases there before using them in feature CSS.
 
 Recommended naming groups:
 
@@ -20,16 +20,16 @@ Recommended naming groups:
 | Content | `--color-text-primary`, `--color-text-muted`, `--color-border` | Legible text and boundaries. |
 | Intent | `--color-accent`, `--color-success`, `--color-warning`, `--color-danger` | Actions and status. |
 | Layout | `--space-1` through `--space-8`, `--radius-sm`, `--radius-lg` | Reusable rhythm and shape. |
-| Motion and elevation | `--duration-fast`, `--shadow-panel`, `--z-dialog` | Consistent transitions and layering. |
+| Motion and elevation | `--duration-fast`, `--duration-normal`, `--shadow-panel` | Consistent transitions and layering. Add z-index tokens when overlays are implemented. |
 
 Use `:root { color-scheme: dark; }` and `<meta name="color-scheme" content="dark">` so native controls and the initial page canvas match the sole supported theme. Keep a single source of truth for dark tokens; do not create unused light-theme overrides. New themes, if ever approved, should override semantic tokens without rewriting component CSS.
 
-Define typography tokens for a system UI font stack, a monospaced stack for logs/terminal/YAML, and a small, consistent type scale. Prefer `rem` for type and spacing. Token values should be chosen and checked against real interface content when UI implementation begins; the names above are conventions, not final visual values.
+The current tokens provide a UI and monospaced font stack, spacing scale, radii, and transition durations. Prefer `rem` for type and spacing. Extend the tokens when a repeated visual value appears; keep one-off layout geometry in a local CSS Module if it does not represent a reusable rule.
 
 ## Component and CSS rules
 
-- Put global reset, tokens, and layout primitives in `web/src/styles/`. Keep feature styles in CSS Modules beside the relevant component. Avoid global selectors that style arbitrary descendants in unrelated features.
-- Establish shared components for buttons, icon buttons, status badges, project cards, stat items, forms, drawers, confirmation dialogs, tabs, toasts, empty/error states, and log/terminal surfaces before duplicating a pattern.
+- Put global reset, tokens, and layout primitives in `web/src/styles/`. The current feature styles live in `web/src/App.module.css`; split them beside new components as they are extracted. Avoid global selectors that style arbitrary descendants in unrelated features.
+- Extract shared components for buttons, icon buttons, status badges, project cards, stat items, forms, drawers, confirmation dialogs, tabs, toasts, empty/error states, and log/terminal surfaces when a pattern is reused. The current app shell has a small inline brand, authentication form, and dashboard layout.
 - Variants should be explicit component properties (`intent`, `size`, `loading`, `disabled`) and map to token-based CSS classes. A disabled or loading action must have a clear text explanation when the reason matters.
 - Keep data fetching and Docker-specific mapping outside presentational components. Views consume typed application models, not raw Engine responses.
 - Use native semantic elements. Prefer a native `<dialog>` for modal confirmation and an accessible dialog pattern for detail drawers. Icon-only controls need accessible names; opening and closing overlays must preserve sensible focus.

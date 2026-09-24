@@ -1,42 +1,70 @@
 # Development and maintenance guide
 
-**Current state:** scaffolding only. The commands below describe the intended workflow; there is no runnable application or deployment yet.
+**Current state:** the Phase 1 application foundation runs locally. Linux Docker Compose runtime validation and Docker inventory remain pending.
 
 ## Toolchains
 
-- Go 1.26 or newer compatible 1.26 patch release for the root module.
-- Node.js 24 LTS for the frontend (`.nvmrc`). Use npm and commit `web/package-lock.json` when dependencies are first installed during application implementation.
-- Docker Engine and the Docker Compose plugin on a Linux development or integration host. Raspberry Pi 5 (`linux/arm64`) is the primary release target; `linux/amd64` is also supported.
+- Go 1.26 for the root module `github.com/mapherez/nox-yard`.
+- Node.js 24 for `web/` (`.nvmrc`), with npm and the committed `web/package-lock.json`.
+- Docker Engine and the Compose plugin on a Linux integration host. Raspberry Pi 5 (`linux/arm64`) is the primary release target; `linux/amd64` is also intended.
 
-The current machine has Go 1.26.3 but no Node.js executable. This checkpoint therefore does not install frontend dependencies or run a frontend build. The root `go.mod` is intentionally minimal and its `nox-yard` module path is provisional until the canonical repository path is known.
+## Repository layout
 
-## Repository conventions
+- `cmd/nox-yard/`: service entrypoint and interactive password reset command.
+- `internal/auth/`: password validation and Argon2id hashes.
+- `internal/store/`: SQLite schema, administrator, and sessions.
+- `internal/httpapi/`: same-origin HTTP routes, session protection, and static asset serving.
+- `web/src/`: typed API client, React views, and CSS Modules. Shared tokens and global rules are in `web/src/styles/`.
+- `Dockerfile`, `compose.yaml`, `.env.example`: single-service self-hosted installation.
+- `Documentation/Developer/`: canonical architecture, implementation, style, decision, progress, and feature documentation.
 
-- `cmd/`: small Go entrypoints only. Keep business logic in `internal/`, separated into HTTP/auth, inventory, Docker adapter, Compose adapter, jobs, and storage packages as described in [Architecture](Architecture.md).
-- `web/src/`: future React source. Put shared tokens and global layout rules under `styles/`; put feature-specific CSS Modules next to the components that use them. Consult [Design System](Design-System.md) before adding or changing UI patterns.
-- `deploy/`: future Compose installation files and release configuration. Do not commit local credentials or generated `/data` contents.
-- `Documentation/Developer/`: source of truth for technical behavior. Update [Features](Features.md), [Decisions](Decisions.md), and [Progress](Progress.md) in the same change as related code.
+Keep Go packages and frontend modules small and named for their responsibilities. Prefer typed application models at HTTP boundaries. Do not send Docker SDK structs, credentials, or host-only details to the browser unless a user decision requires them.
 
-Keep Go packages and frontend modules small and named for their responsibilities. Prefer typed application models at HTTP boundaries. Do not expose Docker socket paths, raw Engine structs, credentials, or host-only details to the browser unless needed for a user decision.
+## Local run
 
-## Configuration and secrets
+Build the frontend first, because the Go server serves `web/dist` by default:
 
-`.gitignore` excludes local `.env` files, generated databases, persistent `data/`, build output, logs, and dependencies. Future example configuration may use `.env.example` with placeholders only. Never commit real passwords, Compose interpolation secrets, registry credentials, session tokens, or Docker host data.
+```sh
+cd web
+npm ci
+npm run build
+cd ..
+NOX_LISTEN_ADDR=127.0.0.1:8080 go run ./cmd/nox-yard
+```
 
-The planned Docker installation mounts the local Engine socket and persistent data. Limit browser access to a trusted LAN/VPN and use a user-managed HTTPS reverse proxy for HTTPS. While the first-run account is unclaimed, anyone who can reach the setup screen can create it, by the chosen product design.
+Open `http://127.0.0.1:8080`. On Windows PowerShell, set the address with `$env:NOX_LISTEN_ADDR='127.0.0.1:8080'` before `go run ./cmd/nox-yard`. `go run` compiles a temporary host executable during development; the Dockerfile builds a Linux binary inside the image. Stop the local process with Ctrl+C.
+
+For frontend development, run `npm run dev` from `web/`. Vite proxies `/api` to the Go service at `http://127.0.0.1:8080`. Keep the Go service running for authentication and persistence. The UI has no Docker data yet.
+
+Relevant commands:
+
+```sh
+go test ./...
+cd web && npm run build
+docker compose config
+```
+
+The final command validates Compose syntax without starting a service. A real Linux Engine is needed to validate `docker compose up --build`, data persistence, and target architectures.
+
+## Configuration, data, and recovery
+
+`NOX_LISTEN_ADDR` defaults to `:8080`; use `127.0.0.1:8080` for a local development server. `NOX_DATA_DIR` defaults to `./data`, and `NOX_WEB_DIR` defaults to `./web/dist`. In Compose, these are `/data` and `/srv/nox-yard/web`. The optional `NOX_PUBLIC_URL` must be an exact HTTP(S) origin without a path. Set it to the browser-facing HTTPS origin behind a reverse proxy so sessions use Secure cookies and Origin checks compare against that origin.
+
+`.env.example` configures the Compose host bind address and port. The current Compose file mounts `./data` but does not yet mount the Docker socket. Keep the application on a trusted LAN/VPN, especially before the administrator account has been created. Do not commit `.env`, `data/`, credentials, sessions, or host Docker data. Back up `data/` before upgrades; SQLite is the only persisted application state at this stage.
+
+To reset a forgotten password, use an interactive terminal attached to the same data directory:
+
+```sh
+docker compose exec -it nox-yard nox-yard reset-admin-password
+```
+
+For a local run, stop the server and run `go run ./cmd/nox-yard reset-admin-password` from the repository root. The command prompts for confirmation and signs out all existing sessions.
 
 ## Change workflow
 
-1. Read the relevant architecture, design, and feature notes before a change. Update a decision entry if a new choice supersedes an earlier one.
-2. Implement one behavior across its backend, API, frontend, documentation, and meaningful tests. Keep application and deployment errors actionable and in English.
-3. Verify the smallest relevant unit/integration checks. Docker lifecycle and recovery behavior require integration checks against a real Linux Engine; UI behavior requires browser checks at desktop/tablet/mobile widths and with keyboard navigation.
-4. Update [Progress](Progress.md) with completed work, verification, and the next checkpoint. Add operational notes to [Features](Features.md) only after behavior is implemented.
+1. Read the relevant architecture, design, and feature notes. Add a decision entry if a new choice changes an earlier one.
+2. Implement behavior across the relevant backend, API, frontend, and documentation. Keep errors actionable and in English.
+3. Verify the smallest relevant checks. Docker lifecycle and recovery need a real Linux Engine; UI work needs desktop, tablet, mobile, and keyboard checks where relevant.
+4. Update [Progress](Progress.md) with completed work and remaining limits, and [Features](Features.md) with implemented behavior.
 
-Do not mark a phase complete based on scaffolding alone. A checkpoint requires its acceptance behavior to run and be verified.
-
-## Documentation references
-
-- [Implementation Plan](Implementation-Plan.md) defines the MVP milestones and acceptance cases.
-- [Architecture](Architecture.md) defines system boundaries and data flow.
-- [Design System](Design-System.md) defines UI rules and token conventions.
-- [Decisions](Decisions.md) records product and technical choices.
+Do not mark a phase complete based on scaffolding or a successful build alone. Use the acceptance checkpoint in [Implementation Plan](Implementation-Plan.md).

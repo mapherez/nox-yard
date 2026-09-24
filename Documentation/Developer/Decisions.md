@@ -8,7 +8,7 @@ All UI text, API messages, code comments, and documentation are in English. Ther
 
 ## D-002 — Go service and React frontend
 
-Use Go for the local Docker-facing service and React/TypeScript/Vite for the browser. Serve production frontend assets from Go. SQLite and a persistent directory avoid a separate database service. Build Linux `arm64` and `amd64` images. The root Go module currently uses the provisional local name `nox-yard` because no canonical Git remote exists.
+Use Go for the local Docker-facing service and React/TypeScript/Vite for the browser. Serve production frontend assets from Go. SQLite and a persistent directory avoid a separate database service. Build Linux `arm64` and `amd64` images. The canonical Go module path is `github.com/mapherez/nox-yard`.
 
 ## D-003 — Docker Engine is the runtime source of truth
 
@@ -37,3 +37,7 @@ Auto-update is opt-in per project, initially checked daily at 03:00 server-local
 ## D-009 — Dark-only design and canonical docs
 
 Use semantic CSS variables, reusable components, and responsive layouts from the first UI change. No light theme is built. `Documentation/Developer/` is the primary technical reference and is updated with implementation changes.
+
+## D-010 — Session storage and first deployment boundary
+
+Phase 1 stores only the administrator and hashed session tokens in SQLite. Session cookies are HttpOnly and SameSite Strict; HTTPS public origins use Secure cookies. The initial Compose installation omits the Docker socket until Docker inventory is implemented, so the current dashboard does not imply that host inventory is connected.

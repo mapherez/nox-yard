@@ -19,4 +19,4 @@ This directory is the **canonical technical documentation** for NoX Yard. The ro
 3. Treat the Docker Engine as the runtime source of truth. When documentation describes planned behavior, label it as planned until verified by implementation.
 4. Keep this index accurate as documents are added or renamed. Avoid duplicate, conflicting specifications in other folders.
 
-**Status:** documentation and scaffolding only; no application behavior is implemented yet.
+**Status:** Phase 1 foundation is implemented in part. See [Progress](Progress.md) for verified behavior and the pending Linux Compose runtime checkpoint.

@@ -1,0 +1,13 @@
+.git
+.gitignore
+Documentation
+data
+**/node_modules
+web/dist
+web/.vite
+bin
+coverage
+*.log
+.env
+.env.*
+!.env.example

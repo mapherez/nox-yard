@@ -4,26 +4,28 @@ Update this file when a checkpoint is reached or the next step changes. Keep sta
 
 ## 2026-09-24 — Initial repository scaffold
 
-**Status:** complete for the requested documentation/scaffolding step. No NoX Yard feature has been implemented.
+**Status:** complete. Created root project configuration, toolchain manifests, placeholder source directories, and the canonical developer documentation.
 
-Created:
+## 2026-09-24 — Phase 1 foundation in progress
 
-- Root README, Git ignore/line-ending/editor configuration, Node toolchain marker, provisional Go module, and initial frontend manifests.
-- Placeholder directories for Go entrypoints/packages, frontend source/assets, and deployment files.
-- Canonical developer documentation for architecture, design rules, implementation plan, decisions, workflow, progress, and feature notes.
+Implemented:
 
-**Verification:** Git status inspected; frontend JSON and Go module metadata parsed successfully; developer documentation links resolve. A frontend install/build is unavailable because Node.js is not installed on the current machine. No application runtime or Docker Compose deployment exists yet.
+- Go HTTP service with health endpoint and production frontend asset serving.
+- SQLite schema version 1 for the administrator and hashed sessions, with WAL enabled and a persistent `data/` directory.
+- First-run administrator creation, Argon2id passwords, login, logout, session cookies, origin and CSRF protection, rate limiting, and interactive local password reset.
+- React setup/login screens and responsive authenticated dashboard shell, with centralized dark tokens and CSS Modules.
+- Multi-stage Dockerfile, local Compose configuration, example environment, and frontend lockfile.
 
-## Current phase
+**Verification:** `go test ./...` passed, `npm run build` passed, and `docker compose config` parsed the deployment. Browser checks covered setup, logout, and login at desktop and mobile widths; the browser reported no console errors after the username pattern correction. The temporary Go server and browser were stopped, their test data was removed, and port 8080 was free. The Docker daemon was unavailable, so image build and Compose runtime behavior on Linux remain unverified.
 
-Phase 1 foundation has **not** started beyond repository preparation. Next: implement the minimal Go service, React application shell, persistence, first-run setup, and local Docker Compose installation according to [Implementation Plan](Implementation-Plan.md). The user explicitly requested stopping before that implementation in this checkpoint.
+**Next checkpoint:** run the Phase 1 image and Compose installation on Linux `arm64` and `amd64`, verify persistence across restart and password recovery, then begin Phase 2 Docker inventory and direct management. The current dashboard deliberately shows an inventory placeholder.
 
 ## Phase status
 
 | Phase | Status |
 | --- | --- |
 | Repository preparation and developer documentation | Complete |
-| 1. Foundation application and authentication | Not started |
+| 1. Foundation application and authentication | In progress; Linux Compose runtime checkpoint pending |
 | 2. Inventory and direct Docker management | Not started |
 | 3. Managed Compose projects | Not started |
 | 4. Safe update and scheduled operations | Not started |
