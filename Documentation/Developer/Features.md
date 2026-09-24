@@ -14,4 +14,10 @@ Authentication state lives in `data/nox-yard.sqlite`. Keep `data/` persistent an
 
 ## Application shell
 
-The Go service serves the Vite production build and exposes `/healthz`, which checks SQLite access. The React UI has responsive setup/login screens, a compact dashboard sidebar, sign-out, loading/error states, and an inventory placeholder. It does not currently query Docker or show real projects. UI styles use the semantic tokens in `web/src/styles/tokens.css` and feature CSS Modules.
+The Go service serves the Vite production build and exposes `/healthz`, which checks SQLite access. The React UI has responsive setup/login screens, a compact dashboard sidebar, and sign-out. UI styles use the semantic tokens in `web/src/styles/tokens.css` and feature CSS Modules.
+
+## Docker inventory
+
+`GET /api/projects` requires a valid session. It lists all local Docker containers, groups those with `com.docker.compose.project` labels into Compose projects, and presents other containers individually. Each project includes its containers, state, health, CPU, memory, and uptime. Container details also include image, service name, network totals, and individual metrics. Missing stats are represented as `null`; Docker errors return `503` without blocking login or `/healthz`.
+
+The dashboard refreshes every 20 seconds while visible and offers manual refresh. Selecting a card opens a read-only container panel. This phase does not expose Docker mutation endpoints.

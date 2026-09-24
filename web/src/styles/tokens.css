@@ -16,6 +16,7 @@
   --palette-blue-700: #245ec9;
   --palette-red-400: #ff8e94;
   --palette-green-400: #61d9ae;
+  --palette-amber-400: #f3bb71;
 
   /* Semantic colors */
   --color-canvas: var(--palette-ink-950);
@@ -32,6 +33,7 @@
   --color-accent-pressed: var(--palette-blue-700);
   --color-danger: var(--palette-red-400);
   --color-success: var(--palette-green-400);
+  --color-warning: var(--palette-amber-400);
   --color-focus: var(--palette-blue-400);
 
   /* Typography and layout */
@@ -72,6 +74,7 @@
     --color-accent-pressed: LinkText;
     --color-danger: CanvasText;
     --color-success: CanvasText;
+    --color-warning: CanvasText;
     --color-focus: Highlight;
   }
 }

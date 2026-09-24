@@ -27,7 +27,7 @@ docker compose up -d
 
 Open `http://<host>:8095` and create the administrator account. The default host port is 8095; the application still listens on port 8080 inside the container. Restrict access to a trusted LAN or VPN. To bind only to a local reverse proxy, set `NOX_BIND_ADDRESS=127.0.0.1` in `.env`. Set `NOX_PUBLIC_URL` to the exact browser-facing origin when using a reverse proxy, such as `https://nox.example.test`; HTTPS enables Secure session cookies. The `./data` directory stores the administrator and sessions. Back it up and do not commit it.
 
-The current Compose file does not mount the Docker socket. Docker access will be added with the inventory implementation. Running the workflow is the only way this repository publishes or replaces the `latest` image.
+The Compose file mounts `/var/run/docker.sock` so NoX Yard can discover local projects. Access to this socket effectively grants control of the Docker host; keep the app limited to a trusted LAN or VPN and protect the administrator account. Running the workflow is the only way this repository publishes or replaces the `latest` image.
 
 ## Local development
 

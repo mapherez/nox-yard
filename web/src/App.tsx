@@ -2,9 +2,12 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   createAdministrator,
   getBootstrap,
+  getProjects,
   signIn,
   signOut,
   type Bootstrap,
+  type Container,
+  type Project,
 } from "./api";
 import styles from "./App.module.css";
 
@@ -230,6 +233,47 @@ function Dashboard({
 }) {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [inventoryError, setInventoryError] = useState("");
+  const [collectedAt, setCollectedAt] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedID, setSelectedID] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let busy = false;
+    const controller = new AbortController();
+    async function refresh() {
+      if (busy || document.visibilityState === "hidden") return;
+      busy = true;
+      setRefreshing(true);
+      try {
+        const snapshot = await getProjects(controller.signal);
+        if (!active) return;
+        setProjects(snapshot.projects);
+        setCollectedAt(snapshot.collectedAt);
+        setInventoryError("");
+      } catch (cause) {
+        if (active) setInventoryError(cause instanceof Error ? cause.message : "Unable to load Docker projects.");
+      } finally {
+        busy = false;
+        if (active) setRefreshing(false);
+      }
+    }
+    void refresh();
+    const interval = window.setInterval(() => { void refresh(); }, 20_000);
+    function onVisible() { if (document.visibilityState === "visible") void refresh(); }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      active = false;
+      controller.abort();
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshKey]);
+
+  const selected = projects?.find((project) => project.id === selectedID);
 
   async function handleSignOut() {
     setError("");
@@ -271,18 +315,113 @@ function Dashboard({
               <h1>Projects</h1>
               <p>Your Docker workspace, all in one place.</p>
             </div>
+            <button type="button" className={styles.refreshButton} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
           </div>
 
           {error && <p className={styles.formError} role="alert">{error}</p>}
-          <section className={styles.emptyPanel} aria-labelledby="empty-title">
+          {inventoryError && <p className={styles.inventoryError} role="alert">{inventoryError}</p>}
+          {projects === null && !inventoryError && <div className={styles.emptyPanel} role="status">Loading Docker projects…</div>}
+          {projects?.length === 0 && <section className={styles.emptyPanel} aria-labelledby="empty-title">
             <div className={styles.emptyIcon}><GridIcon /></div>
-            <h2 id="empty-title">Your project view is taking shape</h2>
-            <p>Docker projects and containers will appear here when inventory is connected.</p>
-          </section>
+            <h2 id="empty-title">No containers found</h2>
+            <p>Compose projects and standalone containers on this host will appear here.</p>
+          </section>}
+          {projects && projects.length > 0 && <>
+            <div className={styles.inventoryMeta}>
+              <span>{projects.length} {projects.length === 1 ? "project" : "projects"} · {projects.reduce((sum, project) => sum + project.containers.length, 0)} containers</span>
+              <span>{collectedAt && `Updated ${new Date(collectedAt).toLocaleTimeString()}`}</span>
+            </div>
+            <div className={selected ? styles.inventoryWithDetail : undefined}>
+              <section className={styles.projectGrid} aria-label="Docker projects">
+                {projects.map((project) => <button
+                  key={project.id}
+                  type="button"
+                  className={styles.projectCard}
+                  aria-pressed={selectedID === project.id}
+                  onClick={() => setSelectedID(selectedID === project.id ? null : project.id)}
+                >
+                  <span className={styles.cardTopline}>
+                    <span className={styles.cardKind}>{project.kind === "external-compose" ? "COMPOSE" : "CONTAINER"}</span>
+                    <span className={`${styles.statusBadge} ${statusClass(project.state)}`}>{project.state}</span>
+                  </span>
+                  <span className={styles.cardName}>{project.name}</span>
+                  <span className={styles.cardSubline}>{project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · Health: {healthLabel(project.health)}</span>
+                  <span className={styles.cardMetrics}>
+                    <Metric label="CPU" value={formatCPU(project.cpuPercent)} />
+                    <Metric label="Memory" value={formatBytes(project.memoryBytes)} />
+                    <Metric label="Uptime" value={formatUptime(project.uptimeSeconds)} />
+                  </span>
+                </button>)}
+              </section>
+              {selected && <aside className={styles.detailPanel} aria-label={`${selected.name} containers`}>
+                <div className={styles.detailHeading}>
+                  <div><span className={styles.sectionLabel}>PROJECT DETAILS</span><h2>{selected.name}</h2></div>
+                  <button type="button" className={styles.closeButton} onClick={() => setSelectedID(null)} aria-label="Close project details">×</button>
+                </div>
+                <p className={styles.detailSummary}>{selected.containers.length} {selected.containers.length === 1 ? "container" : "containers"} · {selected.state} · {healthLabel(selected.health)}</p>
+                <div className={styles.containerList}>
+                  {selected.containers.map((container) => <ContainerRow key={container.id} container={container} />)}
+                </div>
+              </aside>}
+            </div>
+          </>}
         </main>
       </div>
     </div>
   );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return <span className={styles.metric}><span>{label}</span><strong>{value}</strong></span>;
+}
+
+function ContainerRow({ container }: { container: Container }) {
+  return <article className={styles.containerRow}>
+    <div className={styles.containerHeading}>
+      <div><h3>{container.service || container.name}</h3>{container.service && <span>{container.name}</span>}</div>
+      <span className={`${styles.statusBadge} ${statusClass(container.state)}`}>{container.state}</span>
+    </div>
+    <p className={styles.imageName} title={container.image}>{container.image}</p>
+    <p className={styles.containerHealth}>Health: {healthLabel(container.health)}</p>
+    <div className={styles.containerMetrics}>
+      <Metric label="CPU" value={formatCPU(container.cpuPercent)} />
+      <Metric label="Memory" value={formatBytes(container.memoryBytes)} />
+      <Metric label="Uptime" value={formatUptime(container.uptimeSeconds)} />
+      <Metric label="Network ↓ / ↑" value={`${formatBytes(container.networkRxBytes)} / ${formatBytes(container.networkTxBytes)}`} />
+    </div>
+  </article>;
+}
+
+function statusClass(state: string): string {
+  if (state === "running") return styles.statusRunning;
+  if (state === "stopped" || state === "exited" || state === "dead") return styles.statusStopped;
+  return styles.statusPartial;
+}
+
+function healthLabel(health: string): string {
+  return health === "none" ? "No check" : health;
+}
+
+function formatCPU(value: number | null): string {
+  return value === null ? "—" : `${value.toFixed(1)}%`;
+}
+
+function formatBytes(value: number | null): string {
+  if (value === null) return "—";
+  if (value < 1024) return `${value} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)) - 1, units.length - 1);
+  return `${(value / 1024 ** (index + 1)).toFixed(1)} ${units[index]}`;
+}
+
+function formatUptime(seconds: number | null): string {
+  if (seconds === null) return "—";
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
 }
 
 function GridIcon(): ReactNode {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/mapherez/nox-yard/internal/auth"
 	"github.com/mapherez/nox-yard/internal/httpapi"
+	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/store"
 	"golang.org/x/term"
 )
@@ -46,6 +47,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	dockerInventory, err := inventory.NewDockerReader()
+	if err != nil {
+		return err
+	}
+	defer dockerInventory.Close()
+	api.SetInventory(dockerInventory)
 	server := &http.Server{
 		Addr:              environment("NOX_LISTEN_ADDR", ":8080"),
 		Handler:           api.Handler(),

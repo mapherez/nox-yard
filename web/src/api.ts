@@ -5,6 +5,39 @@ export type Bootstrap = {
   csrfToken?: string;
 };
 
+export type Container = {
+  id: string;
+  name: string;
+  service?: string;
+  image: string;
+  state: string;
+  health: string;
+  cpuPercent: number | null;
+  memoryBytes: number | null;
+  networkRxBytes: number | null;
+  networkTxBytes: number | null;
+  uptimeSeconds: number | null;
+};
+
+export type Project = {
+  id: string;
+  name: string;
+  kind: "external-compose" | "standalone";
+  state: "running" | "partial" | "stopped";
+  health: string;
+  cpuPercent: number | null;
+  memoryBytes: number | null;
+  networkRxBytes: number | null;
+  networkTxBytes: number | null;
+  uptimeSeconds: number | null;
+  containers: Container[];
+};
+
+export type Inventory = {
+  collectedAt: string;
+  projects: Project[];
+};
+
 type Credentials = {
   username: string;
   password: string;
@@ -18,7 +51,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       cache: "no-store",
       ...init,
     });
-  } catch {
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
     throw new Error("Cannot reach NoX Yard. Check the connection and try again.");
   }
 
@@ -42,6 +76,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getBootstrap(): Promise<Bootstrap> {
   return request<Bootstrap>("/api/bootstrap");
+}
+
+export function getProjects(signal?: AbortSignal): Promise<Inventory> {
+  return request<Inventory>("/api/projects", { signal });
 }
 
 export function createAdministrator(input: Credentials): Promise<Bootstrap> {

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +10,44 @@ import (
 	"testing"
 
 	"github.com/mapherez/nox-yard/internal/auth"
+	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/store"
 )
+
+type inventoryStub struct {
+	calls int
+}
+
+func (s *inventoryStub) Snapshot(context.Context) (inventory.Snapshot, error) {
+	s.calls++
+	return inventory.Snapshot{Projects: []inventory.Project{{ID: "compose:yard", Name: "yard"}}}, nil
+}
+
+func TestProjectsRequiresSession(t *testing.T) {
+	data, api := newTestServer(t, t.TempDir(), "")
+	defer data.Close()
+	reader := &inventoryStub{}
+	api.SetInventory(reader)
+	handler := api.Handler()
+
+	request := httptest.NewRequest(http.MethodGet, "http://yard.test/api/projects", nil)
+	result := httptest.NewRecorder()
+	handler.ServeHTTP(result, request)
+	if result.Code != http.StatusUnauthorized || reader.calls != 0 {
+		t.Fatalf("unauthenticated inventory request returned %d with %d Docker reads", result.Code, reader.calls)
+	}
+
+	setup := postCredentials(handler, "/api/setup", "http://yard.test", "owner", testPassword)
+	if setup.Code != http.StatusCreated {
+		t.Fatalf("setup returned %d", setup.Code)
+	}
+	request.AddCookie(setup.Result().Cookies()[0])
+	result = httptest.NewRecorder()
+	handler.ServeHTTP(result, request)
+	if result.Code != http.StatusOK || reader.calls != 1 || !strings.Contains(result.Body.String(), `"id":"compose:yard"`) {
+		t.Fatalf("authenticated inventory request returned %d: %s", result.Code, result.Body.String())
+	}
+}
 
 const testPassword = "a-long-test-password"
 

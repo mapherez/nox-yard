@@ -16,7 +16,7 @@ Local Docker Engine ---- containers, images, networks, volumes
   | temporary job container (Compose and self-update operations)
 ```
 
-The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go builder stages run on BuildKit's build platform. The Go compiler receives the target OS and architecture, and the build checks the resulting binary's `GOARCH` before copying it into the target-platform Alpine image. A manually dispatched GitHub Actions workflow publishes a multi-platform image to GHCR. The host's Docker Compose installation pulls that image and does not build locally. The `./data:/data` mount holds the SQLite database and, later, managed Compose sources. The Docker Unix socket is mounted when inventory is implemented; it is absent from the initial Compose file. The backend serves the built frontend, so production does not need a separate web server.
+The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go builder stages run on BuildKit's build platform. The Go compiler receives the target OS and architecture, and the build checks the resulting binary's `GOARCH` before copying it into the target-platform Alpine image. A manually dispatched GitHub Actions workflow publishes a multi-platform image to GHCR. The host's Docker Compose installation pulls that image and does not build locally. The `./data:/data` mount holds the SQLite database and, later, managed Compose sources. The Docker Unix socket is mounted for local inventory access. The backend serves the built frontend, so production does not need a separate web server.
 
 ## Backend boundaries
 

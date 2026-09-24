@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/auth"
+	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/store"
 )
 
@@ -32,6 +33,7 @@ type Server struct {
 	publicOrigin string
 	secureCookie bool
 	limiter      loginLimiter
+	inventory    inventory.Reader
 }
 
 type bootstrapResponse struct {
@@ -64,15 +66,42 @@ func New(data *store.Store, webDir, publicURL string) (*Server, error) {
 	return s, nil
 }
 
+func (s *Server) SetInventory(reader inventory.Reader) {
+	s.inventory = reader
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
+	mux.HandleFunc("GET /api/projects", s.projects)
 	mux.HandleFunc("POST /api/setup", s.setup)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.Handle("GET /", s.staticHandler())
 	return s.securityHeaders(mux)
+}
+
+func (s *Server) projects(w http.ResponseWriter, r *http.Request) {
+	_, _, ok, err := s.currentSession(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to read session.")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Sign in to continue.")
+		return
+	}
+	if s.inventory == nil {
+		writeError(w, http.StatusServiceUnavailable, "Docker inventory is unavailable.")
+		return
+	}
+	snapshot, err := s.inventory.Snapshot(r.Context())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "Cannot reach the local Docker Engine. Check the Docker socket mount and access permissions.")
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
