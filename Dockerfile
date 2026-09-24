@@ -16,6 +16,7 @@ ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/nox-yard ./cmd/nox-yard
 
 FROM alpine:3.23
+LABEL org.opencontainers.image.source="https://github.com/mapherez/nox-yard"
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=backend /out/nox-yard /usr/local/bin/nox-yard
 COPY --from=frontend /src/web/dist /srv/nox-yard/web

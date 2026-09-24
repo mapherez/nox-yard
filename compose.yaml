@@ -2,8 +2,7 @@ name: nox-yard
 
 services:
   nox-yard:
-    build: .
-    image: nox-yard:local
+    image: ghcr.io/mapherez/nox-yard:latest
     restart: unless-stopped
     init: true
     ports:

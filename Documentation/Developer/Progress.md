@@ -20,6 +20,10 @@ Implemented:
 
 **Next checkpoint:** run the Phase 1 image and Compose installation on Linux `arm64` and `amd64`, verify persistence across restart and password recovery, then begin Phase 2 Docker inventory and direct management. The current dashboard deliberately shows an inventory placeholder.
 
+## 2026-09-24 — Manual image publication prepared
+
+Added a manually dispatched GitHub Actions workflow that publishes a multi-platform `latest` image to GHCR from `master`. Updated the Compose installation to pull that image without a local build context, and documented host deployment and package visibility. No workflow has run and no image has been published by this change. The first GitHub Actions build and Linux host pull remain to be verified.
+
 ## Phase status
 
 | Phase | Status |

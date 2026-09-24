@@ -15,7 +15,8 @@
 - `internal/store/`: SQLite schema, administrator, and sessions.
 - `internal/httpapi/`: same-origin HTTP routes, session protection, and static asset serving.
 - `web/src/`: typed API client, React views, and CSS Modules. Shared tokens and global rules are in `web/src/styles/`.
-- `Dockerfile`, `compose.yaml`, `.env.example`: single-service self-hosted installation.
+- `Dockerfile`, `compose.yaml`, `.env.example`: image build and single-service self-hosted installation.
+- `.github/workflows/publish-image.yml`: manual multi-architecture publication to GHCR.
 - `Documentation/Developer/`: canonical architecture, implementation, style, decision, progress, and feature documentation.
 
 Keep Go packages and frontend modules small and named for their responsibilities. Prefer typed application models at HTTP boundaries. Do not send Docker SDK structs, credentials, or host-only details to the browser unless a user decision requires them.
@@ -44,7 +45,13 @@ cd web && npm run build
 docker compose config
 ```
 
-The final command validates Compose syntax without starting a service. A real Linux Engine is needed to validate `docker compose up --build`, data persistence, and target architectures.
+The final command validates Compose syntax without starting a service. A real Linux Engine is needed to validate `docker compose pull`, `docker compose up -d`, data persistence, and target architectures.
+
+## Image publication
+
+The **Publish Docker image** workflow has only a `workflow_dispatch` trigger. It runs only when started in GitHub Actions with `master` selected, and publishes `ghcr.io/mapherez/nox-yard:latest` for `linux/amd64` and `linux/arm64`. It uses the repository's `GITHUB_TOKEN` with `packages: write`; no personal token is needed for publication. No push or tag starts the workflow automatically. Concurrent manual runs queue instead of canceling an active publication.
+
+The image package may be private after its first publication. Set its visibility to public in GitHub package settings for an unauthenticated host pull. For a private package, authenticate the host to `ghcr.io` with a token that has `read:packages` access. The Compose file references the published image and has no local `build:` context, so the host needs only `compose.yaml` and optional `.env` configuration. Run `docker compose pull` followed by `docker compose up -d` to deploy a manually published version.
 
 ## Configuration, data, and recovery
 

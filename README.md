@@ -10,20 +10,24 @@ The Phase 1 foundation is implemented: a Go service serves a React application w
 
 - Go 1.26 service with SQLite and server-side sessions.
 - React 19, TypeScript 6, and Vite 8 frontend with a dark-only design system.
-- Multi-stage Docker image and a single-service Compose installation. Linux `arm64` and `amd64` are intended targets; runtime validation is pending.
+- Multi-stage Docker image and a single-service Compose installation. A manually triggered GitHub Actions workflow publishes `linux/arm64` and `linux/amd64` images to GHCR; the first publication and runtime validation are pending.
 
 ## Run with Docker Compose
 
-On a Linux host with Docker Engine and the Compose plugin:
+First, push the workflow to `master`. In GitHub, open **Actions → Publish Docker image → Run workflow**, select `master`, and wait for it to finish. The workflow never runs on a push. It publishes `ghcr.io/mapherez/nox-yard:latest` for both `linux/amd64` and `linux/arm64`.
+
+GHCR packages start private by default. After the first successful run, set the `nox-yard` package visibility to public in GitHub package settings to allow an unauthenticated pull, or authenticate the host to GHCR with a token that has `read:packages` access.
+
+Copy `compose.yaml` to a directory on the Linux host with Docker Engine and the Compose plugin. An `.env` file is optional; copy `.env.example` too if you want to configure the bind address, port, or public URL. From that directory:
 
 ```sh
-cp .env.example .env
-docker compose up --build -d
+docker compose pull
+docker compose up -d
 ```
 
 Open `http://<host>:8080` and create the administrator account. Restrict access to a trusted LAN or VPN. To bind only to a local reverse proxy, set `NOX_BIND_ADDRESS=127.0.0.1` in `.env`. Set `NOX_PUBLIC_URL` to the exact browser-facing origin when using a reverse proxy, such as `https://nox.example.test`; HTTPS enables Secure session cookies. The `./data` directory stores the administrator and sessions. Back it up and do not commit it.
 
-The current Compose file does not mount the Docker socket. Docker access will be added with the inventory implementation.
+The current Compose file does not mount the Docker socket. Docker access will be added with the inventory implementation. Running the workflow is the only way this repository publishes or replaces the `latest` image.
 
 ## Local development
 

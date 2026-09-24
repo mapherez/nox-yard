@@ -41,3 +41,7 @@ Use semantic CSS variables, reusable components, and responsive layouts from the
 ## D-010 — Session storage and first deployment boundary
 
 Phase 1 stores only the administrator and hashed session tokens in SQLite. Session cookies are HttpOnly and SameSite Strict; HTTPS public origins use Secure cookies. The initial Compose installation omits the Docker socket until Docker inventory is implemented, so the current dashboard does not imply that host inventory is connected.
+
+## D-011 — Manual GHCR publication and image-only host installation
+
+Publish `ghcr.io/mapherez/nox-yard:latest` for Linux `amd64` and `arm64` only when the GitHub Actions workflow is started manually from `master`. The host Compose file references that image and contains no build context, allowing deployment with `docker compose pull` and `docker compose up -d`. The package must be public for anonymous pulls; a private installation requires GHCR authentication on the host. Manual publication keeps new pushes from changing the deployable image unexpectedly.
