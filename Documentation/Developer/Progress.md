@@ -32,6 +32,10 @@ Added read-only CI checks for Go tests, frontend type-check/build, and Compose c
 
 Changed the Compose default host port and `.env.example` to 8095 after a host-side 8080 binding conflict. The application and health check continue to use port 8080 inside the container. Copy the updated Compose file to the host; if an existing `.env` defines `NOX_PORT`, update that value too.
 
+## 2026-09-24 — ARM64 image startup fix prepared
+
+The first published `arm64` image was reported to restart on Raspberry Pi 5. Its executable ELF header identified `amd64` (machine 62), matching the Pi's inability to execute it. Updated the Dockerfile to inherit BuildKit target architecture arguments, cross-compile on the build platform, and reject a binary whose `GOARCH` differs from the target. The manual publication workflow now builds without cache. The corrected image has not yet been built or published; the next manual Actions run and Pi startup remain to be verified.
+
 ## Phase status
 
 | Phase | Status |

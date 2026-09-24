@@ -52,7 +52,7 @@ CI runs the Go tests, frontend type-check/build, and Compose validation on pull 
 
 ## Image publication
 
-The **Publish Docker image** workflow has only a `workflow_dispatch` trigger. It runs only when started in GitHub Actions with `master` selected, and publishes `ghcr.io/mapherez/nox-yard:latest` for `linux/amd64` and `linux/arm64`. It uses the repository's `GITHUB_TOKEN` with `packages: write`; no personal token is needed for publication. No push or tag starts the workflow automatically. Concurrent manual runs queue instead of canceling an active publication.
+The **Publish Docker image** workflow has only a `workflow_dispatch` trigger. It runs only when started in GitHub Actions with `master` selected, and publishes `ghcr.io/mapherez/nox-yard:latest` for `linux/amd64` and `linux/arm64`. It uses the repository's `GITHUB_TOKEN` with `packages: write`; no personal token is needed for publication. No push or tag starts the workflow automatically. Concurrent manual runs queue instead of canceling an active publication. Publication builds without cache. The Dockerfile cross-compiles the Go executable for each target architecture and fails the build if its recorded `GOARCH` differs from the target.
 
 The image package may be private after its first publication. Set its visibility to public in GitHub package settings for an unauthenticated host pull. For a private package, authenticate the host to `ghcr.io` with a token that has `read:packages` access. The Compose file references the published image and has no local `build:` context, so the host needs only `compose.yaml` and optional `.env` configuration. Run `docker compose pull` followed by `docker compose up -d` to deploy a manually published version.
 
