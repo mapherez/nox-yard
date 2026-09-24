@@ -24,6 +24,10 @@ Implemented:
 
 Added a manually dispatched GitHub Actions workflow that publishes a multi-platform `latest` image to GHCR from `master`. Updated the Compose installation to pull that image without a local build context, and documented host deployment and package visibility. No workflow has run and no image has been published by this change. The first GitHub Actions build and Linux host pull remain to be verified.
 
+## 2026-09-24 — CI workflow prepared
+
+Added read-only CI checks for Go tests, frontend type-check/build, and Compose configuration. They trigger on pull requests into `master` and pushes to `master`; image publication remains manual. The workflow has not run on GitHub yet. Requiring passing checks before merging needs repository branch protection configuration.
+
 ## Phase status
 
 | Phase | Status |

@@ -16,6 +16,7 @@
 - `internal/httpapi/`: same-origin HTTP routes, session protection, and static asset serving.
 - `web/src/`: typed API client, React views, and CSS Modules. Shared tokens and global rules are in `web/src/styles/`.
 - `Dockerfile`, `compose.yaml`, `.env.example`: image build and single-service self-hosted installation.
+- `.github/workflows/ci.yml`: read-only Go, frontend, and Compose checks on pull requests and pushes to `master`.
 - `.github/workflows/publish-image.yml`: manual multi-architecture publication to GHCR.
 - `Documentation/Developer/`: canonical architecture, implementation, style, decision, progress, and feature documentation.
 
@@ -46,6 +47,8 @@ docker compose config
 ```
 
 The final command validates Compose syntax without starting a service. A real Linux Engine is needed to validate `docker compose pull`, `docker compose up -d`, data persistence, and target architectures.
+
+CI runs the Go tests, frontend type-check/build, and Compose validation on pull requests into `master` and pushes to `master`. It has only `contents: read` permission and does not publish an image. To block merging a failing change, require the **Go tests** and **Frontend build and Compose config** status checks in the repository's branch protection settings. A direct push to `master` is checked after the push; the workflow alone cannot prevent that push.
 
 ## Image publication
 

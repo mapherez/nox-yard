@@ -12,6 +12,10 @@ The Phase 1 foundation is implemented: a Go service serves a React application w
 - React 19, TypeScript 6, and Vite 8 frontend with a dark-only design system.
 - Multi-stage Docker image and a single-service Compose installation. A manually triggered GitHub Actions workflow publishes `linux/arm64` and `linux/amd64` images to GHCR; the first publication and runtime validation are pending.
 
+## CI and image publication
+
+The CI workflow runs Go tests, the frontend type-check/build, and Compose configuration validation on pull requests into `master` and pushes to `master`. It does not publish an image. To require passing checks before merging, configure GitHub branch protection for both CI jobs. The separate image workflow runs only when started manually in GitHub Actions.
+
 ## Run with Docker Compose
 
 First, push the workflow to `master`. In GitHub, open **Actions → Publish Docker image → Run workflow**, select `master`, and wait for it to finish. The workflow never runs on a push. It publishes `ghcr.io/mapherez/nox-yard:latest` for both `linux/amd64` and `linux/arm64`.
