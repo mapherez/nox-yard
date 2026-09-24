@@ -11,46 +11,96 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  go:
-    name: Go tests
+  validate:
+    name: Source validation
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
         uses: actions/checkout@v6
-
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-
-      - name: Run Go tests
-        run: go test ./...
-
-  frontend:
-    name: Frontend build and Compose config
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v6
-
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
-
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --prefix web
+      - name: Run shared source checks
+        run: sh scripts/ci-local.sh
 
-      - name: Type-check and build frontend
-        run: npm run build
+  docker:
+    name: Docker builds and ARM64 smoke test
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+          cache-image: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Build linux/amd64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: nox-yard:ci-amd64
+      - name: Build linux/arm64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          push: false
+          tags: nox-yard:ci-arm64
+      - name: Check ARM64 executable and runtime health
+        run: sh scripts/smoke-arm64.sh nox-yard:ci-arm64
 
-      - name: Validate Compose configuration
-        working-directory: .
-        run: docker compose config --quiet
+  publish:
+    name: Publish multi-architecture image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+          cache-image: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish linux/amd64 and linux/arm64
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/mapherez/nox-yard:latest
+            ghcr.io/mapherez/nox-yard:sha-${{ github.sha }}

@@ -49,3 +49,7 @@ Publish `ghcr.io/mapherez/nox-yard:latest` for Linux `amd64` and `arm64` only wh
 ## D-012 — Target architecture must match the executable
 
 The first published `arm64` image contained an `amd64` executable because the Go build stage defaulted its `TARGETARCH` argument to `amd64`. Build stages now use `BUILDPLATFORM`, import BuildKit's `TARGETOS` and `TARGETARCH` without defaults, and verify the Go binary's recorded architecture. Manual publication bypasses the build cache so a corrected image is rebuilt before it replaces `latest`.
+
+## D-013 — Shared pre-push checks and gated automatic publication (2026-09-25)
+
+This supersedes the manual publication policy in D-011 and the manual-publication detail in D-012. A clone-local pre-push hook calls repository scripts for formatting, vet, tests, frontend build, optional frontend checks, and Compose validation. GitHub repeats these checks, builds `amd64` and `arm64` images, and runs the ARM64 executable under QEMU with a `/healthz` smoke test. Pull requests never publish. Passing pushes to `master` publish `latest` and a full-commit `sha-` tag to GHCR. Concurrent runs on the same ref cancel older runs. Versioned releases remain a separate future decision.
