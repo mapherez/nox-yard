@@ -28,6 +28,10 @@ Added a manually dispatched GitHub Actions workflow that publishes a multi-platf
 
 Added read-only CI checks for Go tests, frontend type-check/build, and Compose configuration. They trigger on pull requests into `master` and pushes to `master`; image publication remains manual. The workflow has not run on GitHub yet. Requiring passing checks before merging needs repository branch protection configuration.
 
+## 2026-09-24 — Host port changed
+
+Changed the Compose default host port and `.env.example` to 8095 after a host-side 8080 binding conflict. The application and health check continue to use port 8080 inside the container. Copy the updated Compose file to the host; if an existing `.env` defines `NOX_PORT`, update that value too.
+
 ## Phase status
 
 | Phase | Status |

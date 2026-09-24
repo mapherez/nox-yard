@@ -60,7 +60,7 @@ The image package may be private after its first publication. Set its visibility
 
 `NOX_LISTEN_ADDR` defaults to `:8080`; use `127.0.0.1:8080` for a local development server. `NOX_DATA_DIR` defaults to `./data`, and `NOX_WEB_DIR` defaults to `./web/dist`. In Compose, these are `/data` and `/srv/nox-yard/web`. The optional `NOX_PUBLIC_URL` must be an exact HTTP(S) origin without a path. Set it to the browser-facing HTTPS origin behind a reverse proxy so sessions use Secure cookies and Origin checks compare against that origin.
 
-`.env.example` configures the Compose host bind address and port. The current Compose file mounts `./data` but does not yet mount the Docker socket. Keep the application on a trusted LAN/VPN, especially before the administrator account has been created. Do not commit `.env`, `data/`, credentials, sessions, or host Docker data. Back up `data/` before upgrades; SQLite is the only persisted application state at this stage.
+`.env.example` configures the Compose host bind address and port. Compose defaults to host port 8095 mapped to container port 8080; `NOX_PORT` can override the host port. The current Compose file mounts `./data` but does not yet mount the Docker socket. Keep the application on a trusted LAN/VPN, especially before the administrator account has been created. Do not commit `.env`, `data/`, credentials, sessions, or host Docker data. Back up `data/` before upgrades; SQLite is the only persisted application state at this stage.
 
 To reset a forgotten password, use an interactive terminal attached to the same data directory:
 
