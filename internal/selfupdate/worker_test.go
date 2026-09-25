@@ -49,6 +49,26 @@ func TestReplacementPreservesComposeRuntime(t *testing.T) {
 	}
 }
 
+func TestWorkerMatchesContainerIDAndImageIDSeparately(t *testing.T) {
+	containerID := "container-id"
+	imageID := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	job := store.SelfUpdateJob{OldImageID: imageID}
+	old := container.InspectResponse{
+		ID:         containerID,
+		Image:      imageID,
+		State:      &container.State{Running: true},
+		Config:     &container.Config{Labels: map[string]string{"com.docker.compose.service": "nox-yard"}},
+		HostConfig: &container.HostConfig{},
+	}
+	if err := validateWorkerContainer(job, containerID, old); err != nil {
+		t.Fatalf("a distinct container ID and image ID must be accepted: %v", err)
+	}
+	old.Image = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if err := validateWorkerContainer(job, containerID, old); err == nil {
+		t.Fatal("a changed container image must be rejected")
+	}
+}
+
 func TestSQLiteSnapshotRestoresUpdateState(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("container rollback runs only on Linux")

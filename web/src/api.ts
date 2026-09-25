@@ -41,7 +41,7 @@ export type Inventory = {
 export type SelfUpdateStatus = {
   automatic: boolean;
   intervalMinutes: number;
-  status: "not_checked" | "up_to_date" | "updating" | "update_failed";
+  status: "not_checked" | "checking" | "up_to_date" | "updating" | "update_failed";
   lastChecked?: string;
   currentBuildSHA?: string;
   error?: string;
@@ -93,6 +93,13 @@ export function getProjects(signal?: AbortSignal): Promise<Inventory> {
 
 export function getSelfUpdateStatus(signal?: AbortSignal): Promise<SelfUpdateStatus> {
   return request<SelfUpdateStatus>("/api/self-update", { signal });
+}
+
+export function checkSelfUpdateNow(csrfToken: string): Promise<SelfUpdateStatus> {
+  return request<SelfUpdateStatus>("/api/self-update/check", {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrfToken },
+  });
 }
 
 export function saveSelfUpdateSettings(

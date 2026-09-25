@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import {
+  checkSelfUpdateNow,
   createAdministrator,
   getBootstrap,
   getProjects,
@@ -472,6 +473,7 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
   const [intervalMinutes, setIntervalMinutes] = useState(15);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [checkingNow, setCheckingNow] = useState(false);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -530,14 +532,27 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
     }
   }
 
+  async function checkNow() {
+    setCheckingNow(true);
+    setError("");
+    try {
+      setStatus(await checkSelfUpdateNow(csrfToken));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to start update check.");
+    } finally {
+      setCheckingNow(false);
+    }
+  }
+
   const labels: Record<SelfUpdateStatus["status"], string> = {
     not_checked: "Not checked",
+    checking: "Checking",
     up_to_date: "Up to date",
     updating: "Updating",
     update_failed: "Update failed",
   };
 
-  const busy = saving || status?.status === "updating";
+  const busy = saving || checkingNow || status?.status === "checking" || status?.status === "updating";
   const unchanged = status?.automatic === automatic && status?.intervalMinutes === intervalMinutes;
 
   return <dialog
@@ -573,6 +588,9 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
                   <input type="radio" name="intervalMinutes" value={minutes} checked={intervalMinutes === minutes} onChange={() => setIntervalMinutes(minutes)} />
                   <span>{minutes === 360 ? "6 hours" : minutes === 60 ? "1 hour" : `${minutes} min`}</span>
                 </label>)}
+                <button type="button" className={styles.checkNowButton} disabled={!status || busy} onClick={() => { void checkNow(); }}>
+                  Check now
+                </button>
               </div>
             </fieldset>
             <button type="submit" className={styles.primaryButton} disabled={!status || busy || unchanged}>
@@ -582,7 +600,7 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
         </section>
         <section aria-label="Update status" className={styles.settingsSection}>
           <h3>Current status</h3>
-          <dl className={styles.updateFacts}>
+          <dl className={styles.updateFacts} aria-live="polite">
             <div><dt>Status</dt><dd>{status ? labels[status.status] : "Loading"}</dd></div>
             <div><dt>Last checked</dt><dd>{status?.lastChecked ? new Date(status.lastChecked).toLocaleString() : "Never"}</dd></div>
             {status?.currentBuildSHA && <div><dt>Current build</dt><dd title={status.currentBuildSHA}>{status.currentBuildSHA.slice(0, 12)}</dd></div>}

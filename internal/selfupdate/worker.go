@@ -30,8 +30,8 @@ func RunWorker(data *store.Store, dataDir, jobID, oldID string) (result error) {
 	if err != nil {
 		return err
 	}
-	if job.Status != "updating" || job.OldImageID != oldID {
-		return errors.New("self-update job does not match the requested container")
+	if job.Status != "updating" {
+		return errors.New("self-update job is no longer active")
 	}
 	cli, err := client.New(client.WithHost("unix:///var/run/docker.sock"))
 	if err != nil {
@@ -46,9 +46,7 @@ func RunWorker(data *store.Store, dataDir, jobID, oldID string) (result error) {
 		return failBeforeReplacement(data, cli, job, err)
 	}
 	old := oldResult.Container
-	if old.Image != job.OldImageID || old.State == nil || !old.State.Running ||
-		old.Config == nil || old.HostConfig == nil || old.Config.Labels["com.docker.compose.service"] != "nox-yard" {
-		err = errors.New("original NoX Yard container changed before update worker started")
+	if err = validateWorkerContainer(job, oldID, old); err != nil {
 		return failBeforeReplacement(data, cli, job, err)
 	}
 	config, host, networking, err := replacementConfig(old, job.TargetImageID)
@@ -130,6 +128,14 @@ func RunWorker(data *store.Store, dataDir, jobID, oldID string) (result error) {
 	}
 	if err := os.Remove(backupPath); err != nil {
 		log.Printf("Self-update succeeded but SQLite snapshot cleanup failed: %v", err)
+	}
+	return nil
+}
+
+func validateWorkerContainer(job store.SelfUpdateJob, containerID string, old container.InspectResponse) error {
+	if old.ID != containerID || old.Image != job.OldImageID || old.State == nil || !old.State.Running ||
+		old.Config == nil || old.HostConfig == nil || old.Config.Labels["com.docker.compose.service"] != "nox-yard" {
+		return errors.New("original NoX Yard container changed before update worker started")
 	}
 	return nil
 }

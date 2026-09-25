@@ -83,6 +83,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/projects", s.projects)
 	mux.HandleFunc("GET /api/self-update", s.selfUpdateStatus)
 	mux.HandleFunc("PUT /api/self-update", s.selfUpdateSettings)
+	mux.HandleFunc("POST /api/self-update/check", s.selfUpdateCheck)
 	mux.HandleFunc("POST /api/setup", s.setup)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
@@ -141,6 +142,29 @@ func (s *Server) selfUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) selfUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if !s.checkOrigin(w, r) || !s.requireUpdateSession(w, r, true) {
+		return
+	}
+	if s.updates == nil {
+		writeError(w, http.StatusServiceUnavailable, "Self-update is unavailable.")
+		return
+	}
+	if err := s.updates.CheckNow(); errors.Is(err, selfupdate.ErrUpdateInProgress) || errors.Is(err, selfupdate.ErrCheckInProgress) {
+		writeError(w, http.StatusConflict, "An update check or installation is already in progress.")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to start update check.")
+		return
+	}
+	status, err := s.updates.Status()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to read self-update status.")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, status)
 }
 
 func (s *Server) requireUpdateSession(w http.ResponseWriter, r *http.Request, csrfRequired bool) bool {

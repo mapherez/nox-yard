@@ -11,8 +11,10 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
@@ -21,13 +23,17 @@ import (
 )
 
 var ErrUpdateInProgress = errors.New("self-update is in progress")
+var ErrCheckInProgress = errors.New("self-update check is in progress")
 var ErrInvalidInterval = errors.New("check interval must be 5, 15, 30, 60, or 360 minutes")
 
 type Manager struct {
-	store    *store.Store
-	buildSHA string
-	trigger  chan struct{}
-	mu       sync.Mutex
+	store         *store.Store
+	buildSHA      string
+	trigger       chan struct{}
+	manual        chan struct{}
+	mu            sync.Mutex
+	checking      atomic.Bool
+	manualPending atomic.Bool
 }
 
 type Status struct {
@@ -40,11 +46,12 @@ type Status struct {
 }
 
 func New(data *store.Store, buildSHA string) *Manager {
-	return &Manager{store: data, buildSHA: buildSHA, trigger: make(chan struct{}, 1)}
+	return &Manager{store: data, buildSHA: buildSHA, trigger: make(chan struct{}, 1), manual: make(chan struct{}, 1)}
 }
 
 func (m *Manager) Start(ctx context.Context) {
 	go func() {
+		m.reconcileInterruptedJob(ctx)
 		m.checkIfDue(ctx)
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
@@ -53,17 +60,38 @@ func (m *Manager) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				m.reconcileInterruptedJob(ctx)
 				m.checkIfDue(ctx)
+			case <-m.manual:
+				if err := m.check(ctx, true); err != nil && !errors.Is(err, context.Canceled) {
+					log.Printf("Manual self-update check failed: %v", err)
+				}
+				m.manualPending.Store(false)
 			case <-m.trigger:
 				settings, err := m.store.SelfUpdateSettings()
 				if err == nil && settings.Automatic {
-					if err := m.Check(ctx); err != nil && !errors.Is(err, context.Canceled) {
+					if err := m.check(ctx, false); err != nil && !errors.Is(err, context.Canceled) {
 						log.Printf("Self-update check failed: %v", err)
 					}
 				}
 			}
 		}
 	}()
+}
+
+func (m *Manager) CheckNow() error {
+	job, exists, err := m.store.LatestSelfUpdateJob()
+	if err != nil {
+		return err
+	}
+	if exists && job.Status == "updating" {
+		return ErrUpdateInProgress
+	}
+	if m.checking.Load() || !m.manualPending.CompareAndSwap(false, true) {
+		return ErrCheckInProgress
+	}
+	m.manual <- struct{}{}
+	return nil
 }
 
 func (m *Manager) SetSettings(enabled bool, intervalMinutes int) error {
@@ -122,6 +150,10 @@ func (m *Manager) Status() (Status, error) {
 		result.Status = "update_failed"
 		result.Error = settings.LastCheckError
 	}
+	if result.Status != "updating" && (m.checking.Load() || m.manualPending.Load()) {
+		result.Status = "checking"
+		result.Error = ""
+	}
 	return result, nil
 }
 
@@ -132,7 +164,7 @@ func (m *Manager) checkIfDue(ctx context.Context) {
 			time.Duration(settings.CheckIntervalMinutes)*time.Minute) {
 		return
 	}
-	if err := m.Check(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	if err := m.check(ctx, false); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("Self-update check failed: %v", err)
 	}
 }
@@ -146,15 +178,17 @@ func validInterval(minutes int) bool {
 	}
 }
 
-func (m *Manager) Check(ctx context.Context) error {
+func (m *Manager) check(ctx context.Context, manual bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.checking.Store(true)
+	defer m.checking.Store(false)
 	job, exists, err := m.store.LatestSelfUpdateJob()
 	if err != nil {
 		return err
 	}
 	if exists && job.Status == "updating" {
-		return nil
+		return ErrUpdateInProgress
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
@@ -189,10 +223,10 @@ func (m *Manager) Check(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !settings.Automatic {
+	if !settings.Automatic && !manual {
 		return nil
 	}
-	if settings.FailedDigest == available.ManifestDigest {
+	if settings.FailedDigest == available.ManifestDigest && !manual {
 		return nil // Do not retry a version that already failed and was rolled back.
 	}
 	jobID, err := randomID()
@@ -213,6 +247,57 @@ func (m *Manager) Check(ctx context.Context) error {
 		return m.failJobWithTag(cli, jobID, current.Image, err)
 	}
 	return nil
+}
+
+// Reconcile a job left behind by a worker that exited before recording an outcome.
+// A live worker owns the job; the web service only resolves it after that worker is gone.
+func (m *Manager) reconcileInterruptedJob(ctx context.Context) {
+	job, exists, err := m.store.LatestSelfUpdateJob()
+	if err != nil || !exists || job.Status != "updating" {
+		return
+	}
+	cli, err := client.New(client.WithHost("unix:///var/run/docker.sock"))
+	if err != nil {
+		log.Printf("Cannot inspect interrupted self-update: %v", err)
+		return
+	}
+	defer cli.Close()
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	worker, err := cli.ContainerInspect(inspectCtx, "nox-yard-update-"+job.ID, client.ContainerInspectOptions{})
+	if err == nil && worker.Container.State != nil && worker.Container.State.Running {
+		return
+	}
+	if err != nil && !errdefs.IsNotFound(err) {
+		log.Printf("Cannot inspect self-update worker: %v", err)
+		return
+	}
+	current, err := ownContainer(inspectCtx, cli)
+	if err != nil {
+		log.Printf("Cannot reconcile interrupted self-update: %v", err)
+		return
+	}
+	if current.Image == job.TargetImageID && current.State.Health != nil && current.State.Health.Status == "healthy" {
+		if err := m.store.FinishSelfUpdateJob(job.ID, "succeeded", ""); err != nil {
+			log.Printf("Cannot record completed self-update: %v", err)
+		}
+		return
+	}
+	if current.Image == job.TargetImageID && current.State.Health != nil && current.State.Health.Status == "starting" {
+		return
+	}
+	message := "Update worker exited before reporting a result; NoX Yard is still running the previous image."
+	if current.Image != job.OldImageID {
+		message = "Update worker exited before reporting a result; inspect the running container and rollback resources on the host."
+	}
+	if current.Image == job.OldImageID {
+		if _, tagErr := cli.ImageTag(inspectCtx, client.ImageTagOptions{Source: job.OldImageID, Target: imageReference}); tagErr != nil {
+			message += " Restoring the previous latest tag failed: " + tagErr.Error()
+		}
+	}
+	if err := m.store.FinishSelfUpdateJob(job.ID, "failed", message); err != nil {
+		log.Printf("Cannot record interrupted self-update: %v", err)
+	}
 }
 
 func (m *Manager) checkError(err error) error {
