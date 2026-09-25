@@ -13,7 +13,8 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/nox-yard ./cmd/nox-yard \
+ARG BUILD_SHA
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X main.buildSHA=${BUILD_SHA}" -o /out/nox-yard ./cmd/nox-yard \
     && go version -m /out/nox-yard | grep -Eq "GOARCH=${TARGETARCH}$"
 
 FROM alpine:3.23

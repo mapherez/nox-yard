@@ -71,33 +71,68 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	if version > 1 {
+	if version > 2 {
 		return fmt.Errorf("database schema version %d is newer than this application", version)
 	}
-	if version == 1 {
+	if version == 2 {
 		return nil
 	}
-
+	if version == 0 {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		for _, statement := range []string{
+			`CREATE TABLE administrators (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+			password_hash TEXT NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
+			`CREATE TABLE sessions (
+			token_hash TEXT PRIMARY KEY,
+			csrf_token TEXT NOT NULL,
+			expires_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
+			"CREATE INDEX sessions_expiry ON sessions (expires_at)",
+			"PRAGMA user_version = 1",
+		} {
+			if _, err := tx.Exec(statement); err != nil {
+				return fmt.Errorf("migrate database: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	for _, statement := range []string{
-		`CREATE TABLE administrators (
+		`CREATE TABLE self_update_settings (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
-			username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-			password_hash TEXT NOT NULL,
-			created_at INTEGER NOT NULL
+			automatic INTEGER NOT NULL DEFAULT 0,
+			last_checked_at INTEGER NOT NULL DEFAULT 0,
+			last_check_error TEXT NOT NULL DEFAULT '',
+			failed_digest TEXT NOT NULL DEFAULT ''
 		)`,
-		`CREATE TABLE sessions (
-			token_hash TEXT PRIMARY KEY,
-			csrf_token TEXT NOT NULL,
-			expires_at INTEGER NOT NULL,
-			created_at INTEGER NOT NULL
+		"INSERT INTO self_update_settings (id) VALUES (1)",
+		`CREATE TABLE self_update_jobs (
+			id TEXT PRIMARY KEY,
+			status TEXT NOT NULL,
+			old_image_id TEXT NOT NULL,
+			target_image_id TEXT NOT NULL,
+			target_digest TEXT NOT NULL,
+			error TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL,
+			completed_at INTEGER NOT NULL DEFAULT 0
 		)`,
-		"CREATE INDEX sessions_expiry ON sessions (expires_at)",
-		"PRAGMA user_version = 1",
+		"CREATE UNIQUE INDEX self_update_one_active ON self_update_jobs (status) WHERE status = 'updating'",
+		"PRAGMA user_version = 2",
 	} {
 		if _, err := tx.Exec(statement); err != nil {
 			return fmt.Errorf("migrate database: %w", err)

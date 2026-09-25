@@ -3,11 +3,14 @@ import {
   createAdministrator,
   getBootstrap,
   getProjects,
+  getSelfUpdateStatus,
+  setAutomaticUpdates,
   signIn,
   signOut,
   type Bootstrap,
   type Container,
   type Project,
+  type SelfUpdateStatus,
 } from "./api";
 import styles from "./App.module.css";
 
@@ -320,6 +323,7 @@ function Dashboard({
             </button>
           </div>
 
+          <SelfUpdatePanel csrfToken={csrfToken} />
           {error && <p className={styles.formError} role="alert">{error}</p>}
           {inventoryError && <p className={styles.inventoryError} role="alert">{inventoryError}</p>}
           {projects === null && !inventoryError && <div className={styles.emptyPanel} role="status">Loading Docker projects…</div>}
@@ -371,6 +375,81 @@ function Dashboard({
       </div>
     </div>
   );
+}
+
+function SelfUpdatePanel({ csrfToken }: { csrfToken: string }) {
+  const [status, setStatus] = useState<SelfUpdateStatus | null>(null);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    async function refresh() {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const current = await getSelfUpdateStatus(controller.signal);
+        if (active) { setStatus(current); setError(""); }
+      } catch (cause) {
+        if (active && !(cause instanceof DOMException && cause.name === "AbortError")) {
+          setError(cause instanceof Error ? cause.message : "Unable to load update status.");
+        }
+      }
+    }
+    void refresh();
+    const interval = window.setInterval(() => { void refresh(); }, 20_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      active = false;
+      controller.abort();
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+
+  async function changeAutomatic(automatic: boolean) {
+    setSaving(true);
+    setError("");
+    try {
+      setStatus(await setAutomaticUpdates(automatic, csrfToken));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save update setting.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const labels: Record<SelfUpdateStatus["status"], string> = {
+    not_checked: "Not checked",
+    up_to_date: "Up to date",
+    updating: "Updating",
+    update_failed: "Update failed",
+  };
+
+  return <section className={styles.updatePanel} aria-labelledby="update-title">
+    <div className={styles.updateHeading}>
+      <div>
+        <span className={styles.sectionLabel}>NOX YARD</span>
+        <h2 id="update-title">Automatic updates</h2>
+      </div>
+      <label className={styles.updateToggle}>
+        <input
+          type="checkbox"
+          checked={status?.automatic ?? false}
+          disabled={!status || saving || status.status === "updating"}
+          onChange={(event) => { void changeAutomatic(event.target.checked); }}
+        />
+        <span>{status?.automatic ? "On" : "Off"}</span>
+      </label>
+    </div>
+    <div className={styles.updateFacts}>
+      <span>Status <strong>{status ? labels[status.status] : "Loading"}</strong></span>
+      <span>Last checked <strong>{status?.lastChecked ? new Date(status.lastChecked).toLocaleString() : "Never"}</strong></span>
+      {status?.currentBuildSHA && <span>Current build <strong title={status.currentBuildSHA}>{status.currentBuildSHA.slice(0, 12)}</strong></span>}
+    </div>
+    {status?.status === "update_failed" && status.error && <p className={styles.updateError} role="alert">{status.error}</p>}
+    {error && <p className={styles.updateError} role="alert">{error}</p>}
+  </section>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

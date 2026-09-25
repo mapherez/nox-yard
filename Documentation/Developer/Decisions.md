@@ -53,3 +53,7 @@ The first published `arm64` image contained an `amd64` executable because the Go
 ## D-013 — Shared pre-push checks and gated automatic publication (2026-09-25)
 
 This supersedes the manual publication policy in D-011 and the manual-publication detail in D-012. A clone-local pre-push hook calls repository scripts for formatting, vet, tests, frontend build, optional frontend checks, and Compose validation. GitHub repeats these checks, builds `amd64` and `arm64` images, and runs the ARM64 executable under QEMU with a `/healthz` smoke test. Pull requests never publish. Passing pushes to `master` publish `latest` and a full-commit `sha-` tag to GHCR. Concurrent runs on the same ref cancel older runs. Versioned releases remain a separate future decision.
+
+## D-014 — Temporary Engine-based self-update worker (2026-09-25)
+
+The app checks the public GHCR `latest` manifest for its platform and uses the image config digest as the comparison ID. On change it pulls through the Engine API and starts a disposable helper from the exact old image ID. The helper preserves the original Compose container until the replacement passes `/healthz`, with a SQLite snapshot for rollback. Automatic checks are opt-in and run every six hours. This avoids a permanent updater service and Docker CLI in the runtime image.

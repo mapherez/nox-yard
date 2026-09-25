@@ -60,6 +60,7 @@ jobs:
           load: true
           push: false
           tags: nox-yard:ci-amd64
+          build-args: BUILD_SHA=${{ github.sha }}
       - name: Build linux/arm64 image
         uses: docker/build-push-action@v7
         with:
@@ -68,6 +69,7 @@ jobs:
           load: true
           push: false
           tags: nox-yard:ci-arm64
+          build-args: BUILD_SHA=${{ github.sha }}
       - name: Check ARM64 executable and runtime health
         run: sh scripts/smoke-arm64.sh nox-yard:ci-arm64
 
@@ -101,6 +103,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: BUILD_SHA=${{ github.sha }}
           tags: |
             ghcr.io/mapherez/nox-yard:latest
             ghcr.io/mapherez/nox-yard:sha-${{ github.sha }}

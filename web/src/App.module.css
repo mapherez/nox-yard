@@ -380,6 +380,101 @@
   padding: clamp(var(--space-6), 3vw, var(--space-12));
 }
 
+.updatePanel {
+  display: grid;
+  gap: var(--space-4);
+  margin-block-start: var(--space-8);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-1);
+}
+
+.updateHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.updateHeading h2 {
+  margin: var(--space-1) 0 0;
+  font-size: 1rem;
+}
+
+.updateToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.updateToggle input {
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+  accent-color: var(--color-accent);
+}
+
+@supports not (accent-color: var(--color-accent)) {
+  .updateToggle { position: relative; }
+  .updateToggle input {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    margin: -1px;
+    clip-path: inset(50%);
+    overflow: hidden;
+  }
+  .updateToggle span::before {
+    display: inline-grid;
+    inline-size: 1.1rem;
+    block-size: 1.1rem;
+    place-items: center;
+    margin-inline-end: var(--space-2);
+    border: 2px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    content: "";
+  }
+  .updateToggle input:checked + span::before {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--palette-ink-950);
+    content: "✓";
+  }
+  .updateToggle input:focus-visible + span::before {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 3px;
+  }
+}
+
+.updateFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-8);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.updateFacts span {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.updateFacts strong {
+  color: var(--color-text-primary);
+  font-weight: 650;
+}
+
+.updateError {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.83rem;
+  overflow-wrap: anywhere;
+}
+
 .pageHeading {
   display: flex;
   align-items: flex-end;

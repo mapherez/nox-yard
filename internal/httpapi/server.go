@@ -20,6 +20,7 @@ import (
 
 	"github.com/mapherez/nox-yard/internal/auth"
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 )
 
@@ -34,6 +35,7 @@ type Server struct {
 	secureCookie bool
 	limiter      loginLimiter
 	inventory    inventory.Reader
+	updates      *selfupdate.Manager
 }
 
 type bootstrapResponse struct {
@@ -70,16 +72,89 @@ func (s *Server) SetInventory(reader inventory.Reader) {
 	s.inventory = reader
 }
 
+func (s *Server) SetSelfUpdate(manager *selfupdate.Manager) {
+	s.updates = manager
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/projects", s.projects)
+	mux.HandleFunc("GET /api/self-update", s.selfUpdateStatus)
+	mux.HandleFunc("PUT /api/self-update", s.selfUpdateSettings)
 	mux.HandleFunc("POST /api/setup", s.setup)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.Handle("GET /", s.staticHandler())
 	return s.securityHeaders(mux)
+}
+
+func (s *Server) selfUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	if !s.requireUpdateSession(w, r, false) {
+		return
+	}
+	if s.updates == nil {
+		writeError(w, http.StatusServiceUnavailable, "Self-update is unavailable.")
+		return
+	}
+	status, err := s.updates.Status()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to read self-update status.")
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) selfUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	if !s.checkOrigin(w, r) || !s.requireUpdateSession(w, r, true) {
+		return
+	}
+	if s.updates == nil {
+		writeError(w, http.StatusServiceUnavailable, "Self-update is unavailable.")
+		return
+	}
+	var input struct {
+		Automatic *bool `json:"automatic"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.Automatic == nil {
+		writeError(w, http.StatusBadRequest, "Automatic must be true or false.")
+		return
+	}
+	if err := s.updates.SetAutomatic(*input.Automatic); errors.Is(err, selfupdate.ErrUpdateInProgress) {
+		writeError(w, http.StatusConflict, "Wait for the current update to finish.")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to save automatic update setting.")
+		return
+	}
+	status, err := s.updates.Status()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to read self-update status.")
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) requireUpdateSession(w http.ResponseWriter, r *http.Request, csrfRequired bool) bool {
+	session, _, ok, err := s.currentSession(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to read session.")
+		return false
+	}
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Sign in to continue.")
+		return false
+	}
+	if csrfRequired && (r.Header.Get("X-CSRF-Token") == "" ||
+		subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(session.CSRFToken)) != 1) {
+		writeError(w, http.StatusForbidden, "Invalid request token.")
+		return false
+	}
+	return true
 }
 
 func (s *Server) projects(w http.ResponseWriter, r *http.Request) {

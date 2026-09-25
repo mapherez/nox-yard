@@ -12,6 +12,7 @@
 - `internal/auth/`: password validation and Argon2id hashes.
 - `internal/store/`: SQLite schema, administrator, and sessions.
 - `internal/httpapi/`: same-origin HTTP routes, session protection, and static asset serving.
+- `internal/selfupdate/`: opt-in GHCR checks and the temporary Engine-based update worker; see [Self-Update](Self-Update.md).
 - `web/src/`: typed API client, React views, and CSS Modules. Shared tokens and global rules are in `web/src/styles/`.
 - `Dockerfile`, `compose.yaml`, `.env.example`: image build and single-service self-hosted installation.
 - `scripts/check.sh`, `scripts/test.sh`, `scripts/ci-local.sh`: shared local and CI validation.

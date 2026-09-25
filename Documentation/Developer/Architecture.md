@@ -39,6 +39,8 @@ For external recreation, snapshot the Engine-visible container configuration, pr
 
 NoX Yard appears in the normal inventory. Its restart or update runs through an independent temporary job container, because the web service may stop mid-operation. Stop and remove actions for NoX Yard are unavailable in the UI.
 
+The implemented self-update flow, rollback snapshot, and operational preconditions are documented in [Self-Update](Self-Update.md).
+
 ## API and live data
 
 - REST: bootstrap state, setup/login/logout, inventory and detail reads, import preview/commit/sync, actions, job status, and auto-update settings.

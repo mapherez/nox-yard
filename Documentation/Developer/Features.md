@@ -20,4 +20,8 @@ The Go service serves the Vite production build and exposes `/healthz`, which ch
 
 `GET /api/projects` requires a valid session. It lists all local Docker containers, groups those with `com.docker.compose.project` labels into Compose projects, and presents other containers individually. Each project includes its containers, state, health, CPU, memory, and uptime. Container details also include image, service name, network totals, and individual metrics. Missing stats are represented as `null`; Docker errors return `503` without blocking login or `/healthz`.
 
-The dashboard refreshes every 20 seconds while visible and offers manual refresh. Selecting a card opens a read-only container panel. This phase does not expose Docker mutation endpoints.
+The dashboard refreshes every 20 seconds while visible and offers manual refresh. Selecting a card opens a read-only container panel. Project and container lifecycle mutation endpoints are not yet exposed.
+
+## NoX Yard self-update
+
+Automatic updates are off by default. The authenticated dashboard can enable them and shows the last check, update state, error, and current build SHA when available. The updater compares the running image ID with the platform image ID behind GHCR `latest`, then uses a temporary worker to replace NoX Yard and restore the previous container and SQLite snapshot if the replacement fails health. See [Self-Update](Self-Update.md) for the operational contract.

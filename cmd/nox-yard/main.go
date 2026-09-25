@@ -15,9 +15,12 @@ import (
 	"github.com/mapherez/nox-yard/internal/auth"
 	"github.com/mapherez/nox-yard/internal/httpapi"
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"golang.org/x/term"
 )
+
+var buildSHA = ""
 
 func main() {
 	if err := run(); err != nil {
@@ -40,6 +43,9 @@ func run() error {
 		if len(os.Args) == 2 && os.Args[1] == "reset-admin-password" {
 			return resetAdminPassword(data)
 		}
+		if len(os.Args) == 4 && os.Args[1] == "update-worker" {
+			return selfupdate.RunWorker(data, dataDir, os.Args[2], os.Args[3])
+		}
 		return fmt.Errorf("unknown command: %s", strings.Join(os.Args[1:], " "))
 	}
 
@@ -53,6 +59,8 @@ func run() error {
 	}
 	defer dockerInventory.Close()
 	api.SetInventory(dockerInventory)
+	updates := selfupdate.New(data, buildSHA)
+	api.SetSelfUpdate(updates)
 	server := &http.Server{
 		Addr:              environment("NOX_LISTEN_ADDR", ":8080"),
 		Handler:           api.Handler(),
@@ -63,6 +71,7 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	updates.Start(ctx)
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

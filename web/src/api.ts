@@ -38,6 +38,14 @@ export type Inventory = {
   projects: Project[];
 };
 
+export type SelfUpdateStatus = {
+  automatic: boolean;
+  status: "not_checked" | "up_to_date" | "updating" | "update_failed";
+  lastChecked?: string;
+  currentBuildSHA?: string;
+  error?: string;
+};
+
 type Credentials = {
   username: string;
   password: string;
@@ -80,6 +88,18 @@ export function getBootstrap(): Promise<Bootstrap> {
 
 export function getProjects(signal?: AbortSignal): Promise<Inventory> {
   return request<Inventory>("/api/projects", { signal });
+}
+
+export function getSelfUpdateStatus(signal?: AbortSignal): Promise<SelfUpdateStatus> {
+  return request<SelfUpdateStatus>("/api/self-update", { signal });
+}
+
+export function setAutomaticUpdates(automatic: boolean, csrfToken: string): Promise<SelfUpdateStatus> {
+  return request<SelfUpdateStatus>("/api/self-update", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ automatic }),
+  });
 }
 
 export function createAdministrator(input: Credentials): Promise<Bootstrap> {
