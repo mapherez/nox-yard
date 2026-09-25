@@ -1209,6 +1209,7 @@
     display: flex;
     inline-size: min(16rem, calc(100dvw - 3rem));
     box-shadow: var(--shadow-panel);
+    touch-action: pan-y pinch-zoom;
   }
 
   .dashboardBody {

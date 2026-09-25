@@ -250,6 +250,7 @@ function Dashboard({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const skipLinkRef = useRef<HTMLAnchorElement>(null);
   const dashboardBodyRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 47.99rem)").matches);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -257,6 +258,8 @@ function Dashboard({
     catch { return false; }
   });
   const compactSidebar = !isMobile && sidebarCollapsed;
+  const closeMobileMenu = useCallback(() => setMobileOpen(false), []);
+  useDrawerSwipe(sidebarRef, "left", isMobile && mobileOpen, closeMobileMenu);
 
   const changeSidebar = useCallback((collapsed: boolean) => {
     setSidebarCollapsed(collapsed);
@@ -344,7 +347,7 @@ function Dashboard({
     <div className={styles.dashboard} data-collapsed={compactSidebar} data-mobile-open={mobileOpen}>
       <a ref={skipLinkRef} href="#content" className={styles.skipLink}>Skip to content</a>
       {mobileOpen && <button type="button" className={styles.sidebarScrim} aria-label="Close menu" tabIndex={-1} onClick={() => setMobileOpen(false)} />}
-      <aside className={styles.sidebar} id="primary-sidebar">
+      <aside ref={sidebarRef} className={styles.sidebar} id="primary-sidebar">
         <div className={styles.sidebarHeader}>
           <div className={styles.sidebarBrand} aria-label="NoX Yard">
             <span className={styles.brandMark} aria-hidden="true">N</span>
@@ -435,7 +438,8 @@ function Dashboard({
 
 function ProjectDrawer({ project, csrfToken, onClose }: { project?: Project; csrfToken: string; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  useDrawerSwipe(dialogRef, "right");
+  const dismiss = useCallback(() => dialogRef.current?.close(), []);
+  useDrawerSwipe(dialogRef, "right", Boolean(project), dismiss);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -544,7 +548,8 @@ const checkIntervals = [5, 15, 30, 60, 360] as const;
 
 function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken: string; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  useDrawerSwipe(dialogRef, "left");
+  const dismiss = useCallback(() => dialogRef.current?.close(), []);
+  useDrawerSwipe(dialogRef, "left", open, dismiss);
   const [status, setStatus] = useState<SelfUpdateStatus | null>(null);
   const [automatic, setAutomatic] = useState(false);
   const [intervalMinutes, setIntervalMinutes] = useState(15);
