@@ -15,12 +15,71 @@ import (
 )
 
 type inventoryStub struct {
-	calls int
+	calls        int
+	inspectCalls int
 }
 
 func (s *inventoryStub) Snapshot(context.Context) (inventory.Snapshot, error) {
 	s.calls++
 	return inventory.Snapshot{Projects: []inventory.Project{{ID: "compose:yard", Name: "yard"}}}, nil
+}
+
+func (s *inventoryStub) InspectContainer(_ context.Context, id string, reveal bool) (inventory.ContainerInspection, error) {
+	s.inspectCalls++
+	variable := inventory.EnvironmentVariable{Name: "TOKEN"}
+	if reveal {
+		value := "secret-value"
+		variable.Value = &value
+	}
+	return inventory.ContainerInspection{ID: id, Environment: []inventory.EnvironmentVariable{variable}}, nil
+}
+
+func TestContainerInspectionRequiresSessionAndExplicitReveal(t *testing.T) {
+	data, api := newTestServer(t, t.TempDir(), "")
+	defer data.Close()
+	reader := &inventoryStub{}
+	api.SetInventory(reader)
+	handler := api.Handler()
+	id := strings.Repeat("a", 64)
+	path := "/api/containers/" + id
+
+	request := httptest.NewRequest(http.MethodGet, "http://yard.test"+path, nil)
+	result := httptest.NewRecorder()
+	handler.ServeHTTP(result, request)
+	if result.Code != http.StatusUnauthorized || reader.inspectCalls != 0 {
+		t.Fatal("unauthenticated request reached Docker inspect")
+	}
+
+	setup := postCredentials(handler, "/api/setup", "http://yard.test", "owner", testPassword)
+	if setup.Code != http.StatusCreated {
+		t.Fatalf("setup returned %d", setup.Code)
+	}
+	var session bootstrapResponse
+	if err := json.Unmarshal(setup.Body.Bytes(), &session); err != nil {
+		t.Fatal(err)
+	}
+	cookie := setup.Result().Cookies()[0]
+	request.AddCookie(cookie)
+	result = httptest.NewRecorder()
+	handler.ServeHTTP(result, request)
+	if result.Code != http.StatusOK || strings.Contains(result.Body.String(), "secret-value") {
+		t.Fatalf("default inspection leaked a value: %d %s", result.Code, result.Body.String())
+	}
+
+	reveal := httptest.NewRequest(http.MethodPost, "http://yard.test"+path+"/environment", nil)
+	reveal.Header.Set("Origin", "http://yard.test")
+	reveal.AddCookie(cookie)
+	result = httptest.NewRecorder()
+	handler.ServeHTTP(result, reveal)
+	if result.Code != http.StatusForbidden {
+		t.Fatalf("reveal without CSRF token returned %d", result.Code)
+	}
+	reveal.Header.Set("X-CSRF-Token", session.CSRFToken)
+	result = httptest.NewRecorder()
+	handler.ServeHTTP(result, reveal)
+	if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), "secret-value") || reader.inspectCalls != 2 {
+		t.Fatalf("explicit reveal returned %d: %s", result.Code, result.Body.String())
+	}
 }
 
 func TestProjectsRequiresSession(t *testing.T) {

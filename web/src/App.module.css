@@ -581,6 +581,30 @@
   gap: var(--space-5);
 }
 
+.projectDrawer .settingsHeader > div {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+
+.projectDrawer .settingsHeader h2 {
+  margin: 0;
+}
+
+.backButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent-hover);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.backButton:hover {
+  text-decoration: underline;
+}
+
 .settingsSection {
   display: grid;
   gap: var(--space-4);
@@ -946,6 +970,120 @@
 
 .containerMetrics {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.inspectButton {
+  min-block-size: 2.3rem;
+  padding-inline: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.inspectButton:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent-hover);
+}
+
+.inspectButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.containerRow > .inspectButton {
+  margin-block-start: var(--space-4);
+}
+
+.inspectSection {
+  display: grid;
+  gap: var(--space-3);
+  padding-block-start: var(--space-5);
+  border-block-start: 1px solid var(--color-border);
+}
+
+.inspectSection h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.inspectSection > p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+.inspectSectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.inspectList,
+.environmentList {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+}
+
+.inspectList {
+  list-style: none;
+}
+
+.inspectList li,
+.environmentList div {
+  display: grid;
+  gap: var(--space-1);
+  min-inline-size: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.inspectList strong,
+.environmentList dt {
+  font-weight: 650;
+}
+
+.inspectList span {
+  color: var(--color-text-secondary);
+}
+
+.environmentList dd {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.environmentList code {
+  font-family: var(--font-code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.projectDrawerContent .inventoryError {
+  margin-block-start: 0;
+}
+
+.containerID {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.containerID code {
+  color: var(--color-text-secondary);
+  font-family: var(--font-code);
 }
 
 .emptyPanel {

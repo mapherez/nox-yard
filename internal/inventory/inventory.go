@@ -3,12 +3,15 @@ package inventory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 )
 
@@ -18,9 +21,44 @@ const (
 	maxWorkers          = 6
 )
 
+var ErrContainerNotFound = errors.New("container not found")
+
 // Reader keeps Docker SDK details out of the HTTP layer.
 type Reader interface {
 	Snapshot(context.Context) (Snapshot, error)
+	InspectContainer(context.Context, string, bool) (ContainerInspection, error)
+}
+
+type ContainerInspection struct {
+	ID          string                `json:"id"`
+	Ports       []PortInfo            `json:"ports"`
+	Mounts      []MountInfo           `json:"mounts"`
+	Networks    []NetworkInfo         `json:"networks"`
+	Environment []EnvironmentVariable `json:"environment"`
+}
+
+type PortInfo struct {
+	ContainerPort string `json:"containerPort"`
+	HostIP        string `json:"hostIP,omitempty"`
+	HostPort      string `json:"hostPort,omitempty"`
+}
+
+type MountInfo struct {
+	Type        string `json:"type"`
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+	ReadOnly    bool   `json:"readOnly"`
+}
+
+type NetworkInfo struct {
+	Name string `json:"name"`
+	IPv4 string `json:"ipv4,omitempty"`
+	IPv6 string `json:"ipv6,omitempty"`
+}
+
+type EnvironmentVariable struct {
+	Name  string  `json:"name"`
+	Value *string `json:"value,omitempty"`
 }
 
 type Snapshot struct {
@@ -70,6 +108,112 @@ func NewDockerReader() (*DockerReader, error) {
 
 func (r *DockerReader) Close() error {
 	return r.client.Close()
+}
+
+func (r *DockerReader) InspectContainer(ctx context.Context, id string, revealEnvironment bool) (ContainerInspection, error) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	result, err := r.client.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if errdefs.IsNotFound(err) {
+		return ContainerInspection{}, ErrContainerNotFound
+	}
+	if err != nil {
+		return ContainerInspection{}, err
+	}
+	return describeInspection(result.Container, revealEnvironment), nil
+}
+
+func describeInspection(inspected container.InspectResponse, revealEnvironment bool) ContainerInspection {
+	detail := ContainerInspection{
+		ID:          inspected.ID,
+		Ports:       []PortInfo{},
+		Mounts:      []MountInfo{},
+		Networks:    []NetworkInfo{},
+		Environment: []EnvironmentVariable{},
+	}
+	ports := map[network.Port]struct{}{}
+	if inspected.Config != nil {
+		for port := range inspected.Config.ExposedPorts {
+			ports[port] = struct{}{}
+		}
+		for _, entry := range inspected.Config.Env {
+			name, value, _ := strings.Cut(entry, "=")
+			variable := EnvironmentVariable{Name: name}
+			if revealEnvironment {
+				variable.Value = &value
+			}
+			detail.Environment = append(detail.Environment, variable)
+		}
+		sort.Slice(detail.Environment, func(i, j int) bool {
+			return detail.Environment[i].Name < detail.Environment[j].Name
+		})
+	}
+	if inspected.HostConfig != nil {
+		for port := range inspected.HostConfig.PortBindings {
+			ports[port] = struct{}{}
+		}
+	}
+	if inspected.NetworkSettings != nil {
+		for port := range inspected.NetworkSettings.Ports {
+			ports[port] = struct{}{}
+		}
+		for name, endpoint := range inspected.NetworkSettings.Networks {
+			item := NetworkInfo{Name: name}
+			if endpoint != nil {
+				if endpoint.IPAddress.IsValid() {
+					item.IPv4 = endpoint.IPAddress.String()
+				}
+				if endpoint.GlobalIPv6Address.IsValid() {
+					item.IPv6 = endpoint.GlobalIPv6Address.String()
+				}
+			}
+			detail.Networks = append(detail.Networks, item)
+		}
+	}
+	for port := range ports {
+		bindings := []network.PortBinding(nil)
+		if inspected.NetworkSettings != nil {
+			bindings = inspected.NetworkSettings.Ports[port]
+		}
+		if len(bindings) == 0 && inspected.HostConfig != nil {
+			bindings = inspected.HostConfig.PortBindings[port]
+		}
+		if len(bindings) == 0 {
+			detail.Ports = append(detail.Ports, PortInfo{ContainerPort: port.String()})
+		}
+		for _, binding := range bindings {
+			item := PortInfo{ContainerPort: port.String(), HostPort: binding.HostPort}
+			if binding.HostIP.IsValid() {
+				item.HostIP = binding.HostIP.String()
+			}
+			detail.Ports = append(detail.Ports, item)
+		}
+	}
+	sort.Slice(detail.Ports, func(i, j int) bool {
+		if detail.Ports[i].ContainerPort != detail.Ports[j].ContainerPort {
+			return detail.Ports[i].ContainerPort < detail.Ports[j].ContainerPort
+		}
+		return detail.Ports[i].HostPort < detail.Ports[j].HostPort
+	})
+	for _, mounted := range inspected.Mounts {
+		source := mounted.Source
+		if mounted.Name != "" {
+			source = mounted.Name
+		}
+		detail.Mounts = append(detail.Mounts, MountInfo{
+			Type:        string(mounted.Type),
+			Source:      source,
+			Destination: mounted.Destination,
+			ReadOnly:    !mounted.RW,
+		})
+	}
+	sort.Slice(detail.Mounts, func(i, j int) bool {
+		return detail.Mounts[i].Destination < detail.Mounts[j].Destination
+	})
+	sort.Slice(detail.Networks, func(i, j int) bool {
+		return detail.Networks[i].Name < detail.Networks[j].Name
+	})
+	return detail
 }
 
 func (r *DockerReader) Snapshot(ctx context.Context) (Snapshot, error) {

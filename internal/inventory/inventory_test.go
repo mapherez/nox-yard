@@ -1,11 +1,52 @@
 package inventory
 
 import (
+	"encoding/json"
+	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
 )
+
+func TestContainerInspectionMasksEnvironmentByDefault(t *testing.T) {
+	port := network.MustParsePort("8080/tcp")
+	inspected := container.InspectResponse{
+		ID: "container-id",
+		Config: &container.Config{
+			Env:          []string{"TOKEN=secret-value", "EMPTY="},
+			ExposedPorts: network.PortSet{port: {}},
+		},
+		HostConfig: &container.HostConfig{},
+		NetworkSettings: &container.NetworkSettings{
+			Ports: network.PortMap{port: {{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: "8095"}}},
+			Networks: map[string]*network.EndpointSettings{
+				"yard_default": {IPAddress: netip.MustParseAddr("172.20.0.2")},
+			},
+		},
+		Mounts: []container.MountPoint{{Type: mount.TypeBind, Source: "/host/data", Destination: "/data", RW: true}},
+	}
+	masked := describeInspection(inspected, false)
+	encoded, err := json.Marshal(masked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "secret-value") || masked.Environment[1].Value != nil {
+		t.Fatal("default inspection exposed an environment value")
+	}
+	if len(masked.Ports) != 1 || masked.Ports[0].HostPort != "8095" ||
+		len(masked.Mounts) != 1 || masked.Mounts[0].Source != "/host/data" ||
+		len(masked.Networks) != 1 || masked.Networks[0].IPv4 != "172.20.0.2" {
+		t.Fatalf("missing container configuration: %+v", masked)
+	}
+	revealed := describeInspection(inspected, true)
+	if revealed.Environment[1].Value == nil || *revealed.Environment[1].Value != "secret-value" {
+		t.Fatal("explicit reveal did not return the requested value")
+	}
+}
 
 func TestGroupComposeAndStandalone(t *testing.T) {
 	items := []container.Summary{

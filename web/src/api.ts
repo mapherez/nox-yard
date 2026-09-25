@@ -38,6 +38,14 @@ export type Inventory = {
   projects: Project[];
 };
 
+export type ContainerInspection = {
+  id: string;
+  ports: { containerPort: string; hostIP?: string; hostPort?: string }[];
+  mounts: { type: string; source: string; destination: string; readOnly: boolean }[];
+  networks: { name: string; ipv4?: string; ipv6?: string }[];
+  environment: { name: string; value?: string }[];
+};
+
 export type SelfUpdateStatus = {
   automatic: boolean;
   intervalMinutes: number;
@@ -89,6 +97,18 @@ export function getBootstrap(): Promise<Bootstrap> {
 
 export function getProjects(signal?: AbortSignal): Promise<Inventory> {
   return request<Inventory>("/api/projects", { signal });
+}
+
+export function getContainerInspection(id: string, signal?: AbortSignal): Promise<ContainerInspection> {
+  return request<ContainerInspection>(`/api/containers/${encodeURIComponent(id)}`, { signal });
+}
+
+export function revealContainerEnvironment(id: string, csrfToken: string, signal?: AbortSignal): Promise<ContainerInspection> {
+  return request<ContainerInspection>(`/api/containers/${encodeURIComponent(id)}/environment`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrfToken },
+    signal,
+  });
 }
 
 export function getSelfUpdateStatus(signal?: AbortSignal): Promise<SelfUpdateStatus> {

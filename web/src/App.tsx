@@ -3,13 +3,16 @@ import {
   checkSelfUpdateNow,
   createAdministrator,
   getBootstrap,
+  getContainerInspection,
   getProjects,
   getSelfUpdateStatus,
   saveSelfUpdateSettings,
+  revealContainerEnvironment,
   signIn,
   signOut,
   type Bootstrap,
   type Container,
+  type ContainerInspection,
   type Project,
   type SelfUpdateStatus,
 } from "./api";
@@ -419,14 +422,22 @@ function Dashboard({
           </>}
         </main>
       </div>
-      <ProjectDrawer project={selected} onClose={() => setSelectedID(null)} />
+      <ProjectDrawer project={selected} csrfToken={csrfToken} onClose={() => setSelectedID(null)} />
       <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
 
-function ProjectDrawer({ project, onClose }: { project?: Project; onClose: () => void }) {
+function ProjectDrawer({ project, csrfToken, onClose }: { project?: Project; csrfToken: string; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const revealController = useRef<AbortController | null>(null);
+  const lastInspectedID = useRef<string | null>(null);
+  const [selectedContainerID, setSelectedContainerID] = useState<string | null>(null);
+  const [inspection, setInspection] = useState<ContainerInspection | null>(null);
+  const [detailError, setDetailError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [revealing, setRevealing] = useState(false);
+  const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -434,6 +445,64 @@ function ProjectDrawer({ project, onClose }: { project?: Project; onClose: () =>
     if (project && !dialog.open) dialog.showModal();
     if (!project && dialog.open) dialog.close();
   }, [project]);
+
+  useEffect(() => {
+    lastInspectedID.current = null;
+    setSelectedContainerID(null);
+    setInspection(null);
+    setRevealed(false);
+    setRevealing(false);
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (!project || !selectedContainerID) return;
+    const controller = new AbortController();
+    setInspection(null);
+    setDetailError("");
+    setLoading(true);
+    setRevealed(false);
+    setRevealing(false);
+    void getContainerInspection(selectedContainerID, controller.signal)
+      .then((detail) => { if (!controller.signal.aborted) setInspection(detail); })
+      .catch((cause) => {
+        if (!controller.signal.aborted) setDetailError(cause instanceof Error ? cause.message : "Unable to inspect container.");
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => {
+      controller.abort();
+      revealController.current?.abort();
+    };
+  }, [project?.id, selectedContainerID]);
+
+  async function revealEnvironment() {
+    if (!selectedContainerID) return;
+    const controller = new AbortController();
+    revealController.current = controller;
+    setRevealing(true);
+    setDetailError("");
+    try {
+      const detail = await revealContainerEnvironment(selectedContainerID, csrfToken, controller.signal);
+      if (!controller.signal.aborted) {
+        setInspection(detail);
+        setRevealed(true);
+      }
+    } catch (cause) {
+      if (!controller.signal.aborted) setDetailError(cause instanceof Error ? cause.message : "Unable to reveal environment values.");
+    } finally {
+      if (!controller.signal.aborted) setRevealing(false);
+    }
+  }
+
+  function hideEnvironment() {
+    setInspection((detail) => detail && {
+      ...detail,
+      environment: detail.environment.map(({ name }) => ({ name })),
+    });
+    setRevealed(false);
+  }
+
+  const selectedContainer = project?.containers.find((container) => container.id === selectedContainerID);
+  const currentInspection = inspection?.id === selectedContainerID ? inspection : null;
 
   return <dialog
     id="project-drawer"
@@ -447,18 +516,35 @@ function ProjectDrawer({ project, onClose }: { project?: Project; onClose: () =>
     {project && <div className={styles.settingsBody}>
       <header className={styles.settingsHeader}>
         <div>
-          <span className={styles.sectionLabel}>PROJECT DETAILS</span>
-          <h2 id="project-drawer-title">{project.name}</h2>
+          {selectedContainerID && <button type="button" className={styles.backButton} autoFocus onClick={() => setSelectedContainerID(null)}>← {project.name}</button>}
+          <span className={styles.sectionLabel}>{selectedContainerID ? "CONTAINER DETAILS" : "PROJECT DETAILS"}</span>
+          <h2 id="project-drawer-title">{selectedContainerID ? selectedContainer?.service || selectedContainer?.name || "Container" : project.name}</h2>
         </div>
         <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close project details">×</button>
       </header>
       <div className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
+        {selectedContainerID ? <>
+          {selectedContainer && <ContainerRow container={selectedContainer} />}
+          {loading && <p className={styles.detailSummary} role="status">Loading container details…</p>}
+          {detailError && <p className={styles.inventoryError} role="alert">{detailError}</p>}
+          {currentInspection && <ContainerInspectionView
+            inspection={currentInspection}
+            revealed={revealed}
+            revealing={revealing}
+            onReveal={() => { void revealEnvironment(); }}
+            onHide={hideEnvironment}
+          />}
+        </> : <>
         <p className={styles.detailSummary}>
           {project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · {project.state} · Health: {healthLabel(project.health)}
         </p>
         <div className={styles.containerList}>
-          {project.containers.map((container) => <ContainerRow key={container.id} container={container} />)}
+          {project.containers.map((container) => <ContainerRow key={container.id} container={container} focusInspect={lastInspectedID.current === container.id} onInspect={() => {
+            lastInspectedID.current = container.id;
+            setSelectedContainerID(container.id);
+          }} />)}
         </div>
+        </>}
       </div>
     </div>}
   </dialog>;
@@ -626,7 +712,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <span className={styles.metric}><span>{label}</span><strong>{value}</strong></span>;
 }
 
-function ContainerRow({ container }: { container: Container }) {
+function ContainerRow({ container, onInspect, focusInspect }: { container: Container; onInspect?: () => void; focusInspect?: boolean }) {
   return <article className={styles.containerRow}>
     <div className={styles.containerHeading}>
       <div><h3>{container.service || container.name}</h3>{container.service && <span>{container.name}</span>}</div>
@@ -640,7 +726,63 @@ function ContainerRow({ container }: { container: Container }) {
       <Metric label="Uptime" value={formatUptime(container.uptimeSeconds)} />
       <Metric label="Network ↓ / ↑" value={`${formatBytes(container.networkRxBytes)} / ${formatBytes(container.networkTxBytes)}`} />
     </div>
+    {onInspect && <button type="button" className={styles.inspectButton} onClick={onInspect} autoFocus={focusInspect} aria-label={`Inspect ${container.name}`}>View details</button>}
   </article>;
+}
+
+function ContainerInspectionView({
+  inspection, revealed, revealing, onReveal, onHide,
+}: {
+  inspection: ContainerInspection;
+  revealed: boolean;
+  revealing: boolean;
+  onReveal: () => void;
+  onHide: () => void;
+}) {
+  return <>
+    <p className={styles.containerID}>Container ID <code>{inspection.id}</code></p>
+    <section className={styles.inspectSection} aria-labelledby="container-ports-title">
+      <h3 id="container-ports-title">Ports</h3>
+      {inspection.ports.length === 0 ? <p>None configured</p> : <ul className={styles.inspectList}>
+        {inspection.ports.map((port, index) => <li key={`${port.containerPort}-${port.hostIP}-${port.hostPort}-${index}`}>
+          <strong>{port.containerPort}</strong>
+          <span>{port.hostPort ? `${port.hostIP || "All interfaces"}:${port.hostPort}` : "Not published"}</span>
+        </li>)}
+      </ul>}
+    </section>
+    <section className={styles.inspectSection} aria-labelledby="container-mounts-title">
+      <h3 id="container-mounts-title">Volumes and mounts</h3>
+      {inspection.mounts.length === 0 ? <p>None configured</p> : <ul className={styles.inspectList}>
+        {inspection.mounts.map((mount, index) => <li key={`${mount.destination}-${index}`}>
+          <strong>{mount.destination}</strong>
+          <span>{mount.type} · {mount.source || "Temporary"} · {mount.readOnly ? "Read only" : "Read/write"}</span>
+        </li>)}
+      </ul>}
+    </section>
+    <section className={styles.inspectSection} aria-labelledby="container-networks-title">
+      <h3 id="container-networks-title">Networks</h3>
+      {inspection.networks.length === 0 ? <p>None attached</p> : <ul className={styles.inspectList}>
+        {inspection.networks.map((network) => <li key={network.name}>
+          <strong>{network.name}</strong>
+          <span>{[network.ipv4, network.ipv6].filter(Boolean).join(" · ") || "No assigned IP"}</span>
+        </li>)}
+      </ul>}
+    </section>
+    <section className={styles.inspectSection} aria-labelledby="container-environment-title">
+      <div className={styles.inspectSectionHeading}>
+        <h3 id="container-environment-title">Environment variables</h3>
+        {inspection.environment.length > 0 && <button type="button" className={styles.inspectButton} disabled={revealing} onClick={revealed ? onHide : onReveal}>
+          {revealing ? "Revealing…" : revealed ? "Hide values" : "Reveal values"}
+        </button>}
+      </div>
+      {inspection.environment.length === 0 ? <p>None configured</p> : <dl className={styles.environmentList}>
+        {inspection.environment.map((variable, index) => <div key={`${variable.name}-${index}`}>
+          <dt>{variable.name}</dt>
+          <dd><code>{revealed ? variable.value || "(empty)" : "••••••"}</code></dd>
+        </div>)}
+      </dl>}
+    </section>
+  </>;
 }
 
 function statusClass(state: string): string {

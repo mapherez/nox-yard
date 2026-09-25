@@ -27,6 +27,7 @@ import (
 const sessionLifetime = 7 * 24 * time.Hour
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{3,32}$`)
+var containerIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type Server struct {
 	store        *store.Store
@@ -81,6 +82,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/projects", s.projects)
+	mux.HandleFunc("GET /api/containers/{id}", s.containerInspection)
+	mux.HandleFunc("POST /api/containers/{id}/environment", s.containerEnvironment)
 	mux.HandleFunc("GET /api/self-update", s.selfUpdateStatus)
 	mux.HandleFunc("PUT /api/self-update", s.selfUpdateSettings)
 	mux.HandleFunc("POST /api/self-update/check", s.selfUpdateCheck)
@@ -92,7 +95,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) selfUpdateStatus(w http.ResponseWriter, r *http.Request) {
-	if !s.requireUpdateSession(w, r, false) {
+	if !s.requireSession(w, r, false) {
 		return
 	}
 	if s.updates == nil {
@@ -108,7 +111,7 @@ func (s *Server) selfUpdateStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) selfUpdateSettings(w http.ResponseWriter, r *http.Request) {
-	if !s.checkOrigin(w, r) || !s.requireUpdateSession(w, r, true) {
+	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
 		return
 	}
 	if s.updates == nil {
@@ -145,7 +148,7 @@ func (s *Server) selfUpdateSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) selfUpdateCheck(w http.ResponseWriter, r *http.Request) {
-	if !s.checkOrigin(w, r) || !s.requireUpdateSession(w, r, true) {
+	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
 		return
 	}
 	if s.updates == nil {
@@ -167,7 +170,7 @@ func (s *Server) selfUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, status)
 }
 
-func (s *Server) requireUpdateSession(w http.ResponseWriter, r *http.Request, csrfRequired bool) bool {
+func (s *Server) requireSession(w http.ResponseWriter, r *http.Request, csrfRequired bool) bool {
 	session, _, ok, err := s.currentSession(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Unable to read session.")
@@ -205,6 +208,42 @@ func (s *Server) projects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Server) containerInspection(w http.ResponseWriter, r *http.Request) {
+	if !s.requireSession(w, r, false) {
+		return
+	}
+	s.writeContainerInspection(w, r, false)
+}
+
+func (s *Server) containerEnvironment(w http.ResponseWriter, r *http.Request) {
+	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
+		return
+	}
+	s.writeContainerInspection(w, r, true)
+}
+
+func (s *Server) writeContainerInspection(w http.ResponseWriter, r *http.Request, revealEnvironment bool) {
+	id := r.PathValue("id")
+	if !containerIDPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "Invalid container ID.")
+		return
+	}
+	if s.inventory == nil {
+		writeError(w, http.StatusServiceUnavailable, "Docker inventory is unavailable.")
+		return
+	}
+	inspection, err := s.inventory.InspectContainer(r.Context(), id, revealEnvironment)
+	if errors.Is(err, inventory.ErrContainerNotFound) {
+		writeError(w, http.StatusNotFound, "Container no longer exists. Refresh the project list.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "Cannot inspect this container on the local Docker Engine.")
+		return
+	}
+	writeJSON(w, http.StatusOK, inspection)
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {

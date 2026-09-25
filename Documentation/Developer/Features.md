@@ -20,7 +20,7 @@ The Go service serves the Vite production build and exposes `/healthz`, which ch
 
 `GET /api/projects` requires a valid session. It lists all local Docker containers, groups those with `com.docker.compose.project` labels into Compose projects, and presents other containers individually. Each project includes its containers, state, health, CPU, memory, and uptime. Container details also include image, service name, network totals, and individual metrics. Missing stats are represented as `null`; Docker errors return `503` without blocking login or `/healthz`.
 
-The dashboard refreshes every 20 seconds while visible and offers manual refresh. Selecting a card opens a read-only project drawer with its containers; the project grid keeps its full width. The left sidebar can expand to show labels or collapse to icons, with Settings and the account at its bottom. Project and container lifecycle mutation endpoints are not yet exposed.
+The dashboard refreshes every 20 seconds while visible and offers manual refresh. Selecting a card opens a read-only project drawer with its containers; choosing **View details** drills into one container in the same drawer. Authenticated `GET /api/containers/{id}` returns its published and exposed ports, mounts, attached networks, and environment variable names. Values are omitted by default. **Reveal values** uses an Origin- and CSRF-protected `POST /api/containers/{id}/environment`; **Hide values** clears them from the displayed state. Missing containers return 404. The project grid keeps its full width. The left sidebar can expand to show labels or collapse to icons, with Settings and the account at its bottom. Project and container lifecycle mutation endpoints are not yet exposed.
 
 ## NoX Yard self-update
 
