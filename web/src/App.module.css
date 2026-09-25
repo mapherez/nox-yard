@@ -37,7 +37,7 @@
   block-size: 2.35rem;
   place-items: center;
   border: 1px solid var(--color-accent-hover);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--color-accent-pressed);
   color: var(--color-text-primary);
   font-size: 1.1rem;
@@ -107,7 +107,7 @@
 
 .authLines span {
   block-size: 0.45rem;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--color-surface-2);
 }
 
@@ -177,7 +177,7 @@
   min-block-size: 3.1rem;
   padding: 0.75rem 0.9rem;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--color-surface-1);
   color: var(--color-text-primary);
   font-size: 1rem;
@@ -228,7 +228,7 @@
   justify-content: center;
   padding: var(--space-3) var(--space-6);
   border: 1px solid var(--color-accent-hover);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--color-accent);
   color: var(--palette-ink-950);
   font-size: 0.92rem;
@@ -316,12 +316,19 @@
   align-items: center;
   justify-content: center;
   gap: 0.15rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-2);
-  color: var(--color-accent-hover);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
   font-size: 0.62rem;
   text-decoration: none;
+}
+
+.navLink:hover,
+.navLink[aria-current="page"] {
+  border-color: var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-accent-hover);
 }
 
 .navLink svg {
@@ -380,92 +387,169 @@
   padding: clamp(var(--space-6), 3vw, var(--space-12));
 }
 
-.updatePanel {
-  display: grid;
-  gap: var(--space-4);
-  margin-block-start: var(--space-8);
-  padding: var(--space-5);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-1);
+.settingsDrawer {
+  position: fixed;
+  inset-block: 0;
+  inset-inline: auto 0;
+  inline-size: min(30rem, 100%);
+  block-size: 100dvh;
+  max-inline-size: none;
+  max-block-size: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-inline-start: 1px solid var(--color-border);
+  background: var(--color-sidebar);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-panel);
 }
 
-.updateHeading {
+.settingsDrawer::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.settingsBody {
   display: flex;
-  align-items: center;
+  min-block-size: 100%;
+  flex-direction: column;
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-4);
+  padding: var(--space-6);
+  border-block-end: 1px solid var(--color-border);
 }
 
-.updateHeading h2 {
-  margin: var(--space-1) 0 0;
+.settingsHeader h2 {
+  margin: var(--space-2) 0 0;
+  font-size: 1.5rem;
+}
+
+.settingsContent {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  gap: var(--space-8);
+  min-block-size: 0;
+  overflow-y: auto;
+  padding: var(--space-6);
+}
+
+.settingsSection {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.settingsSection + .settingsSection {
+  padding-block-start: var(--space-6);
+  border-block-start: 1px solid var(--color-border);
+}
+
+.settingsSection h3 {
+  margin: 0;
   font-size: 1rem;
 }
 
-.updateToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  font-weight: 650;
+.settingsSection > p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.87rem;
 }
 
-.updateToggle input {
-  inline-size: 1.1rem;
-  block-size: 1.1rem;
+.settingsForm {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.settingsCheckbox,
+.intervalChoice {
+  display: flex;
+  min-block-size: 3rem;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.settingsCheckbox input,
+.intervalChoice input {
+  inline-size: 1.15rem;
+  block-size: 1.15rem;
+  margin: 0;
   accent-color: var(--color-accent);
 }
 
-@supports not (accent-color: var(--color-accent)) {
-  .updateToggle { position: relative; }
-  .updateToggle input {
-    position: absolute;
-    inline-size: 1px;
-    block-size: 1px;
-    margin: -1px;
-    clip-path: inset(50%);
-    overflow: hidden;
-  }
-  .updateToggle span::before {
-    display: inline-grid;
-    inline-size: 1.1rem;
-    block-size: 1.1rem;
-    place-items: center;
-    margin-inline-end: var(--space-2);
-    border: 2px solid var(--color-border-strong);
-    border-radius: var(--radius-sm);
-    content: "";
-  }
-  .updateToggle input:checked + span::before {
-    border-color: var(--color-accent);
-    background: var(--color-accent);
-    color: var(--palette-ink-950);
-    content: "✓";
-  }
-  .updateToggle input:focus-visible + span::before {
-    outline: 3px solid var(--color-focus);
-    outline-offset: 3px;
-  }
-}
-
-.updateFacts {
+.settingsCheckbox span {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3) var(--space-8);
-  color: var(--color-text-muted);
-  font-size: 0.8rem;
-}
-
-.updateFacts span {
-  display: inline-flex;
-  flex-wrap: wrap;
+  flex: 1;
+  justify-content: space-between;
   gap: var(--space-2);
 }
 
-.updateFacts strong {
-  color: var(--color-text-primary);
+.settingsCheckbox strong {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.intervalFieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.intervalFieldset legend {
+  margin-block-end: var(--space-2);
+  font-size: 0.9rem;
   font-weight: 650;
+}
+
+.intervalChoices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.intervalChoice {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+  font-size: 0.88rem;
+}
+
+.intervalChoice:has(input:checked) {
+  border-color: var(--color-accent);
+  color: var(--color-accent-hover);
+}
+
+.intervalChoice:hover {
+  background: var(--color-surface-2);
+}
+
+.updateFacts {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.updateFacts div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: 0.85rem;
+}
+
+.updateFacts dt {
+  color: var(--color-text-muted);
+}
+
+.updateFacts dd {
+  margin: 0;
+  color: var(--color-text-primary);
+  text-align: end;
 }
 
 .updateError {
@@ -521,7 +605,7 @@
   margin-block-start: var(--space-6);
   padding: var(--space-4) var(--space-5);
   border: 1px solid var(--color-danger);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   color: var(--color-danger);
 }
 
@@ -556,7 +640,7 @@
   align-items: stretch;
   padding: var(--space-5);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--color-surface-1);
   color: var(--color-text-primary);
   text-align: start;
@@ -589,7 +673,7 @@
   flex: none;
   padding: 0.22rem 0.55rem;
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-size: 0.7rem;
   line-height: 1.3;
   text-transform: capitalize;
@@ -655,7 +739,7 @@
   min-inline-size: 0;
   padding: var(--space-5);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--color-surface-1);
 }
 
@@ -695,7 +779,7 @@
   min-inline-size: 0;
   padding: var(--space-4);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--color-surface-2);
 }
 
@@ -735,7 +819,7 @@
   margin-block-start: var(--space-10);
   padding: var(--space-8);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-sm);
   background: var(--color-surface-1);
   box-shadow: var(--shadow-panel);
   text-align: center;
@@ -747,7 +831,7 @@
   block-size: 3.5rem;
   place-items: center;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--color-surface-2);
   color: var(--color-accent-hover);
 }
@@ -784,6 +868,11 @@
 }
 
 @media (max-width: 47.99rem) {
+  .settingsDrawer {
+    inline-size: 100%;
+    border-inline-start: 0;
+  }
+
   .authLayout {
     display: block;
   }

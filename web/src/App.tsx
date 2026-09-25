@@ -1,10 +1,10 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import {
   createAdministrator,
   getBootstrap,
   getProjects,
   getSelfUpdateStatus,
-  setAutomaticUpdates,
+  saveSelfUpdateSettings,
   signIn,
   signOut,
   type Bootstrap,
@@ -242,6 +242,7 @@ function Dashboard({
   const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedID, setSelectedID] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -300,6 +301,9 @@ function Dashboard({
           <a href="#projects" aria-current="page" className={styles.navLink}>
             <GridIcon /><span>Projects</span>
           </a>
+          <button type="button" className={styles.navLink} aria-haspopup="dialog" aria-controls="settings-drawer" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(true)}>
+            <SettingsIcon /><span>Settings</span>
+          </button>
         </nav>
       </aside>
 
@@ -323,7 +327,6 @@ function Dashboard({
             </button>
           </div>
 
-          <SelfUpdatePanel csrfToken={csrfToken} />
           {error && <p className={styles.formError} role="alert">{error}</p>}
           {inventoryError && <p className={styles.inventoryError} role="alert">{inventoryError}</p>}
           {projects === null && !inventoryError && <div className={styles.emptyPanel} role="status">Loading Docker projects…</div>}
@@ -373,23 +376,48 @@ function Dashboard({
           </>}
         </main>
       </div>
+      <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
 
-function SelfUpdatePanel({ csrfToken }: { csrfToken: string }) {
+const checkIntervals = [5, 15, 30, 60, 360] as const;
+
+function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken: string; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [status, setStatus] = useState<SelfUpdateStatus | null>(null);
+  const [automatic, setAutomatic] = useState(false);
+  const [intervalMinutes, setIntervalMinutes] = useState(15);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setStatus(null);
+    setError("");
     let active = true;
+    let initialized = false;
     const controller = new AbortController();
     async function refresh() {
       if (document.visibilityState === "hidden") return;
       try {
         const current = await getSelfUpdateStatus(controller.signal);
-        if (active) { setStatus(current); setError(""); }
+        if (active) {
+          setStatus(current);
+          setError("");
+          if (!initialized) {
+            setAutomatic(current.automatic);
+            setIntervalMinutes(current.intervalMinutes);
+            initialized = true;
+          }
+        }
       } catch (cause) {
         if (active && !(cause instanceof DOMException && cause.name === "AbortError")) {
           setError(cause instanceof Error ? cause.message : "Unable to load update status.");
@@ -405,13 +433,14 @@ function SelfUpdatePanel({ csrfToken }: { csrfToken: string }) {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, []);
+  }, [open]);
 
-  async function changeAutomatic(automatic: boolean) {
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setSaving(true);
     setError("");
     try {
-      setStatus(await setAutomaticUpdates(automatic, csrfToken));
+      setStatus(await saveSelfUpdateSettings({ automatic, intervalMinutes }, csrfToken));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to save update setting.");
     } finally {
@@ -426,30 +455,71 @@ function SelfUpdatePanel({ csrfToken }: { csrfToken: string }) {
     update_failed: "Update failed",
   };
 
-  return <section className={styles.updatePanel} aria-labelledby="update-title">
-    <div className={styles.updateHeading}>
-      <div>
-        <span className={styles.sectionLabel}>NOX YARD</span>
-        <h2 id="update-title">Automatic updates</h2>
+  function dismissFromBackdrop(event: MouseEvent<HTMLDialogElement>) {
+    if (event.target !== event.currentTarget) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right ||
+        event.clientY < bounds.top || event.clientY > bounds.bottom) {
+      event.currentTarget.close();
+    }
+  }
+
+  const busy = saving || status?.status === "updating";
+  const unchanged = status?.automatic === automatic && status?.intervalMinutes === intervalMinutes;
+
+  return <dialog
+    id="settings-drawer"
+    ref={dialogRef}
+    className={styles.settingsDrawer}
+    aria-labelledby="settings-title"
+    onClose={onClose}
+    onClick={dismissFromBackdrop}
+    {...{ closedby: "any" }}
+  >
+    <div className={styles.settingsBody}>
+      <header className={styles.settingsHeader}>
+        <div>
+          <span className={styles.sectionLabel}>PREFERENCES</span>
+          <h2 id="settings-title">Settings</h2>
+        </div>
+        <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close settings">×</button>
+      </header>
+      <div className={styles.settingsContent}>
+        <section aria-labelledby="updates-title" className={styles.settingsSection}>
+          <h3 id="updates-title">NoX Yard updates</h3>
+          <p>Check the public GHCR image and install new builds automatically.</p>
+          <form action="/api/self-update" method="post" onSubmit={(event) => { void save(event); }} className={styles.settingsForm}>
+            <label className={styles.settingsCheckbox}>
+              <input type="checkbox" name="automatic" checked={automatic} disabled={!status || busy} onChange={(event) => setAutomatic(event.target.checked)} />
+              <span>Automatic updates <strong>{automatic ? "On" : "Off"}</strong></span>
+            </label>
+            <fieldset className={styles.intervalFieldset} disabled={!status || busy}>
+              <legend>Check for updates every</legend>
+              <div className={styles.intervalChoices}>
+                {checkIntervals.map((minutes) => <label key={minutes} className={styles.intervalChoice}>
+                  <input type="radio" name="intervalMinutes" value={minutes} checked={intervalMinutes === minutes} onChange={() => setIntervalMinutes(minutes)} />
+                  <span>{minutes === 360 ? "6 hours" : minutes === 60 ? "1 hour" : `${minutes} min`}</span>
+                </label>)}
+              </div>
+            </fieldset>
+            <button type="submit" className={styles.primaryButton} disabled={!status || busy || unchanged}>
+              {saving ? "Saving…" : "Save settings"}
+            </button>
+          </form>
+        </section>
+        <section aria-label="Update status" className={styles.settingsSection}>
+          <h3>Current status</h3>
+          <dl className={styles.updateFacts}>
+            <div><dt>Status</dt><dd>{status ? labels[status.status] : "Loading"}</dd></div>
+            <div><dt>Last checked</dt><dd>{status?.lastChecked ? new Date(status.lastChecked).toLocaleString() : "Never"}</dd></div>
+            {status?.currentBuildSHA && <div><dt>Current build</dt><dd title={status.currentBuildSHA}>{status.currentBuildSHA.slice(0, 12)}</dd></div>}
+          </dl>
+          {status?.status === "update_failed" && status.error && <p className={styles.updateError} role="alert">{status.error}</p>}
+          {error && <p className={styles.updateError} role="alert">{error}</p>}
+        </section>
       </div>
-      <label className={styles.updateToggle}>
-        <input
-          type="checkbox"
-          checked={status?.automatic ?? false}
-          disabled={!status || saving || status.status === "updating"}
-          onChange={(event) => { void changeAutomatic(event.target.checked); }}
-        />
-        <span>{status?.automatic ? "On" : "Off"}</span>
-      </label>
     </div>
-    <div className={styles.updateFacts}>
-      <span>Status <strong>{status ? labels[status.status] : "Loading"}</strong></span>
-      <span>Last checked <strong>{status?.lastChecked ? new Date(status.lastChecked).toLocaleString() : "Never"}</strong></span>
-      {status?.currentBuildSHA && <span>Current build <strong title={status.currentBuildSHA}>{status.currentBuildSHA.slice(0, 12)}</strong></span>}
-    </div>
-    {status?.status === "update_failed" && status.error && <p className={styles.updateError} role="alert">{status.error}</p>}
-    {error && <p className={styles.updateError} role="alert">{error}</p>}
-  </section>;
+  </dialog>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -510,6 +580,17 @@ function GridIcon(): ReactNode {
       <rect x="14" y="3" width="7" height="7" rx="1.5" />
       <rect x="3" y="14" width="7" height="7" rx="1.5" />
       <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  );
+}
+
+function SettingsIcon(): ReactNode {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6h6m6 0h6M3 12h10m6 0h2M3 18h2m6 0h10" />
+      <circle cx="12" cy="6" r="3" />
+      <circle cx="16" cy="12" r="3" />
+      <circle cx="8" cy="18" r="3" />
     </svg>
   );
 }

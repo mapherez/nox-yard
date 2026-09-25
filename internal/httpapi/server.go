@@ -115,17 +115,21 @@ func (s *Server) selfUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Automatic *bool `json:"automatic"`
+		Automatic       *bool `json:"automatic"`
+		IntervalMinutes *int  `json:"intervalMinutes"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	if input.Automatic == nil {
-		writeError(w, http.StatusBadRequest, "Automatic must be true or false.")
+	if input.Automatic == nil || input.IntervalMinutes == nil {
+		writeError(w, http.StatusBadRequest, "Automatic and intervalMinutes are required.")
 		return
 	}
-	if err := s.updates.SetAutomatic(*input.Automatic); errors.Is(err, selfupdate.ErrUpdateInProgress) {
+	if err := s.updates.SetSettings(*input.Automatic, *input.IntervalMinutes); errors.Is(err, selfupdate.ErrUpdateInProgress) {
 		writeError(w, http.StatusConflict, "Wait for the current update to finish.")
+		return
+	} else if errors.Is(err, selfupdate.ErrInvalidInterval) {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "Unable to save automatic update setting.")

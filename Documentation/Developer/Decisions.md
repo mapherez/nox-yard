@@ -57,3 +57,7 @@ This supersedes the manual publication policy in D-011 and the manual-publicatio
 ## D-014 — Temporary Engine-based self-update worker (2026-09-25)
 
 The app checks the public GHCR `latest` manifest for its platform and uses the image config digest as the comparison ID. On change it pulls through the Engine API and starts a disposable helper from the exact old image ID. The helper preserves the original Compose container until the replacement passes `/healthz`, with a SQLite snapshot for rollback. Automatic checks are opt-in and run every six hours. This avoids a permanent updater service and Docker CLI in the runtime image.
+
+## D-015 — Dedicated settings drawer and configurable check interval (2026-09-25)
+
+This supersedes the fixed six-hour interval in D-014. Global update settings belong in a sidebar drawer so the dashboard remains focused on projects. The persisted interval defaults to 15 minutes and can be set to 5, 15, 30, 60, or 360 minutes. Saving enabled settings triggers an immediate check; scheduled checks are due within about one minute of the selected interval. Rounded UI surfaces use only `--radius-sm`.

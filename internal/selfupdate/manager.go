@@ -20,9 +20,8 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-const checkInterval = 6 * time.Hour
-
 var ErrUpdateInProgress = errors.New("self-update is in progress")
+var ErrInvalidInterval = errors.New("check interval must be 5, 15, 30, 60, or 360 minutes")
 
 type Manager struct {
 	store    *store.Store
@@ -33,6 +32,7 @@ type Manager struct {
 
 type Status struct {
 	Automatic       bool   `json:"automatic"`
+	IntervalMinutes int    `json:"intervalMinutes"`
 	Status          string `json:"status"`
 	LastChecked     string `json:"lastChecked,omitempty"`
 	CurrentBuildSHA string `json:"currentBuildSHA,omitempty"`
@@ -46,7 +46,7 @@ func New(data *store.Store, buildSHA string) *Manager {
 func (m *Manager) Start(ctx context.Context) {
 	go func() {
 		m.checkIfDue(ctx)
-		ticker := time.NewTicker(time.Hour)
+		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 		for {
 			select {
@@ -66,7 +66,10 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 }
 
-func (m *Manager) SetAutomatic(enabled bool) error {
+func (m *Manager) SetSettings(enabled bool, intervalMinutes int) error {
+	if !validInterval(intervalMinutes) {
+		return ErrInvalidInterval
+	}
 	job, exists, err := m.store.LatestSelfUpdateJob()
 	if err != nil {
 		return err
@@ -74,7 +77,7 @@ func (m *Manager) SetAutomatic(enabled bool) error {
 	if exists && job.Status == "updating" {
 		return ErrUpdateInProgress
 	}
-	if err := m.store.SetAutomaticUpdates(enabled); err != nil {
+	if err := m.store.SetSelfUpdateSettings(enabled, intervalMinutes); err != nil {
 		return err
 	}
 	if enabled {
@@ -95,7 +98,10 @@ func (m *Manager) Status() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	result := Status{Automatic: settings.Automatic, CurrentBuildSHA: m.buildSHA, Status: "not_checked"}
+	result := Status{
+		Automatic: settings.Automatic, IntervalMinutes: settings.CheckIntervalMinutes,
+		CurrentBuildSHA: m.buildSHA, Status: "not_checked",
+	}
 	if settings.LastCheckedAt > 0 {
 		result.LastChecked = time.Unix(settings.LastCheckedAt, 0).UTC().Format(time.RFC3339)
 		result.Status = "up_to_date"
@@ -122,11 +128,21 @@ func (m *Manager) Status() (Status, error) {
 func (m *Manager) checkIfDue(ctx context.Context) {
 	settings, err := m.store.SelfUpdateSettings()
 	if err != nil || !settings.Automatic ||
-		(settings.LastCheckedAt > 0 && time.Since(time.Unix(settings.LastCheckedAt, 0)) < checkInterval) {
+		(settings.LastCheckedAt > 0 && time.Since(time.Unix(settings.LastCheckedAt, 0)) <
+			time.Duration(settings.CheckIntervalMinutes)*time.Minute) {
 		return
 	}
 	if err := m.Check(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("Self-update check failed: %v", err)
+	}
+}
+
+func validInterval(minutes int) bool {
+	switch minutes {
+	case 5, 15, 30, 60, 360:
+		return true
+	default:
+		return false
 	}
 }
 

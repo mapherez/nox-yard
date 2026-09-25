@@ -9,10 +9,11 @@ import (
 )
 
 type SelfUpdateSettings struct {
-	Automatic      bool
-	LastCheckedAt  int64
-	LastCheckError string
-	FailedDigest   string
+	Automatic            bool
+	CheckIntervalMinutes int
+	LastCheckedAt        int64
+	LastCheckError       string
+	FailedDigest         string
 }
 
 type SelfUpdateJob struct {
@@ -28,16 +29,17 @@ type SelfUpdateJob struct {
 
 func (s *Store) SelfUpdateSettings() (SelfUpdateSettings, error) {
 	var settings SelfUpdateSettings
-	err := s.db.QueryRow(`SELECT automatic, last_checked_at, last_check_error, failed_digest
+	err := s.db.QueryRow(`SELECT automatic, check_interval_minutes, last_checked_at, last_check_error, failed_digest
 		FROM self_update_settings WHERE id = 1`).Scan(
-		&settings.Automatic, &settings.LastCheckedAt, &settings.LastCheckError, &settings.FailedDigest)
+		&settings.Automatic, &settings.CheckIntervalMinutes, &settings.LastCheckedAt,
+		&settings.LastCheckError, &settings.FailedDigest)
 	return settings, err
 }
 
-func (s *Store) SetAutomaticUpdates(enabled bool) error {
-	_, err := s.db.Exec(`UPDATE self_update_settings SET automatic = ?,
+func (s *Store) SetSelfUpdateSettings(enabled bool, intervalMinutes int) error {
+	_, err := s.db.Exec(`UPDATE self_update_settings SET automatic = ?, check_interval_minutes = ?,
 		failed_digest = CASE WHEN automatic = 0 AND ? THEN '' ELSE failed_digest END
-		WHERE id = 1`, enabled, enabled)
+		WHERE id = 1`, enabled, intervalMinutes, enabled)
 	return err
 }
 

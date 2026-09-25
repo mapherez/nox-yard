@@ -2,7 +2,7 @@
 
 ## Scope and data flow
 
-Self-update is off by default. When enabled, the service checks `ghcr.io/mapherez/nox-yard:latest` immediately and then at most once every six hours. It requests the public GHCR OCI index and the manifest for the running Linux architecture. The manifest's config digest is the Docker image ID. If that ID matches the running container, no image is pulled or container changed.
+Self-update is off by default. When enabled, the service checks `ghcr.io/mapherez/nox-yard:latest` immediately and then on the saved interval. The default is 15 minutes; Settings offers 5, 15, 30, 60, and 360 minutes. The scheduler wakes every minute, so a scheduled check can run up to about one minute after the selected interval. Saving an enabled setting triggers an immediate check. It requests the public GHCR OCI index and the manifest for the running Linux architecture. The manifest's config digest is the Docker image ID. If that ID matches the running container, no image is pulled or container changed.
 
 When the IDs differ, the service persists an `updating` job in SQLite, pulls `latest` through the Docker Engine API, and verifies the pulled image ID against the manifest. It then creates a temporary worker container from the **exact current image ID**. The worker has only the persistent `/data` mount and Docker socket; it has no published ports or network. Docker automatically removes the worker when it exits.
 
@@ -22,15 +22,15 @@ If creation, startup, or health fails, the worker removes the replacement, resto
 
 ## API and UI
 
-Authenticated `GET /api/self-update` returns `automatic`, `status`, `lastChecked`, optional `currentBuildSHA`, and an error when applicable. `PUT /api/self-update` accepts `{"automatic":true|false}` and requires the same Origin and session CSRF checks as other mutations. Status values are `not_checked`, `up_to_date`, `updating`, and `update_failed`. The dashboard polls the status while visible. The build SHA is injected by GitHub Actions at image build time; local builds may omit it.
+Authenticated `GET /api/self-update` returns `automatic`, `intervalMinutes`, `status`, `lastChecked`, optional `currentBuildSHA`, and an error when applicable. `PUT /api/self-update` accepts `{"automatic":true|false,"intervalMinutes":5|15|30|60|360}` and requires the same Origin and session CSRF checks as other mutations. Status values are `not_checked`, `up_to_date`, `updating`, and `update_failed`. The Settings drawer polls the status while visible; the Projects dashboard remains focused on projects. The build SHA is injected by GitHub Actions at image build time; local builds may omit it.
 
-SQLite schema version 2 adds `self_update_settings` and `self_update_jobs`. Jobs record the old/target image IDs, platform-manifest digest, outcome, timestamps, and failure. This is the canonical record across web-service restarts; no updater service is added to Compose.
+SQLite schema version 2 adds `self_update_settings` and `self_update_jobs`; version 3 adds the persisted check interval with a 15-minute default. Existing enabled installations adopt the new default after migration. Jobs record the old/target image IDs, platform-manifest digest, outcome, timestamps, and failure. This is the canonical record across web-service restarts; no updater service is added to Compose.
 
 ## Maintenance
 
 Keep the healthcheck and persistent mount contract stable when changing the Dockerfile or Compose file. Future database migrations should remain backward compatible during an update attempt; the SQLite snapshot protects a failed replacement. Do not add Docker CLI or Compose to the runtime image for this mechanism.
 
-For a failed attempt, inspect the dashboard error and the latest row in `self_update_jobs`. After fixing an environmental issue, switch Automatic updates off and on to retry the same image. If a helper is unexpectedly terminated during replacement, inspect Docker for the original `*-rollback-<job-id>` container and the `.self-update-<job-id>.sqlite` file under the mounted data directory before attempting manual recovery.
+For a failed attempt, inspect the Settings drawer error and the latest row in `self_update_jobs`. After fixing an environmental issue, switch Automatic updates off and on to retry the same image. If a helper is unexpectedly terminated during replacement, inspect Docker for the original `*-rollback-<job-id>` container and the `.self-update-<job-id>.sqlite` file under the mounted data directory before attempting manual recovery.
 
 ## References
 

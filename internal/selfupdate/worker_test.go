@@ -58,7 +58,7 @@ func TestSQLiteSnapshotRestoresUpdateState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := data.SetAutomaticUpdates(true); err != nil {
+	if err := data.SetSelfUpdateSettings(true, 15); err != nil {
 		t.Fatal(err)
 	}
 	jobID := "aaaaaaaaaaaaaaaaaaaaaaaa"

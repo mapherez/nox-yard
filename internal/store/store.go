@@ -71,10 +71,10 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	if version > 2 {
+	if version > 3 {
 		return fmt.Errorf("database schema version %d is newer than this application", version)
 	}
-	if version == 2 {
+	if version == 3 {
 		return nil
 	}
 	if version == 0 {
@@ -107,21 +107,22 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, statement := range []string{
-		`CREATE TABLE self_update_settings (
+	if version < 2 {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		for _, statement := range []string{
+			`CREATE TABLE self_update_settings (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			automatic INTEGER NOT NULL DEFAULT 0,
 			last_checked_at INTEGER NOT NULL DEFAULT 0,
 			last_check_error TEXT NOT NULL DEFAULT '',
 			failed_digest TEXT NOT NULL DEFAULT ''
 		)`,
-		"INSERT INTO self_update_settings (id) VALUES (1)",
-		`CREATE TABLE self_update_jobs (
+			"INSERT INTO self_update_settings (id) VALUES (1)",
+			`CREATE TABLE self_update_jobs (
 			id TEXT PRIMARY KEY,
 			status TEXT NOT NULL,
 			old_image_id TEXT NOT NULL,
@@ -131,8 +132,26 @@ func migrate(db *sql.DB) error {
 			created_at INTEGER NOT NULL,
 			completed_at INTEGER NOT NULL DEFAULT 0
 		)`,
-		"CREATE UNIQUE INDEX self_update_one_active ON self_update_jobs (status) WHERE status = 'updating'",
-		"PRAGMA user_version = 2",
+			"CREATE UNIQUE INDEX self_update_one_active ON self_update_jobs (status) WHERE status = 'updating'",
+			"PRAGMA user_version = 2",
+		} {
+			if _, err := tx.Exec(statement); err != nil {
+				return fmt.Errorf("migrate database: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		`ALTER TABLE self_update_settings ADD COLUMN check_interval_minutes INTEGER NOT NULL DEFAULT 15
+			CHECK (check_interval_minutes IN (5, 15, 30, 60, 360))`,
+		"PRAGMA user_version = 3",
 	} {
 		if _, err := tx.Exec(statement); err != nil {
 			return fmt.Errorf("migrate database: %w", err)

@@ -4,7 +4,7 @@
 
 The interface is dark-only, desktop-first, and usable on tablets and phones. Use the current Sealos visual direction as inspiration: clean dark surfaces, compact icon navigation, subtle boundaries, spacious cards and panels, blue accent, and low visual noise. This is a product-specific design, not a pixel copy.
 
-Use one clear primary action per view. Keep operational status visible without making the dashboard dense. Put detail and destructive actions in contextual drawers or dialogs. The product language is English only; no theme switcher or localization framework is planned.
+Use one clear primary action per view. Keep the Projects dashboard focused on projects; global preferences and update status live in the Settings drawer. Put detail and destructive actions in contextual drawers or dialogs. The product language is English only; no theme switcher or localization framework is planned.
 
 ## Token architecture
 
@@ -17,12 +17,12 @@ Recommended naming groups:
 | Canvas and surfaces | `--color-canvas`, `--color-surface-1`, `--color-surface-2` | Page, cards, overlays. |
 | Content | `--color-text-primary`, `--color-text-muted`, `--color-border` | Legible text and boundaries. |
 | Intent | `--color-accent`, `--color-success`, `--color-warning`, `--color-danger` | Actions and status. |
-| Layout | `--space-1` through `--space-8`, `--radius-sm`, `--radius-lg` | Reusable rhythm and shape. |
+| Layout | `--space-1` through `--space-8`, `--radius-sm` | Reusable rhythm and shape. |
 | Motion and elevation | `--duration-fast`, `--duration-normal`, `--shadow-panel` | Consistent transitions and layering. Add z-index tokens when overlays are implemented. |
 
 Use `:root { color-scheme: dark; }` and `<meta name="color-scheme" content="dark">` so native controls and the initial page canvas match the sole supported theme. Keep a single source of truth for dark tokens; do not create unused light-theme overrides. New themes, if ever approved, should override semantic tokens without rewriting component CSS.
 
-The current tokens provide a UI and monospaced font stack, spacing scale, radii, and transition durations. Prefer `rem` for type and spacing. Extend the tokens when a repeated visual value appears; keep one-off layout geometry in a local CSS Module if it does not represent a reusable rule.
+The current tokens provide a UI and monospaced font stack, spacing scale, one small corner radius, and transition durations. Use `--radius-sm` for every rounded surface, including cards, badges, controls, and panels. Prefer `rem` for type and spacing. Extend the tokens when a repeated visual value appears; keep one-off layout geometry in a local CSS Module if it does not represent a reusable rule.
 
 ## Component and CSS rules
 

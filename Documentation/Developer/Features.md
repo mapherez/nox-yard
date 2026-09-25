@@ -24,4 +24,4 @@ The dashboard refreshes every 20 seconds while visible and offers manual refresh
 
 ## NoX Yard self-update
 
-Automatic updates are off by default. The authenticated dashboard can enable them and shows the last check, update state, error, and current build SHA when available. The updater compares the running image ID with the platform image ID behind GHCR `latest`, then uses a temporary worker to replace NoX Yard and restore the previous container and SQLite snapshot if the replacement fails health. See [Self-Update](Self-Update.md) for the operational contract.
+Automatic updates are off by default. The Settings drawer controls them and their check interval, and shows status and build details. The updater compares the running image ID with the platform image ID behind GHCR `latest`, then uses a temporary worker to replace NoX Yard and restore the previous container and SQLite snapshot if the replacement fails health. See [Self-Update](Self-Update.md) for the operational contract.
