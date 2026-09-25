@@ -342,7 +342,7 @@ function Dashboard({
             <span className={styles.brandMark} aria-hidden="true">N</span>
             {!sidebarCollapsed && <span className={styles.brandName}>NoX Yard</span>}
           </div>
-          <button type="button" className={styles.sidebarToggle} aria-label={sidebarCollapsed ? "Expand sidebar" : "Hide sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Hide sidebar"} aria-expanded={!sidebarCollapsed} onClick={() => changeSidebar(!sidebarCollapsed)}>
+          <button type="button" className={`${styles.sidebarToggle} ${sidebarCollapsed ? styles.sidebarExpand : ""}`} aria-label={sidebarCollapsed ? "Expand sidebar" : "Hide sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Hide sidebar"} aria-expanded={!sidebarCollapsed} onClick={() => changeSidebar(!sidebarCollapsed)}>
             <SidebarIcon collapsed={sidebarCollapsed} />
           </button>
         </div>

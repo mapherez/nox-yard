@@ -307,6 +307,7 @@
 }
 
 .sidebarHeader {
+  position: relative;
   display: flex;
   min-block-size: 4.75rem;
   align-items: center;
@@ -348,8 +349,30 @@
 }
 
 .dashboard[data-collapsed="true"] .sidebarHeader {
-  flex-direction: column;
-  gap: var(--space-3);
+  justify-content: center;
+}
+
+.sidebarExpand {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.dashboard[data-collapsed="true"] .sidebarBrand .brandMark {
+  transition: opacity var(--duration-fast);
+}
+
+.sidebarExpand:hover,
+.sidebarExpand:focus-visible {
+  opacity: 1;
+}
+
+.dashboard[data-collapsed="true"] .sidebarHeader:has(.sidebarExpand:hover) .brandMark,
+.dashboard[data-collapsed="true"] .sidebarHeader:has(.sidebarExpand:focus-visible) .brandMark {
+  opacity: 0;
 }
 
 .sidebarNav {
@@ -480,7 +503,7 @@
 .settingsDrawer {
   position: fixed;
   inset-block: 0;
-  inset-inline: auto 0;
+  inset-inline: 0 auto;
   inline-size: min(30rem, 100%);
   block-size: 100dvh;
   max-inline-size: none;
@@ -488,23 +511,35 @@
   margin: 0;
   padding: 0;
   border: 0;
-  border-inline-start: 1px solid var(--color-border);
+  border-inline-end: 1px solid var(--color-border);
   background: var(--color-sidebar);
   color: var(--color-text-primary);
   box-shadow: var(--shadow-panel);
 }
 
 .settingsDrawer[open] {
-  animation: drawer-enter var(--duration-normal) ease-out both;
+  animation: settings-drawer-enter var(--duration-normal) ease-out both;
 }
 
-@keyframes drawer-enter {
+@keyframes settings-drawer-enter {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes project-drawer-enter {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
 }
 
 .projectDrawer {
+  inset-inline: auto 0;
   inline-size: min(38rem, 100%);
+  border-inline-start: 1px solid var(--color-border);
+  border-inline-end: 0;
+}
+
+.projectDrawer[open] {
+  animation-name: project-drawer-enter;
 }
 
 .settingsDrawer::backdrop {
@@ -970,7 +1005,7 @@
   .settingsDrawer,
   .projectDrawer {
     inline-size: 100%;
-    border-inline-start: 0;
+    border-inline: 0;
   }
 
   .authLayout {
@@ -1042,5 +1077,17 @@
 
   .brandCompact .brandName {
     font-size: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settingsDrawer[open],
+  .projectDrawer[open] {
+    animation: none;
+  }
+
+  .sidebarExpand,
+  .dashboard[data-collapsed="true"] .sidebarBrand .brandMark {
+    transition: none;
   }
 }
