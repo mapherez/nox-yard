@@ -269,7 +269,12 @@
 .dashboard {
   display: grid;
   min-block-size: 100dvh;
-  grid-template-columns: 5.5rem minmax(0, 1fr);
+  grid-template-columns: 16rem minmax(0, 1fr);
+  transition: grid-template-columns var(--duration-normal);
+}
+
+.dashboard[data-collapsed="true"] {
+  grid-template-columns: 4.5rem minmax(0, 1fr);
 }
 
 .skipLink {
@@ -289,39 +294,90 @@
 }
 
 .sidebar {
+  position: sticky;
+  inset-block-start: 0;
   display: flex;
+  block-size: 100dvh;
+  min-block-size: 0;
+  grid-column: 1;
   flex-direction: column;
-  align-items: center;
+  overflow-y: auto;
   border-inline-end: 1px solid var(--color-border);
   background: var(--color-sidebar);
 }
 
+.sidebarHeader {
+  display: flex;
+  min-block-size: 4.75rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
 .sidebarBrand {
+  display: flex;
+  min-inline-size: 0;
+  align-items: center;
+  gap: var(--space-3);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.sidebarToggle {
   display: grid;
-  min-block-size: 5.25rem;
+  flex: none;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
   place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.sidebarToggle:hover {
+  border-color: var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-primary);
+}
+
+.sidebarToggle svg {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+}
+
+.dashboard[data-collapsed="true"] .sidebarHeader {
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
 .sidebarNav {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-1);
   inline-size: 100%;
   padding: var(--space-3);
 }
 
 .navLink {
   display: flex;
-  min-block-size: 3.6rem;
-  flex-direction: column;
+  min-block-size: 2.85rem;
   align-items: center;
-  justify-content: center;
-  gap: 0.15rem;
+  gap: var(--space-3);
+  padding-inline: var(--space-3);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-muted);
-  font-size: 0.62rem;
+  font-size: 0.85rem;
+  font-weight: 650;
   text-decoration: none;
+  white-space: nowrap;
+}
+
+.dashboard[data-collapsed="true"] .navLink {
+  justify-content: center;
+  padding-inline: 0;
 }
 
 .navLink:hover,
@@ -334,51 +390,85 @@
 .navLink svg {
   inline-size: 1.2rem;
   block-size: 1.2rem;
+  flex: none;
+}
+
+.sidebarFooter {
+  display: grid;
+  gap: var(--space-2);
+  margin-block-start: auto;
+  padding: var(--space-3);
+  border-block-start: 1px solid var(--color-border);
 }
 
 .dashboardBody {
   min-inline-size: 0;
+  grid-column: 2;
 }
 
-.topbar {
+.accountRow {
   display: flex;
-  min-block-size: 5.25rem;
+  min-block-size: 3rem;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding-inline: clamp(var(--space-5), 3vw, var(--space-12));
-  border-block-end: 1px solid var(--color-border);
-  background: var(--color-sidebar);
+  gap: var(--space-3);
+  padding-inline: var(--space-2);
 }
 
-.account {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
+.dashboard[data-collapsed="true"] .accountRow {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.accountAvatar {
+  display: grid;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--color-accent);
+  border-radius: 50%;
+  background: var(--color-accent-pressed);
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  font-weight: 750;
 }
 
 .accountName {
-  max-inline-size: 12rem;
+  min-inline-size: 0;
   overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: 0.84rem;
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .signOutButton {
-  min-block-size: 2.65rem;
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--color-border-strong);
+  display: grid;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  flex: none;
+  place-items: center;
+  margin-inline-start: auto;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--color-surface-1);
-  color: var(--color-text-primary);
-  font-size: 0.82rem;
-  font-weight: 650;
+  background: transparent;
+  color: var(--color-text-muted);
 }
 
 .signOutButton:hover:not(:disabled) {
+  border-color: var(--color-border);
   background: var(--color-surface-2);
+  color: var(--color-text-primary);
+}
+
+.signOutButton svg {
+  inline-size: 1.2rem;
+  block-size: 1.2rem;
+}
+
+.sidebarScrim {
+  display: none;
 }
 
 .content {
@@ -404,6 +494,19 @@
   box-shadow: var(--shadow-panel);
 }
 
+.settingsDrawer[open] {
+  animation: drawer-enter var(--duration-normal) ease-out both;
+}
+
+@keyframes drawer-enter {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.projectDrawer {
+  inline-size: min(38rem, 100%);
+}
+
 .settingsDrawer::backdrop {
   background: rgb(0 0 0 / 0.6);
 }
@@ -426,6 +529,7 @@
 .settingsHeader h2 {
   margin: var(--space-2) 0 0;
   font-size: 1.5rem;
+  overflow-wrap: anywhere;
 }
 
 .settingsContent {
@@ -436,6 +540,10 @@
   min-block-size: 0;
   overflow-y: auto;
   padding: var(--space-6);
+}
+
+.projectDrawerContent {
+  gap: var(--space-5);
 }
 
 .settingsSection {
@@ -618,13 +726,6 @@
   font-size: 0.8rem;
 }
 
-.inventoryWithDetail {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(20rem, 24rem);
-  align-items: start;
-  gap: var(--space-5);
-}
-
 .projectGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
@@ -649,7 +750,7 @@
 }
 
 .projectCard:hover,
-.projectCard[aria-pressed="true"] {
+.projectCard[aria-expanded="true"] {
   border-color: var(--color-accent);
   background: var(--color-surface-2);
 }
@@ -735,30 +836,10 @@
   white-space: nowrap;
 }
 
-.detailPanel {
-  min-inline-size: 0;
-  padding: var(--space-5);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-1);
-}
-
-.detailHeading {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.detailHeading h2 {
-  overflow-wrap: anywhere;
-  margin: var(--space-2) 0 0;
-  font-size: 1.2rem;
-}
-
 .closeButton {
-  inline-size: 2rem;
-  block-size: 2rem;
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+  flex: none;
   font-size: 1.25rem;
 }
 
@@ -768,7 +849,7 @@
   font-size: 0.8rem;
 }
 
-.detailSummary { margin: var(--space-2) 0 var(--space-5); }
+.detailSummary { margin: 0; }
 
 .containerList {
   display: grid;
@@ -861,14 +942,11 @@
   .authAside {
     padding: var(--space-8);
   }
-
-  .inventoryWithDetail {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 47.99rem) {
-  .settingsDrawer {
+  .settingsDrawer,
+  .projectDrawer {
     inline-size: 100%;
     border-inline-start: 0;
   }
@@ -891,42 +969,38 @@
     margin-block-end: var(--space-12);
   }
 
-  .dashboard {
-    display: flex;
-    flex-direction: column;
+  .dashboard,
+  .dashboard[data-collapsed="true"] {
+    grid-template-columns: 4.5rem minmax(0, 1fr);
   }
 
-  .sidebar {
-    min-block-size: 3.5rem;
-    flex-direction: row;
-    align-items: center;
-    border-inline-end: 0;
-    border-block-end: 1px solid var(--color-border);
+  .dashboard:not([data-collapsed="true"]) .sidebar {
+    position: fixed;
+    z-index: 21;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    inline-size: min(16rem, calc(100dvw - 3rem));
+    box-shadow: var(--shadow-panel);
   }
 
-  .sidebarBrand {
-    display: none;
-  }
-
-  .sidebarNav {
-    display: flex;
-    padding: var(--space-2) var(--space-4);
-  }
-
-  .navLink {
-    min-block-size: 2.75rem;
-    flex-direction: row;
-    padding-inline: var(--space-3);
-    font-size: 0.78rem;
-  }
-
-  .topbar {
-    min-block-size: 4.5rem;
-    padding-inline: var(--space-5);
+  .sidebarScrim {
+    position: fixed;
+    z-index: 20;
+    inset: 0;
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+    padding: 0;
+    border: 0;
+    background: rgb(0 0 0 / 0.55);
   }
 
   .content {
     padding: var(--space-6) var(--space-5);
+  }
+
+  .pageHeading {
+    flex-wrap: wrap;
   }
 
   .emptyPanel {
@@ -940,11 +1014,9 @@
 }
 
 @media (max-width: 26rem) {
-  .pageHeading { align-items: start; }
+  .pageHeading { flex-direction: column; align-items: start; }
   .inventoryMeta { flex-direction: column; }
-  .accountName {
-    display: none;
-  }
+  .refreshButton { align-self: start; }
 
   .brandCompact .brandName {
     font-size: 1rem;

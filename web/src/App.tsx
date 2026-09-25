@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import {
   createAdministrator,
   getBootstrap,
@@ -243,6 +243,44 @@ function Dashboard({
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const skipLinkRef = useRef<HTMLAnchorElement>(null);
+  const dashboardBodyRef = useRef<HTMLDivElement>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (window.matchMedia("(max-width: 47.99rem)").matches) return true;
+    try { return window.localStorage.getItem("nox-yard-sidebar-collapsed") === "true"; }
+    catch { return false; }
+  });
+
+  const changeSidebar = useCallback((collapsed: boolean) => {
+    setSidebarCollapsed(collapsed);
+    try { window.localStorage.setItem("nox-yard-sidebar-collapsed", String(collapsed)); }
+    catch { /* The layout still works when browser storage is unavailable. */ }
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 47.99rem)");
+    const content = dashboardBodyRef.current;
+    const skipLink = skipLinkRef.current;
+    if (!content) return;
+    const sync = () => {
+      const blocked = !sidebarCollapsed && media.matches;
+      content.inert = blocked;
+      if (skipLink) skipLink.inert = blocked;
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && media.matches && !sidebarCollapsed &&
+          !document.querySelector("dialog[open]")) changeSidebar(true);
+    };
+    sync();
+    media.addEventListener("change", sync);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      content.inert = false;
+      if (skipLink) skipLink.inert = false;
+      media.removeEventListener("change", sync);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [sidebarCollapsed, changeSidebar]);
 
   useEffect(() => {
     let active = true;
@@ -278,6 +316,7 @@ function Dashboard({
   }, [refreshKey]);
 
   const selected = projects?.find((project) => project.id === selectedID);
+  const displayName = username.charAt(0).toUpperCase() + username.slice(1);
 
   async function handleSignOut() {
     setError("");
@@ -293,28 +332,41 @@ function Dashboard({
   }
 
   return (
-    <div className={styles.dashboard}>
-      <a href="#content" className={styles.skipLink}>Skip to content</a>
+    <div className={styles.dashboard} data-collapsed={sidebarCollapsed}>
+      <a ref={skipLinkRef} href="#content" className={styles.skipLink}>Skip to content</a>
+      {!sidebarCollapsed && <button type="button" className={styles.sidebarScrim} aria-label="Hide sidebar" tabIndex={-1} onClick={() => changeSidebar(true)} />}
       <aside className={styles.sidebar}>
-        <div className={styles.sidebarBrand}><span className={styles.brandMark} aria-label="NoX Yard">N</span></div>
-        <nav aria-label="Primary" className={styles.sidebarNav}>
-          <a href="#projects" aria-current="page" className={styles.navLink}>
-            <GridIcon /><span>Projects</span>
-          </a>
-          <button type="button" className={styles.navLink} aria-haspopup="dialog" aria-controls="settings-drawer" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(true)}>
-            <SettingsIcon /><span>Settings</span>
+        <div className={styles.sidebarHeader}>
+          <div className={styles.sidebarBrand} aria-label="NoX Yard">
+            <span className={styles.brandMark} aria-hidden="true">N</span>
+            {!sidebarCollapsed && <span className={styles.brandName}>NoX Yard</span>}
+          </div>
+          <button type="button" className={styles.sidebarToggle} aria-label={sidebarCollapsed ? "Expand sidebar" : "Hide sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Hide sidebar"} aria-expanded={!sidebarCollapsed} onClick={() => changeSidebar(!sidebarCollapsed)}>
+            <SidebarIcon collapsed={sidebarCollapsed} />
           </button>
+        </div>
+        <nav aria-label="Primary" className={styles.sidebarNav}>
+          <a href="#projects" aria-current="page" className={styles.navLink} aria-label="Projects" title={sidebarCollapsed ? "Projects" : undefined} onClick={() => { if (window.matchMedia("(max-width: 47.99rem)").matches) changeSidebar(true); }}>
+            <GridIcon />{!sidebarCollapsed && <span>Projects</span>}
+          </a>
         </nav>
+        <div className={styles.sidebarFooter}>
+          <button type="button" className={styles.navLink} aria-label="Settings" title={sidebarCollapsed ? "Settings" : undefined} aria-haspopup="dialog" aria-controls="settings-drawer" aria-expanded={settingsOpen} onClick={() => { setSettingsOpen(true); if (window.matchMedia("(max-width: 47.99rem)").matches) changeSidebar(true); }}>
+            <SettingsIcon />{!sidebarCollapsed && <span>Settings</span>}
+          </button>
+          <div className={styles.accountRow}>
+            {sidebarCollapsed
+              ? <span className={styles.accountAvatar} role="img" aria-label={`${displayName}'s account`} title={displayName}>{displayName.charAt(0)}</span>
+              : <>
+                <span className={styles.accountAvatar} aria-hidden="true">{displayName.charAt(0)}</span>
+                <span className={styles.accountName} title={displayName}>{displayName}</span>
+                <button type="button" onClick={handleSignOut} disabled={pending} className={styles.signOutButton} aria-label="Sign out" title="Sign out"><SignOutIcon /></button>
+              </>}
+          </div>
+        </div>
       </aside>
 
-      <div className={styles.dashboardBody}>
-        <header className={styles.topbar}>
-          <Brand compact />
-          <div className={styles.account}>
-            <span className={styles.accountName}>{username}</span>
-            <button type="button" onClick={handleSignOut} disabled={pending} className={styles.signOutButton}>Sign out</button>
-          </div>
-        </header>
+      <div ref={dashboardBodyRef} className={styles.dashboardBody}>
         <main id="content" tabIndex={-1} className={styles.content}>
           <div className={styles.pageHeading} id="projects">
             <div>
@@ -340,45 +392,75 @@ function Dashboard({
               <span>{projects.length} {projects.length === 1 ? "project" : "projects"} · {projects.reduce((sum, project) => sum + project.containers.length, 0)} containers</span>
               <span>{collectedAt && `Updated ${new Date(collectedAt).toLocaleTimeString()}`}</span>
             </div>
-            <div className={selected ? styles.inventoryWithDetail : undefined}>
-              <section className={styles.projectGrid} aria-label="Docker projects">
-                {projects.map((project) => <button
-                  key={project.id}
-                  type="button"
-                  className={styles.projectCard}
-                  aria-pressed={selectedID === project.id}
-                  onClick={() => setSelectedID(selectedID === project.id ? null : project.id)}
-                >
-                  <span className={styles.cardTopline}>
-                    <span className={styles.cardKind}>{project.kind === "external-compose" ? "COMPOSE" : "CONTAINER"}</span>
-                    <span className={`${styles.statusBadge} ${statusClass(project.state)}`}>{project.state}</span>
-                  </span>
-                  <span className={styles.cardName}>{project.name}</span>
-                  <span className={styles.cardSubline}>{project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · Health: {healthLabel(project.health)}</span>
-                  <span className={styles.cardMetrics}>
-                    <Metric label="CPU" value={formatCPU(project.cpuPercent)} />
-                    <Metric label="Memory" value={formatBytes(project.memoryBytes)} />
-                    <Metric label="Uptime" value={formatUptime(project.uptimeSeconds)} />
-                  </span>
-                </button>)}
-              </section>
-              {selected && <aside className={styles.detailPanel} aria-label={`${selected.name} containers`}>
-                <div className={styles.detailHeading}>
-                  <div><span className={styles.sectionLabel}>PROJECT DETAILS</span><h2>{selected.name}</h2></div>
-                  <button type="button" className={styles.closeButton} onClick={() => setSelectedID(null)} aria-label="Close project details">×</button>
-                </div>
-                <p className={styles.detailSummary}>{selected.containers.length} {selected.containers.length === 1 ? "container" : "containers"} · {selected.state} · {healthLabel(selected.health)}</p>
-                <div className={styles.containerList}>
-                  {selected.containers.map((container) => <ContainerRow key={container.id} container={container} />)}
-                </div>
-              </aside>}
-            </div>
+            <section className={styles.projectGrid} aria-label="Docker projects">
+              {projects.map((project) => <button
+                key={project.id}
+                type="button"
+                className={styles.projectCard}
+                aria-haspopup="dialog"
+                aria-controls="project-drawer"
+                aria-expanded={selectedID === project.id}
+                onClick={() => setSelectedID(project.id)}
+              >
+                <span className={styles.cardTopline}>
+                  <span className={styles.cardKind}>{project.kind === "external-compose" ? "COMPOSE" : "CONTAINER"}</span>
+                  <span className={`${styles.statusBadge} ${statusClass(project.state)}`}>{project.state}</span>
+                </span>
+                <span className={styles.cardName}>{project.name}</span>
+                <span className={styles.cardSubline}>{project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · Health: {healthLabel(project.health)}</span>
+                <span className={styles.cardMetrics}>
+                  <Metric label="CPU" value={formatCPU(project.cpuPercent)} />
+                  <Metric label="Memory" value={formatBytes(project.memoryBytes)} />
+                  <Metric label="Uptime" value={formatUptime(project.uptimeSeconds)} />
+                </span>
+              </button>)}
+            </section>
           </>}
         </main>
       </div>
+      <ProjectDrawer project={selected} onClose={() => setSelectedID(null)} />
       <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} onClose={() => setSettingsOpen(false)} />
     </div>
   );
+}
+
+function ProjectDrawer({ project, onClose }: { project?: Project; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (project && !dialog.open) dialog.showModal();
+    if (!project && dialog.open) dialog.close();
+  }, [project]);
+
+  return <dialog
+    id="project-drawer"
+    ref={dialogRef}
+    className={`${styles.settingsDrawer} ${styles.projectDrawer}`}
+    aria-labelledby="project-drawer-title"
+    onClose={onClose}
+    onClick={dismissDrawerBackdrop}
+    {...{ closedby: "any" }}
+  >
+    {project && <div className={styles.settingsBody}>
+      <header className={styles.settingsHeader}>
+        <div>
+          <span className={styles.sectionLabel}>PROJECT DETAILS</span>
+          <h2 id="project-drawer-title">{project.name}</h2>
+        </div>
+        <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close project details">×</button>
+      </header>
+      <div className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
+        <p className={styles.detailSummary}>
+          {project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · {project.state} · Health: {healthLabel(project.health)}
+        </p>
+        <div className={styles.containerList}>
+          {project.containers.map((container) => <ContainerRow key={container.id} container={container} />)}
+        </div>
+      </div>
+    </div>}
+  </dialog>;
 }
 
 const checkIntervals = [5, 15, 30, 60, 360] as const;
@@ -455,15 +537,6 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
     update_failed: "Update failed",
   };
 
-  function dismissFromBackdrop(event: MouseEvent<HTMLDialogElement>) {
-    if (event.target !== event.currentTarget) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    if (event.clientX < bounds.left || event.clientX > bounds.right ||
-        event.clientY < bounds.top || event.clientY > bounds.bottom) {
-      event.currentTarget.close();
-    }
-  }
-
   const busy = saving || status?.status === "updating";
   const unchanged = status?.automatic === automatic && status?.intervalMinutes === intervalMinutes;
 
@@ -473,7 +546,7 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
     className={styles.settingsDrawer}
     aria-labelledby="settings-title"
     onClose={onClose}
-    onClick={dismissFromBackdrop}
+    onClick={dismissDrawerBackdrop}
     {...{ closedby: "any" }}
   >
     <div className={styles.settingsBody}>
@@ -520,6 +593,15 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
       </div>
     </div>
   </dialog>;
+}
+
+function dismissDrawerBackdrop(event: MouseEvent<HTMLDialogElement>) {
+  if (event.target !== event.currentTarget) return;
+  const bounds = event.currentTarget.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right ||
+      event.clientY < bounds.top || event.clientY > bounds.bottom) {
+    event.currentTarget.close();
+  }
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -593,4 +675,18 @@ function SettingsIcon(): ReactNode {
       <circle cx="8" cy="18" r="3" />
     </svg>
   );
+}
+
+function SidebarIcon({ collapsed }: { collapsed: boolean }): ReactNode {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M9 3v18" />
+    {collapsed ? <path d="m13 9 3 3-3 3" /> : <path d="m16 9-3 3 3 3" />}
+  </svg>;
+}
+
+function SignOutIcon(): ReactNode {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M10 4H5v16h5M7 12h11m-4-4 4 4-4 4" />
+  </svg>;
 }
