@@ -1232,6 +1232,16 @@
     padding: var(--space-6) var(--space-5);
   }
 
+  .dashboardHeader {
+    position: sticky;
+    z-index: 5;
+    inset-block-start: 0;
+    margin-block-start: calc(-1 * var(--space-6));
+    margin-inline: calc(-1 * var(--space-5));
+    padding: var(--space-6) var(--space-5) var(--space-5);
+    background: var(--color-canvas);
+  }
+
   .pageHeading {
     justify-content: space-between;
   }
@@ -1263,7 +1273,7 @@
   }
 
   .inventoryMeta {
-    margin-block-start: var(--space-6);
+    margin-block: var(--space-6) 0;
   }
 }
 

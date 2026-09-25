@@ -383,12 +383,18 @@ function Dashboard({
 
       <div ref={dashboardBodyRef} className={styles.dashboardBody}>
         <main id="content" tabIndex={-1} className={styles.content}>
-          <div className={styles.pageHeading} id="projects">
-            <h1 className={styles.visuallyHidden}>Projects</h1>
-            <button type="button" className={styles.mobileMenuButton} aria-label="Open menu" aria-controls="primary-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><MenuIcon /></button>
-            <button type="button" className={styles.refreshButton} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
-              {refreshing ? "Refreshing…" : "Refresh"}
-            </button>
+          <div className={styles.dashboardHeader}>
+            <div className={styles.pageHeading} id="projects">
+              <h1 className={styles.visuallyHidden}>Projects</h1>
+              <button type="button" className={styles.mobileMenuButton} aria-label="Open menu" aria-controls="primary-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><MenuIcon /></button>
+              <button type="button" className={styles.refreshButton} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
+                {refreshing ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
+            {projects && projects.length > 0 && <div className={styles.inventoryMeta}>
+              <span>{projects.length} {projects.length === 1 ? "project" : "projects"} · {projects.reduce((sum, project) => sum + project.containers.length, 0)} containers</span>
+              <span>{collectedAt && `Updated ${new Date(collectedAt).toLocaleTimeString()}`}</span>
+            </div>}
           </div>
 
           {error && <p className={styles.formError} role="alert">{error}</p>}
@@ -400,10 +406,6 @@ function Dashboard({
             <p>Compose projects and standalone containers on this host will appear here.</p>
           </section>}
           {projects && projects.length > 0 && <>
-            <div className={styles.inventoryMeta}>
-              <span>{projects.length} {projects.length === 1 ? "project" : "projects"} · {projects.reduce((sum, project) => sum + project.containers.length, 0)} containers</span>
-              <span>{collectedAt && `Updated ${new Date(collectedAt).toLocaleTimeString()}`}</span>
-            </div>
             <section className={styles.projectGrid} aria-label="Docker projects">
               {projects.map((project) => <button
                 key={project.id}

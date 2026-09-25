@@ -41,7 +41,7 @@ Use content-driven layouts with CSS Grid/Flexbox and a small number of documente
 
 - **Desktop (about 1024px and above):** collapsible left sidebar, multi-column card grid, right-side project details, and left-side settings.
 - **Tablet (768–1023px):** the same sidebar states with fewer card columns; drawers overlay rather than shrink the project grid.
-- **Mobile (below 768px):** no persistent sidebar. A menu button beside the dashboard Refresh action opens the wide sidebar as an overlay. Cards use one column and drawers fill the viewport.
+- **Mobile (below 768px):** no persistent sidebar. A menu button beside the dashboard Refresh action opens the wide sidebar as an overlay. The full-width dashboard header keeps both actions and the project count/update time visible while cards scroll beneath its opaque canvas background. Cards use one column and drawers fill the viewport.
 
 The wide sidebar shows the logo and navigation labels, with Settings and the account at the bottom. Its Hide button remains beside the brand. The narrow state shows icons and a circular account initial; hovering over or focusing the logo reveals the Expand control, and hovering over or focusing the account reveals Sign out. The desktop/tablet width preference is stored in the browser. Mobile always opens the wide sidebar and does not change that preference. Keep the main content inert while the mobile sidebar is open; Escape and the backdrop close it. Native modal dialogs provide focus handling and Escape dismissal for drawers. A shared drawer layout keeps each header visible while its content scrolls, and an open drawer locks background scrolling on all viewports.
 
