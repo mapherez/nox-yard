@@ -18,6 +18,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html:has(dialog[open]),
+body:has(dialog[open]),
+html:has([data-mobile-open="true"]),
+body:has([data-mobile-open="true"]) {
+  overflow: hidden;
+}
+
 button,
 input {
   font: inherit;

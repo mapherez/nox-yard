@@ -40,16 +40,18 @@ The account avatar is intentionally circular to identify the user; this is the o
 Use content-driven layouts with CSS Grid/Flexbox and a small number of documented breakpoints. Initial layout targets:
 
 - **Desktop (about 1024px and above):** collapsible left sidebar, multi-column card grid, right-side project details, and left-side settings.
-- **Tablet (about 640–1023px):** the same sidebar states with fewer card columns; drawers overlay rather than shrink the project grid.
-- **Mobile (below about 640px):** a narrow icon sidebar, an expanded sidebar that overlays the page, single-column cards, and full-width drawers.
+- **Tablet (768–1023px):** the same sidebar states with fewer card columns; drawers overlay rather than shrink the project grid.
+- **Mobile (below 768px):** no persistent sidebar. A menu button beside the dashboard Refresh action opens the wide sidebar as an overlay. Cards use one column and drawers fill the viewport.
 
-The wide sidebar shows the logo and navigation labels, with Settings and the account at the bottom. Its Hide button remains beside the brand. The narrow state shows icons and a circular account initial; hovering over or focusing the logo reveals the Expand control in its place, and clicking or tapping that same target expands the sidebar. The width preference is stored in the browser. Keep the main content inert while the mobile sidebar is expanded; Escape and the backdrop close it. Native modal dialogs provide focus handling and Escape dismissal for drawers.
+The wide sidebar shows the logo and navigation labels, with Settings and the account at the bottom. Its Hide button remains beside the brand. The narrow state shows icons and a circular account initial; hovering over or focusing the logo reveals the Expand control, and hovering over or focusing the account reveals Sign out. The desktop/tablet width preference is stored in the browser. Mobile always opens the wide sidebar and does not change that preference. Keep the main content inert while the mobile sidebar is open; Escape and the backdrop close it. Native modal dialogs provide focus handling and Escape dismissal for drawers. A shared drawer layout keeps each header visible while its content scrolls, and an open drawer locks background scrolling on all viewports.
+
+On touch devices, drawers also close by swiping toward their entry edge: left for Settings and right for project details. `useDrawerSwipe` handles the gesture for both drawers. Keep `touch-action: pan-y pinch-zoom` on the drawer and its scrolling content so vertical scrolling remains native. A short or canceled swipe returns the drawer to its open position; buttons, links, and form controls do not start a swipe.
 
 These values are starting points, not device identities. Check narrow screens, 200% zoom, long project names, many services, and keyboard-only navigation. Logs and terminals should scroll within their own bounded panels rather than widening the page.
 
 ## Interaction and copy
 
-- Show a project's aggregate state, health, container count, CPU, memory, and uptime on its card. Keep the card action target and per-card action menu distinct.
+- Show a project's aggregate state, health, container count, CPU, memory, and uptime on its card. Selecting a card opens a drawer with its container details already visible. Keep the card action target and per-card action menu distinct when an action menu is added.
 - The **New Project** flow is a source step, variable entry, validation/preview, then confirmation. Show service/image/port/volume/network changes before a URL sync or adoption.
 - Use present-tense, concise English labels: “Pull images”, “Update project”, “Remove project”. Destructive confirmations must name the affected project and whether volumes will be deleted.
 - Mask environment and configuration values that may contain credentials. Reveal only after an explicit action in an authenticated session; avoid copying sensitive values into toasts or URLs.

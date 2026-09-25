@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import {
   checkSelfUpdateNow,
   createAdministrator,
@@ -17,6 +17,7 @@ import {
   type SelfUpdateStatus,
 } from "./api";
 import styles from "./App.module.css";
+import { useDrawerSwipe } from "./useDrawerSwipe";
 
 type View =
   | { kind: "loading" }
@@ -249,11 +250,13 @@ function Dashboard({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const skipLinkRef = useRef<HTMLAnchorElement>(null);
   const dashboardBodyRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 47.99rem)").matches);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (window.matchMedia("(max-width: 47.99rem)").matches) return true;
     try { return window.localStorage.getItem("nox-yard-sidebar-collapsed") === "true"; }
     catch { return false; }
   });
+  const compactSidebar = !isMobile && sidebarCollapsed;
 
   const changeSidebar = useCallback((collapsed: boolean) => {
     setSidebarCollapsed(collapsed);
@@ -263,28 +266,30 @@ function Dashboard({
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 47.99rem)");
+    const sync = () => {
+      setIsMobile(media.matches);
+      if (!media.matches) setMobileOpen(false);
+    };
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
     const content = dashboardBodyRef.current;
     const skipLink = skipLinkRef.current;
     if (!content) return;
-    const sync = () => {
-      const blocked = !sidebarCollapsed && media.matches;
-      content.inert = blocked;
-      if (skipLink) skipLink.inert = blocked;
-    };
+    content.inert = mobileOpen;
+    if (skipLink) skipLink.inert = mobileOpen;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && media.matches && !sidebarCollapsed &&
-          !document.querySelector("dialog[open]")) changeSidebar(true);
+      if (event.key === "Escape" && mobileOpen && !document.querySelector("dialog[open]")) setMobileOpen(false);
     };
-    sync();
-    media.addEventListener("change", sync);
     document.addEventListener("keydown", onKeyDown);
     return () => {
       content.inert = false;
       if (skipLink) skipLink.inert = false;
-      media.removeEventListener("change", sync);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [sidebarCollapsed, changeSidebar]);
+  }, [mobileOpen]);
 
   useEffect(() => {
     let active = true;
@@ -336,31 +341,34 @@ function Dashboard({
   }
 
   return (
-    <div className={styles.dashboard} data-collapsed={sidebarCollapsed}>
+    <div className={styles.dashboard} data-collapsed={compactSidebar} data-mobile-open={mobileOpen}>
       <a ref={skipLinkRef} href="#content" className={styles.skipLink}>Skip to content</a>
-      {!sidebarCollapsed && <button type="button" className={styles.sidebarScrim} aria-label="Hide sidebar" tabIndex={-1} onClick={() => changeSidebar(true)} />}
-      <aside className={styles.sidebar}>
+      {mobileOpen && <button type="button" className={styles.sidebarScrim} aria-label="Close menu" tabIndex={-1} onClick={() => setMobileOpen(false)} />}
+      <aside className={styles.sidebar} id="primary-sidebar">
         <div className={styles.sidebarHeader}>
           <div className={styles.sidebarBrand} aria-label="NoX Yard">
             <span className={styles.brandMark} aria-hidden="true">N</span>
-            {!sidebarCollapsed && <span className={styles.brandName}>NoX Yard</span>}
+            {!compactSidebar && <span className={styles.brandName}>NoX Yard</span>}
           </div>
-          <button type="button" className={`${styles.sidebarToggle} ${sidebarCollapsed ? styles.sidebarExpand : ""}`} aria-label={sidebarCollapsed ? "Expand sidebar" : "Hide sidebar"} title={sidebarCollapsed ? "Expand sidebar" : "Hide sidebar"} aria-expanded={!sidebarCollapsed} onClick={() => changeSidebar(!sidebarCollapsed)}>
-            <SidebarIcon collapsed={sidebarCollapsed} />
+          <button type="button" className={`${styles.sidebarToggle} ${compactSidebar ? styles.sidebarExpand : ""}`} aria-label={isMobile ? "Close menu" : compactSidebar ? "Expand sidebar" : "Hide sidebar"} title={isMobile ? "Close menu" : compactSidebar ? "Expand sidebar" : "Hide sidebar"} aria-expanded={!compactSidebar} onClick={() => isMobile ? setMobileOpen(false) : changeSidebar(!sidebarCollapsed)}>
+            <SidebarIcon collapsed={compactSidebar} />
           </button>
         </div>
         <nav aria-label="Primary" className={styles.sidebarNav}>
-          <a href="#projects" aria-current="page" className={styles.navLink} aria-label="Projects" title={sidebarCollapsed ? "Projects" : undefined} onClick={() => { if (window.matchMedia("(max-width: 47.99rem)").matches) changeSidebar(true); }}>
-            <GridIcon />{!sidebarCollapsed && <span>Projects</span>}
+          <a href="#projects" aria-current="page" className={styles.navLink} aria-label="Projects" title={compactSidebar ? "Projects" : undefined} onClick={() => setMobileOpen(false)}>
+            <GridIcon />{!compactSidebar && <span>Projects</span>}
           </a>
         </nav>
         <div className={styles.sidebarFooter}>
-          <button type="button" className={styles.navLink} aria-label="Settings" title={sidebarCollapsed ? "Settings" : undefined} aria-haspopup="dialog" aria-controls="settings-drawer" aria-expanded={settingsOpen} onClick={() => { setSettingsOpen(true); if (window.matchMedia("(max-width: 47.99rem)").matches) changeSidebar(true); }}>
-            <SettingsIcon />{!sidebarCollapsed && <span>Settings</span>}
+          <button type="button" className={styles.navLink} aria-label="Settings" title={compactSidebar ? "Settings" : undefined} aria-haspopup="dialog" aria-controls="settings-drawer" aria-expanded={settingsOpen} onClick={() => { setMobileOpen(false); setSettingsOpen(true); }}>
+            <SettingsIcon />{!compactSidebar && <span>Settings</span>}
           </button>
           <div className={styles.accountRow}>
-            {sidebarCollapsed
-              ? <span className={styles.accountAvatar} role="img" aria-label={`${displayName}'s account`} title={displayName}>{displayName.charAt(0)}</span>
+            {compactSidebar
+              ? <div className={styles.accountCompact}>
+                <span className={styles.accountAvatar} aria-hidden="true">{displayName.charAt(0)}</span>
+                <button type="button" onClick={handleSignOut} disabled={pending} className={styles.compactSignOut} aria-label={`Sign out ${displayName}`} title="Sign out"><SignOutIcon /></button>
+              </div>
               : <>
                 <span className={styles.accountAvatar} aria-hidden="true">{displayName.charAt(0)}</span>
                 <span className={styles.accountName} title={displayName}>{displayName}</span>
@@ -373,11 +381,8 @@ function Dashboard({
       <div ref={dashboardBodyRef} className={styles.dashboardBody}>
         <main id="content" tabIndex={-1} className={styles.content}>
           <div className={styles.pageHeading} id="projects">
-            <div>
-              <span className={styles.sectionLabel}>OVERVIEW</span>
-              <h1>Projects</h1>
-              <p>Your Docker workspace, all in one place.</p>
-            </div>
+            <h1 className={styles.visuallyHidden}>Projects</h1>
+            <button type="button" className={styles.mobileMenuButton} aria-label="Open menu" aria-controls="primary-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><MenuIcon /></button>
             <button type="button" className={styles.refreshButton} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
               {refreshing ? "Refreshing…" : "Refresh"}
             </button>
@@ -430,14 +435,7 @@ function Dashboard({
 
 function ProjectDrawer({ project, csrfToken, onClose }: { project?: Project; csrfToken: string; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const revealController = useRef<AbortController | null>(null);
-  const lastInspectedID = useRef<string | null>(null);
-  const [selectedContainerID, setSelectedContainerID] = useState<string | null>(null);
-  const [inspection, setInspection] = useState<ContainerInspection | null>(null);
-  const [detailError, setDetailError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [revealing, setRevealing] = useState(false);
-  const [revealed, setRevealed] = useState(false);
+  useDrawerSwipe(dialogRef, "right");
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -446,23 +444,51 @@ function ProjectDrawer({ project, csrfToken, onClose }: { project?: Project; csr
     if (!project && dialog.open) dialog.close();
   }, [project]);
 
-  useEffect(() => {
-    lastInspectedID.current = null;
-    setSelectedContainerID(null);
-    setInspection(null);
-    setRevealed(false);
-    setRevealing(false);
-  }, [project?.id]);
+  return <dialog
+    id="project-drawer"
+    ref={dialogRef}
+    className={`${styles.settingsDrawer} ${styles.projectDrawer}`}
+    aria-labelledby="project-drawer-title"
+    onClose={onClose}
+    onClick={dismissDrawerBackdrop}
+    {...{ closedby: "any" }}
+  >
+    {project && <div className={styles.settingsBody}>
+      <header className={styles.settingsHeader}>
+        <div>
+          <span className={styles.sectionLabel}>PROJECT DETAILS</span>
+          <h2 id="project-drawer-title">{project.name}</h2>
+        </div>
+        <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close project details">×</button>
+      </header>
+      <div className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
+        <p className={styles.detailSummary}>
+          {project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · {project.state} · Health: {healthLabel(project.health)}
+        </p>
+        <div className={styles.containerList}>
+          {project.containers.map((container) => <ContainerDetails key={container.id} container={container} csrfToken={csrfToken} />)}
+        </div>
+      </div>
+    </div>}
+  </dialog>;
+}
+
+function ContainerDetails({ container, csrfToken }: { container: Container; csrfToken: string }) {
+  const revealController = useRef<AbortController | null>(null);
+  const [inspection, setInspection] = useState<ContainerInspection | null>(null);
+  const [detailError, setDetailError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [revealing, setRevealing] = useState(false);
+  const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
-    if (!project || !selectedContainerID) return;
     const controller = new AbortController();
     setInspection(null);
     setDetailError("");
     setLoading(true);
     setRevealed(false);
     setRevealing(false);
-    void getContainerInspection(selectedContainerID, controller.signal)
+    void getContainerInspection(container.id, controller.signal)
       .then((detail) => { if (!controller.signal.aborted) setInspection(detail); })
       .catch((cause) => {
         if (!controller.signal.aborted) setDetailError(cause instanceof Error ? cause.message : "Unable to inspect container.");
@@ -472,16 +498,15 @@ function ProjectDrawer({ project, csrfToken, onClose }: { project?: Project; csr
       controller.abort();
       revealController.current?.abort();
     };
-  }, [project?.id, selectedContainerID]);
+  }, [container.id]);
 
   async function revealEnvironment() {
-    if (!selectedContainerID) return;
     const controller = new AbortController();
     revealController.current = controller;
     setRevealing(true);
     setDetailError("");
     try {
-      const detail = await revealContainerEnvironment(selectedContainerID, csrfToken, controller.signal);
+      const detail = await revealContainerEnvironment(container.id, csrfToken, controller.signal);
       if (!controller.signal.aborted) {
         setInspection(detail);
         setRevealed(true);
@@ -501,59 +526,25 @@ function ProjectDrawer({ project, csrfToken, onClose }: { project?: Project; csr
     setRevealed(false);
   }
 
-  const selectedContainer = project?.containers.find((container) => container.id === selectedContainerID);
-  const currentInspection = inspection?.id === selectedContainerID ? inspection : null;
-
-  return <dialog
-    id="project-drawer"
-    ref={dialogRef}
-    className={`${styles.settingsDrawer} ${styles.projectDrawer}`}
-    aria-labelledby="project-drawer-title"
-    onClose={onClose}
-    onClick={dismissDrawerBackdrop}
-    {...{ closedby: "any" }}
-  >
-    {project && <div className={styles.settingsBody}>
-      <header className={styles.settingsHeader}>
-        <div>
-          {selectedContainerID && <button type="button" className={styles.backButton} autoFocus onClick={() => setSelectedContainerID(null)}>← {project.name}</button>}
-          <span className={styles.sectionLabel}>{selectedContainerID ? "CONTAINER DETAILS" : "PROJECT DETAILS"}</span>
-          <h2 id="project-drawer-title">{selectedContainerID ? selectedContainer?.service || selectedContainer?.name || "Container" : project.name}</h2>
-        </div>
-        <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close project details">×</button>
-      </header>
-      <div className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
-        {selectedContainerID ? <>
-          {selectedContainer && <ContainerRow container={selectedContainer} />}
-          {loading && <p className={styles.detailSummary} role="status">Loading container details…</p>}
-          {detailError && <p className={styles.inventoryError} role="alert">{detailError}</p>}
-          {currentInspection && <ContainerInspectionView
-            inspection={currentInspection}
-            revealed={revealed}
-            revealing={revealing}
-            onReveal={() => { void revealEnvironment(); }}
-            onHide={hideEnvironment}
-          />}
-        </> : <>
-        <p className={styles.detailSummary}>
-          {project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · {project.state} · Health: {healthLabel(project.health)}
-        </p>
-        <div className={styles.containerList}>
-          {project.containers.map((container) => <ContainerRow key={container.id} container={container} focusInspect={lastInspectedID.current === container.id} onInspect={() => {
-            lastInspectedID.current = container.id;
-            setSelectedContainerID(container.id);
-          }} />)}
-        </div>
-        </>}
-      </div>
-    </div>}
-  </dialog>;
+  return <section className={styles.containerDetails} aria-label={`${container.service || container.name} details`}>
+    <ContainerRow container={container} />
+    {loading && <p className={styles.detailSummary} role="status">Loading container details…</p>}
+    {detailError && <p className={styles.inventoryError} role="alert">{detailError}</p>}
+    {inspection?.id === container.id && <ContainerInspectionView
+      inspection={inspection}
+      revealed={revealed}
+      revealing={revealing}
+      onReveal={() => { void revealEnvironment(); }}
+      onHide={hideEnvironment}
+    />}
+  </section>;
 }
 
 const checkIntervals = [5, 15, 30, 60, 360] as const;
 
 function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken: string; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  useDrawerSwipe(dialogRef, "left");
   const [status, setStatus] = useState<SelfUpdateStatus | null>(null);
   const [automatic, setAutomatic] = useState(false);
   const [intervalMinutes, setIntervalMinutes] = useState(15);
@@ -712,7 +703,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return <span className={styles.metric}><span>{label}</span><strong>{value}</strong></span>;
 }
 
-function ContainerRow({ container, onInspect, focusInspect }: { container: Container; onInspect?: () => void; focusInspect?: boolean }) {
+function ContainerRow({ container }: { container: Container }) {
   return <article className={styles.containerRow}>
     <div className={styles.containerHeading}>
       <div><h3>{container.service || container.name}</h3>{container.service && <span>{container.name}</span>}</div>
@@ -726,7 +717,6 @@ function ContainerRow({ container, onInspect, focusInspect }: { container: Conta
       <Metric label="Uptime" value={formatUptime(container.uptimeSeconds)} />
       <Metric label="Network ↓ / ↑" value={`${formatBytes(container.networkRxBytes)} / ${formatBytes(container.networkTxBytes)}`} />
     </div>
-    {onInspect && <button type="button" className={styles.inspectButton} onClick={onInspect} autoFocus={focusInspect} aria-label={`Inspect ${container.name}`}>View details</button>}
   </article>;
 }
 
@@ -739,10 +729,11 @@ function ContainerInspectionView({
   onReveal: () => void;
   onHide: () => void;
 }) {
+  const sectionID = useId();
   return <>
     <p className={styles.containerID}>Container ID <code>{inspection.id}</code></p>
-    <section className={styles.inspectSection} aria-labelledby="container-ports-title">
-      <h3 id="container-ports-title">Ports</h3>
+    <section className={styles.inspectSection} aria-labelledby={`${sectionID}-ports-title`}>
+      <h3 id={`${sectionID}-ports-title`}>Ports</h3>
       {inspection.ports.length === 0 ? <p>None configured</p> : <ul className={styles.inspectList}>
         {inspection.ports.map((port, index) => <li key={`${port.containerPort}-${port.hostIP}-${port.hostPort}-${index}`}>
           <strong>{port.containerPort}</strong>
@@ -750,8 +741,8 @@ function ContainerInspectionView({
         </li>)}
       </ul>}
     </section>
-    <section className={styles.inspectSection} aria-labelledby="container-mounts-title">
-      <h3 id="container-mounts-title">Volumes and mounts</h3>
+    <section className={styles.inspectSection} aria-labelledby={`${sectionID}-mounts-title`}>
+      <h3 id={`${sectionID}-mounts-title`}>Volumes and mounts</h3>
       {inspection.mounts.length === 0 ? <p>None configured</p> : <ul className={styles.inspectList}>
         {inspection.mounts.map((mount, index) => <li key={`${mount.destination}-${index}`}>
           <strong>{mount.destination}</strong>
@@ -759,8 +750,8 @@ function ContainerInspectionView({
         </li>)}
       </ul>}
     </section>
-    <section className={styles.inspectSection} aria-labelledby="container-networks-title">
-      <h3 id="container-networks-title">Networks</h3>
+    <section className={styles.inspectSection} aria-labelledby={`${sectionID}-networks-title`}>
+      <h3 id={`${sectionID}-networks-title`}>Networks</h3>
       {inspection.networks.length === 0 ? <p>None attached</p> : <ul className={styles.inspectList}>
         {inspection.networks.map((network) => <li key={network.name}>
           <strong>{network.name}</strong>
@@ -768,9 +759,9 @@ function ContainerInspectionView({
         </li>)}
       </ul>}
     </section>
-    <section className={styles.inspectSection} aria-labelledby="container-environment-title">
+    <section className={styles.inspectSection} aria-labelledby={`${sectionID}-environment-title`}>
       <div className={styles.inspectSectionHeading}>
-        <h3 id="container-environment-title">Environment variables</h3>
+        <h3 id={`${sectionID}-environment-title`}>Environment variables</h3>
         {inspection.environment.length > 0 && <button type="button" className={styles.inspectButton} disabled={revealing} onClick={revealed ? onHide : onReveal}>
           {revealing ? "Revealing…" : revealed ? "Hide values" : "Reveal values"}
         </button>}
@@ -842,6 +833,12 @@ function SidebarIcon({ collapsed }: { collapsed: boolean }): ReactNode {
     <rect x="3" y="3" width="18" height="18" rx="2" />
     <path d="M9 3v18" />
     {collapsed ? <path d="m13 9 3 3-3 3" /> : <path d="m16 9-3 3 3 3" />}
+  </svg>;
+}
+
+function MenuIcon(): ReactNode {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+    <path d="M4 6h16M4 12h16M4 18h16" />
   </svg>;
 }
 
