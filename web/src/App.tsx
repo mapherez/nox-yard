@@ -1171,10 +1171,10 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
       <div className={styles.settingsContent}>
 		<section aria-labelledby="projects-directory-title" className={styles.settingsSection}>
 		  <h3 id="projects-directory-title">Projects directory</h3>
-		  <p>Choose an existing directory on the Docker host. New projects are saved as BASE/PROJECT_NAME/compose.yml. Relative bind mounts remain relative to that file. On Windows with Docker Desktop, you can use ~/projects or a drive path such as C:\Users\name\projects.</p>
+		  <p>Choose an existing directory on the Docker host. New projects are saved as BASE/PROJECT_NAME/compose.yml. Relative bind mounts remain relative to that file.</p>
 		  <form onSubmit={(event) => { void saveProjectsDirectory(event); }} className={styles.settingsForm}>
-			<label htmlFor="projects-base">Base directory on host</label>
-			<input id="projects-base" className={styles.settingsTextInput} type="text" value={projectsBase} onChange={(event) => setProjectsBase(event.target.value)} placeholder="/home/user/projects or ~/projects" required autoComplete="off" spellCheck={false} />
+			<label htmlFor="projects-base">Absolute directory on Docker host</label>
+			<input id="projects-base" className={styles.settingsTextInput} type="text" value={projectsBase} onChange={(event) => setProjectsBase(event.target.value)} placeholder="/home/username/projects" required autoComplete="off" spellCheck={false} />
 			<button type="submit" className={styles.primaryButton} disabled={savingProjectsBase || projectsBase.trim() === savedProjectsBase}>{savingProjectsBase ? "Saving…" : "Save directory"}</button>
 			{projectsError && <p className={styles.updateError} role="alert">{projectsError}</p>}
 		  </form>
