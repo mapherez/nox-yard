@@ -71,10 +71,10 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	if version > 3 {
+	if version > 4 {
 		return fmt.Errorf("database schema version %d is newer than this application", version)
 	}
-	if version == 3 {
+	if version == 4 {
 		return nil
 	}
 	if version == 0 {
@@ -143,15 +143,52 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+	if version < 3 {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		for _, statement := range []string{
+			`ALTER TABLE self_update_settings ADD COLUMN check_interval_minutes INTEGER NOT NULL DEFAULT 15
+				CHECK (check_interval_minutes IN (5, 15, 30, 60, 360))`,
+			"PRAGMA user_version = 3",
+		} {
+			if _, err := tx.Exec(statement); err != nil {
+				return fmt.Errorf("migrate database: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	for _, statement := range []string{
-		`ALTER TABLE self_update_settings ADD COLUMN check_interval_minutes INTEGER NOT NULL DEFAULT 15
-			CHECK (check_interval_minutes IN (5, 15, 30, 60, 360))`,
-		"PRAGMA user_version = 3",
+		`CREATE TABLE managed_projects (
+			name TEXT PRIMARY KEY,
+			source_kind TEXT NOT NULL,
+			source_url TEXT NOT NULL DEFAULT '',
+			filename TEXT NOT NULL DEFAULT '',
+			yaml TEXT NOT NULL,
+			variables_json TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
+		"CREATE INDEX managed_projects_source_url ON managed_projects (source_url)",
+		`CREATE TABLE managed_jobs (
+			id TEXT PRIMARY KEY,
+			project_name TEXT NOT NULL,
+			operation TEXT NOT NULL,
+			status TEXT NOT NULL,
+			error TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL,
+			completed_at INTEGER NOT NULL DEFAULT 0
+		)`,
+		"PRAGMA user_version = 4",
 	} {
 		if _, err := tx.Exec(statement); err != nil {
 			return fmt.Errorf("migrate database: %w", err)

@@ -42,6 +42,7 @@ type Server struct {
 	logs         inventory.LogReader
 	terminal     inventory.TerminalManager
 	lifecycle    lifecycle.Controller
+	managed      *managed.Manager
 	updates      *selfupdate.Manager
 }
 
@@ -91,6 +92,8 @@ func (s *Server) SetLifecycle(controller lifecycle.Controller) {
 	s.lifecycle = controller
 }
 
+func (s *Server) SetManaged(manager *managed.Manager) { s.managed = manager }
+
 func (s *Server) SetSelfUpdate(manager *selfupdate.Manager) {
 	s.updates = manager
 }
@@ -101,6 +104,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/projects", s.projects)
 	mux.HandleFunc("POST /api/managed/source", s.managedSource)
+	mux.HandleFunc("POST /api/managed/preview", s.managedPreview)
+	mux.HandleFunc("POST /api/managed/deploy", s.managedDeploy)
+	mux.HandleFunc("GET /api/managed/jobs/{id}", s.managedJob)
+	mux.HandleFunc("POST /api/managed/projects/{name}/operations", s.managedOperation)
 	mux.HandleFunc("GET /api/containers/{id}", s.containerInspection)
 	mux.HandleFunc("GET /api/containers/{id}/logs", s.containerLogs)
 	mux.HandleFunc("GET /api/containers/{id}/terminal", s.containerTerminal)
@@ -236,6 +243,25 @@ func (s *Server) projects(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "Cannot reach the local Docker Engine. Check the Docker socket mount and access permissions.")
 		return
 	}
+	managedProjects, err := s.store.ManagedProjects()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to read managed projects.")
+		return
+	}
+	seen := map[string]bool{}
+	for index := range snapshot.Projects {
+		seen[snapshot.Projects[index].ID] = true
+		for _, item := range managedProjects {
+			if snapshot.Projects[index].ID == "compose:"+item.Name {
+				snapshot.Projects[index].Kind = "managed-compose"
+			}
+		}
+	}
+	for _, item := range managedProjects {
+		if !seen["compose:"+item.Name] {
+			snapshot.Projects = append(snapshot.Projects, inventory.Project{ID: "compose:" + item.Name, Name: item.Name, Kind: "managed-compose", State: "stopped", Health: "none", Containers: []inventory.Container{}})
+		}
+	}
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
@@ -260,7 +286,10 @@ func (s *Server) managedSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, source)
+	writeJSON(w, http.StatusOK, struct {
+		managed.Source
+		Variables []managed.Variable `json:"variables"`
+	}{source, managed.Variables(source.YAML)})
 }
 
 func (s *Server) containerInspection(w http.ResponseWriter, r *http.Request) {

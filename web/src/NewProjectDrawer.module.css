@@ -70,3 +70,26 @@
 }
 
 .loaded span { color: var(--color-text-secondary); font-size: 0.84rem; }
+
+.previewDialog {
+  inline-size: min(42rem, calc(100vw - 2rem));
+  max-block-size: min(48rem, calc(100dvh - 2rem));
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+  color: var(--color-text-primary);
+}
+.previewDialog::backdrop { background: rgb(0 0 0 / 0.72); }
+.previewBody { display: grid; gap: var(--space-4); padding: var(--space-6); overflow: auto; max-block-size: inherit; }
+.previewBody :is(h2, h3, p, ul) { margin-block: 0; }
+.previewBody section { display: grid; gap: var(--space-3); }
+.service { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.service code { color: var(--color-text-secondary); }
+.previewActions { display: flex; justify-content: flex-end; gap: var(--space-3); }
+.previewActions button { min-block-size: 2.75rem; }
+@media (max-width: 64rem) {
+  .previewDialog { inline-size: 100vw; block-size: 100dvh; max-inline-size: none; max-block-size: none; border-radius: 0; }
+  .previewBody { max-block-size: 100dvh; }
+}

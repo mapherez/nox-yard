@@ -3,6 +3,7 @@ name: nox-yard
 services:
   nox-yard:
     image: ghcr.io/mapherez/nox-yard:latest
+    container_name: nox-yard
     restart: unless-stopped
     init: true
     ports:

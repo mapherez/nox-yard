@@ -1699,11 +1699,12 @@
   }
 
   .pageHeading {
-    justify-content: space-between;
+    justify-content: flex-end;
   }
 
   .mobileMenuButton {
     display: grid;
+    margin-inline-end: auto;
     inline-size: 2.7rem;
     block-size: 2.7rem;
     flex: none;

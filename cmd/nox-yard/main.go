@@ -16,6 +16,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/httpapi"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
+	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"golang.org/x/term"
@@ -63,6 +64,11 @@ func run() error {
 	}
 	defer dockerInventory.Close()
 	api.SetInventory(dockerInventory)
+	managedProjects, err := managed.NewManager(data, dockerInventory)
+	if err != nil {
+		return err
+	}
+	api.SetManaged(managedProjects)
 	api.SetLogs(dockerInventory)
 	api.SetTerminal(dockerInventory)
 	dockerLifecycle, err := lifecycle.New()

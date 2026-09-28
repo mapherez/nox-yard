@@ -6,6 +6,7 @@ import {
   getBootstrap,
   getContainerInspection,
   getProjects,
+  getManagedJob,
   getSelfUpdateStatus,
   pullContainerImage,
   pullProjectImages,
@@ -17,6 +18,7 @@ import {
   revealContainerEnvironment,
   runContainerAction,
   runProjectAction,
+  runManagedOperation,
   signIn,
   signOut,
   type Bootstrap,
@@ -24,6 +26,7 @@ import {
   type ContainerInspection,
   type LifecycleAction,
   type MaintenanceResult,
+  type ManagedJob,
   type Project,
   type RemovalPlan,
   type RemovalReport,
@@ -437,7 +440,7 @@ function Dashboard({
                 onClick={() => setSelectedID(project.id)}
               >
                 <span className={styles.cardTopline}>
-                  <span className={styles.cardKind}>{project.kind === "external-compose" ? "COMPOSE" : "CONTAINER"}</span>
+          <span className={styles.cardKind}>{project.kind === "standalone" ? "CONTAINER" : project.kind === "managed-compose" ? "MANAGED COMPOSE" : "COMPOSE"}</span>
                   <span className={`${styles.statusBadge} ${statusClass(project.state)}`}>{project.state}</span>
                 </span>
                 <span className={styles.cardName}>{project.name}</span>
@@ -453,7 +456,7 @@ function Dashboard({
         </main>
       </div>
       <ProjectDrawer project={selected} csrfToken={csrfToken} onChanged={() => setRefreshKey((key) => key + 1)} onClose={() => setSelectedID(null)} />
-      <NewProjectDrawer open={newProjectOpen} csrfToken={csrfToken} onClose={() => { setNewProjectOpen(false); newProjectButtonRef.current?.focus(); }} />
+      <NewProjectDrawer open={newProjectOpen} csrfToken={csrfToken} onChanged={() => setRefreshKey((key) => key + 1)} onClose={() => { setNewProjectOpen(false); newProjectButtonRef.current?.focus(); }} />
       <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} onClose={() => setSettingsOpen(false)} />
     </div>
   );
@@ -493,20 +496,20 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     else if (lastSelectionRef.current) containerButtonsRef.current[lastSelectionRef.current]?.focus();
   }, [selectedContainerID]);
 
-  const activeContainer = project?.containers.length === 1
+  const activeContainer = project?.kind === "managed-compose" && !selectedContainerID ? undefined : project?.containers.length === 1
     ? project.containers[0]
     : project?.containers.find((container) => container.id === selectedContainerID);
-  const terminalUnavailable = Boolean(project?.containers.length && project.containers.every((container) => container.terminalAvailable === false));
+  const terminalUnavailable = Boolean(project && (project.containers.length === 0 || project.containers.every((container) => container.terminalAvailable === false)));
 
   useEffect(() => {
-    if (terminalUnavailable && activeTab === "terminal") {
+    if ((terminalUnavailable && activeTab === "terminal") || (project?.containers.length === 0 && activeTab === "logs")) {
       setActiveTab("details");
       detailsTabRef.current?.focus();
     }
-  }, [terminalUnavailable, activeTab]);
+  }, [terminalUnavailable, activeTab, project?.containers.length]);
 
   function selectTab(tab: "details" | "logs" | "terminal", focus = false) {
-    if (tab === "terminal" && terminalUnavailable) return;
+    if (tab === "terminal" && terminalUnavailable || tab === "logs" && project?.containers.length === 0) return;
     setActiveTab(tab);
     contentRef.current?.scrollTo({ top: 0 });
     if (focus) (tab === "details" ? detailsTabRef : tab === "logs" ? logsTabRef : terminalTabRef).current?.focus();
@@ -584,18 +587,19 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
       <div className={styles.projectTabs} role="tablist" aria-label={`${project.name} sections`} onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
-        const tabs: ("details" | "logs" | "terminal")[] = terminalUnavailable ? ["details", "logs"] : ["details", "logs", "terminal"];
+        const tabs: ("details" | "logs" | "terminal")[] = project.containers.length === 0 ? ["details"] : terminalUnavailable ? ["details", "logs"] : ["details", "logs", "terminal"];
         const index = tabs.indexOf(activeTab);
         selectTab(event.key === "Home" ? "details" : event.key === "End" ? tabs[tabs.length - 1] : tabs[(index + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length], true);
       }}>
         <button ref={detailsTabRef} id={`${tabsID}-details-tab`} type="button" role="tab" aria-selected={activeTab === "details"} aria-controls={`${tabsID}-details-panel`} tabIndex={activeTab === "details" ? 0 : -1} className={styles.projectTab} onClick={() => selectTab("details")}>Details</button>
-        <button ref={logsTabRef} id={`${tabsID}-logs-tab`} type="button" role="tab" aria-selected={activeTab === "logs"} aria-controls={`${tabsID}-logs-panel`} tabIndex={activeTab === "logs" ? 0 : -1} className={styles.projectTab} onClick={() => selectTab("logs")}>Logs</button>
+        <button ref={logsTabRef} id={`${tabsID}-logs-tab`} type="button" role="tab" aria-selected={activeTab === "logs"} aria-controls={`${tabsID}-logs-panel`} tabIndex={activeTab === "logs" ? 0 : -1} className={styles.projectTab} disabled={project.containers.length === 0} onClick={() => selectTab("logs")}>Logs</button>
         <button ref={terminalTabRef} id={`${tabsID}-terminal-tab`} type="button" role="tab" aria-selected={activeTab === "terminal"} aria-controls={`${tabsID}-terminal-panel`} tabIndex={activeTab === "terminal" ? 0 : -1} className={styles.projectTab} disabled={terminalUnavailable} title={terminalUnavailable ? "Terminal unavailable: /bin/sh is missing" : undefined} onClick={() => selectTab("terminal")}>Terminal</button>
       </div>
       {terminalUnavailable && <p className={styles.terminalUnavailable} role="status">Terminal unavailable: /bin/sh is missing from this {project.containers.length === 1 ? "container" : "project's containers"}.</p>}
       <div ref={contentRef} id={`${tabsID}-${activeTab}-panel`} role="tabpanel" aria-labelledby={`${tabsID}-${activeTab}-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
         {activeTab === "details" ? <>
-        {activeContainer && project.kind === "external-compose" && project.containers.length > 1 && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}>← Back to project</button>}
+        {project.kind === "managed-compose" && <ManagedProjectControls project={project} csrfToken={csrfToken} onChanged={onChanged} />}
+        {activeContainer && (project.kind === "managed-compose" || project.kind === "external-compose" && project.containers.length > 1) && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}>← Back to project</button>}
         {!activeContainer && <>
           {project.kind === "external-compose" && <LifecycleControls
             name={project.name}
@@ -625,6 +629,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
           ? <ContainerDetails
               key={activeContainer.id}
               container={activeContainer}
+              hideActions={project.kind === "managed-compose"}
               csrfToken={csrfToken}
               busy={busyTarget !== null}
               selfTarget={project.name === "nox-yard" && activeContainer.service === "nox-yard"}
@@ -655,6 +660,45 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
   </dialog>
     <RemoveConfirmation target={removalTarget} csrfToken={csrfToken} onClose={() => setRemovalTarget(null)} onChanged={onChanged} />
   </>;
+}
+
+function ManagedProjectControls({ project, csrfToken, onChanged }: { project: Project; csrfToken: string; onChanged: () => void }) {
+  const [job, setJob] = useState<ManagedJob | null>(null);
+  const [error, setError] = useState("");
+  const [confirm, setConfirm] = useState<"stop" | "restart" | "update" | "remove" | null>(null);
+  const [removeVolumes, setRemoveVolumes] = useState(false);
+  const busy = job?.status === "running";
+  useEffect(() => {
+    if (!busy || !job) return;
+    let live = true;
+    const timer = window.setInterval(() => { void getManagedJob(job.id).then((next) => {
+      if (live) { setJob(next); if (next.status !== "running") onChanged(); }
+    }).catch((cause: unknown) => { if (live) setError(cause instanceof Error ? cause.message : "Unable to read operation status."); }); }, 1500);
+    return () => { live = false; window.clearInterval(timer); };
+  }, [busy, job, onChanged]);
+  async function run(operation: "start" | "stop" | "restart" | "pull" | "update" | "remove") {
+    setError(""); setConfirm(null);
+    try { setJob(await runManagedOperation(project.name, operation, removeVolumes, csrfToken)); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to start operation."); }
+  }
+  return <div className={styles.lifecycleControls}>
+    <div className={styles.actionRow} aria-label={`${project.name} actions`}>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Start ${project.name}`} title="Start" disabled={busy || project.state === "running"} onClick={() => { void run("start"); }}><i className="ph-fill ph-play" aria-hidden="true" /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Stop ${project.name}`} title="Stop" disabled={busy || project.state === "stopped"} onClick={() => setConfirm("stop")}><i className="ph-fill ph-stop" aria-hidden="true" /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Restart ${project.name}`} title="Restart" disabled={busy || project.state === "stopped"} onClick={() => setConfirm("restart")}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
+      <details className={styles.maintenanceMenu}><summary className={styles.inspectButton} aria-label="More actions">···</summary><div className={styles.maintenanceOptions}>
+        <button type="button" disabled={busy} onClick={() => { void run("pull"); }}>Pull images</button>
+        <button type="button" disabled={busy} onClick={() => setConfirm("update")}>Update and recreate</button>
+        <button type="button" className={styles.maintenanceRemove} disabled={busy} onClick={() => { setRemoveVolumes(false); setConfirm("remove"); }}>Remove project</button>
+      </div></details>
+    </div>
+    {confirm && <div className={styles.actionConfirm} role="group" aria-label={`Confirm ${confirm}`}><p>{confirm === "remove" ? "Remove" : confirm === "update" ? "Update and recreate" : confirm === "restart" ? "Restart" : "Stop"} <strong>{project.name}</strong>?</p>
+      {confirm === "remove" && <label><input type="checkbox" checked={removeVolumes} onChange={(event) => setRemoveVolumes(event.target.checked)} /> Delete project volumes</label>}
+      <div className={styles.actionRow}><button type="button" className={styles.inspectButton} onClick={() => setConfirm(null)}>Cancel</button><button type="button" className={`${styles.inspectButton} ${confirm === "remove" ? styles.dangerAction : ""}`} onClick={() => { void run(confirm); }}>Confirm {confirm}</button></div>
+    </div>}
+    {job && <p className={styles.actionMessage} role="status">{job.operation}: {job.status}{job.error ? ` — ${job.error}` : ""}</p>}
+    {error && <p className={styles.inventoryError} role="alert">{error}</p>}
+  </div>;
 }
 
 type LogLine = { stream: "stdout" | "stderr"; text: string };
@@ -753,7 +797,7 @@ function LogsPanel({ project, preferredContainerID, onSelectContainer }: {
   </section>;
 }
 
-function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget, onRun, pullLabel, removeLabel, onPull, onRemove }: {
+function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget, onRun, pullLabel, removeLabel, onPull, onRemove, hideActions = false }: {
   container: Container;
   csrfToken: string;
   busy: boolean;
@@ -764,6 +808,7 @@ function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget
   removeLabel: string;
   onPull: () => void;
   onRemove: () => void;
+  hideActions?: boolean;
 }) {
   const revealController = useRef<AbortController | null>(null);
   const [inspection, setInspection] = useState<ContainerInspection | null>(null);
@@ -818,7 +863,7 @@ function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget
   }
 
   return <section className={styles.containerDetails} aria-label={`${container.service || container.name} details`}>
-    <LifecycleControls name={container.service || container.name} state={container.state} selfTarget={selfTarget} helperTarget={helperTarget} busy={busy} onRun={onRun} pullLabel={pullLabel} removeLabel={removeLabel} onPull={onPull} onRemove={onRemove} />
+    {!hideActions && <LifecycleControls name={container.service || container.name} state={container.state} selfTarget={selfTarget} helperTarget={helperTarget} busy={busy} onRun={onRun} pullLabel={pullLabel} removeLabel={removeLabel} onPull={onPull} onRemove={onRemove} />}
     <ContainerRow container={container} />
     {loading && <p className={styles.detailSummary} role="status">Loading container details…</p>}
     {detailError && <p className={styles.inventoryError} role="alert">{detailError}</p>}

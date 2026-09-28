@@ -23,7 +23,7 @@ export type Container = {
 export type Project = {
   id: string;
   name: string;
-  kind: "external-compose" | "standalone";
+  kind: "managed-compose" | "external-compose" | "standalone";
   state: "running" | "partial" | "stopped";
   health: string;
   cpuPercent: number | null;
@@ -51,7 +51,22 @@ export type ManagedSource = {
   url?: string;
   filename?: string;
   yaml: string;
+  variables: { name: string; required: boolean; default?: string }[];
 };
+
+export type ManagedRequest = { name: string; source: ManagedSourceInput; variables: Record<string, string>; mode: "new" | "copy" | "sync" | "adopt"; fingerprint?: string };
+export type ManagedPreview = {
+  name: string;
+  services: { name: string; image: string; ports: string[]; volumes: string[]; networks: string[] }[];
+  volumes: string[];
+  networks: string[];
+  duplicates: string[];
+  externalMatch: boolean;
+  changes: string[];
+  mode: ManagedRequest["mode"];
+  fingerprint: string;
+};
+export type ManagedJob = { id: string; projectName: string; operation: string; status: "running" | "succeeded" | "failed"; error?: string };
 
 export type LifecycleAction = "start" | "stop" | "restart";
 
@@ -155,6 +170,22 @@ export function loadManagedSource(input: ManagedSourceInput, csrfToken: string):
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify(input),
   });
+}
+
+export function previewManaged(input: ManagedRequest, csrfToken: string): Promise<ManagedPreview> {
+  return request<ManagedPreview>("/api/managed/preview", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(input) });
+}
+
+export function deployManaged(input: ManagedRequest, csrfToken: string): Promise<ManagedJob> {
+  return request<ManagedJob>("/api/managed/deploy", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(input) });
+}
+
+export function getManagedJob(id: string): Promise<ManagedJob> {
+  return request<ManagedJob>(`/api/managed/jobs/${encodeURIComponent(id)}`);
+}
+
+export function runManagedOperation(name: string, operation: "start" | "stop" | "restart" | "pull" | "update" | "remove", removeVolumes: boolean, csrfToken: string): Promise<ManagedJob> {
+  return request<ManagedJob>(`/api/managed/projects/${encodeURIComponent(name)}/operations`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ operation, removeVolumes }) });
 }
 
 export function getContainerInspection(id: string, signal?: AbortSignal): Promise<ContainerInspection> {
