@@ -1027,6 +1027,51 @@
   opacity: 0.6;
 }
 
+.lifecycleControls {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.actionConfirm {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+}
+
+.actionConfirm p,
+.actionHint,
+.actionMessage {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.actionHint {
+  color: var(--color-text-muted);
+}
+
+.actionMessage {
+  color: var(--color-success);
+}
+
+.dangerAction {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.dangerAction:hover:not(:disabled) {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
 .inspectSection {
   display: grid;
   gap: var(--space-3);

@@ -8,11 +8,14 @@ import {
   getSelfUpdateStatus,
   saveSelfUpdateSettings,
   revealContainerEnvironment,
+  runContainerAction,
+  runProjectAction,
   signIn,
   signOut,
   type Bootstrap,
   type Container,
   type ContainerInspection,
+  type LifecycleAction,
   type Project,
   type SelfUpdateStatus,
 } from "./api";
@@ -432,16 +435,47 @@ function Dashboard({
           </>}
         </main>
       </div>
-      <ProjectDrawer project={selected} csrfToken={csrfToken} onClose={() => setSelectedID(null)} />
+      <ProjectDrawer project={selected} csrfToken={csrfToken} onChanged={() => setRefreshKey((key) => key + 1)} onClose={() => setSelectedID(null)} />
       <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
 
-function ProjectDrawer({ project, csrfToken, onClose }: { project?: Project; csrfToken: string; onClose: () => void }) {
+function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: Project; csrfToken: string; onChanged: () => void; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dismiss = useCallback(() => dialogRef.current?.close(), []);
+  const [busyTarget, setBusyTarget] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState("");
+  const [actionError, setActionError] = useState("");
   useDrawerSwipe(dialogRef, "right", Boolean(project), dismiss);
+
+  useEffect(() => {
+    setActionMessage("");
+    setActionError("");
+  }, [project?.id]);
+
+  async function runAction(target: "project" | "container", id: string, action: LifecycleAction) {
+    setBusyTarget(id);
+    setActionMessage(`${action === "restart" ? "Restarting" : action === "stop" ? "Stopping" : "Starting"}…`);
+    setActionError("");
+    try {
+      const result = target === "project"
+        ? await runProjectAction(id, action, csrfToken)
+        : await runContainerAction(id, action, csrfToken);
+      const label = target === "project" ? "project" : "container";
+      const verb: Record<LifecycleAction, string> = { start: "started", stop: "stopped", restart: "restarted" };
+      const summary = `${result.succeeded} ${result.succeeded === 1 ? "container" : "containers"} ${verb[action]}; ${result.skipped} skipped.`;
+      setActionMessage(result.queued && !result.succeeded ? "NoX Yard restart queued. Check its health after reconnecting." : `${summary}${result.queued ? " NoX Yard restart queued." : ""}`);
+      if (result.failed) setActionError(result.errors?.join(" ") || `${result.failed} ${label} actions failed.`);
+      onChanged();
+      if (result.queued) window.setTimeout(onChanged, 12_000);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : "Unable to complete the action.");
+      onChanged();
+    } finally {
+      setBusyTarget(null);
+    }
+  }
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -471,15 +505,24 @@ function ProjectDrawer({ project, csrfToken, onClose }: { project?: Project; csr
         <p className={styles.detailSummary}>
           {project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · {project.state} · Health: {healthLabel(project.health)}
         </p>
+        {project.kind === "external-compose" && <LifecycleControls
+          name={project.name}
+          state={project.state}
+          selfTarget={project.containers.some((container) => project.name === "nox-yard" && container.service === "nox-yard")}
+          busy={busyTarget !== null}
+          onRun={(action) => runAction("project", project.id, action)}
+        />}
+        {actionMessage && <p className={styles.actionMessage} role="status">{actionMessage}</p>}
+        {actionError && <p className={styles.inventoryError} role="alert">{actionError}</p>}
         <div className={styles.containerList}>
-          {project.containers.map((container) => <ContainerDetails key={container.id} container={container} csrfToken={csrfToken} />)}
+          {project.containers.map((container) => <ContainerDetails key={container.id} container={container} csrfToken={csrfToken} busy={busyTarget !== null} selfTarget={project.name === "nox-yard" && container.service === "nox-yard"} helperTarget={container.name.startsWith("nox-yard-update-")} onRun={(action) => runAction("container", container.id, action)} />)}
         </div>
       </div>
     </div>}
   </dialog>;
 }
 
-function ContainerDetails({ container, csrfToken }: { container: Container; csrfToken: string }) {
+function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget, onRun }: { container: Container; csrfToken: string; busy: boolean; selfTarget: boolean; helperTarget: boolean; onRun: (action: LifecycleAction) => Promise<void> }) {
   const revealController = useRef<AbortController | null>(null);
   const [inspection, setInspection] = useState<ContainerInspection | null>(null);
   const [detailError, setDetailError] = useState("");
@@ -534,6 +577,7 @@ function ContainerDetails({ container, csrfToken }: { container: Container; csrf
 
   return <section className={styles.containerDetails} aria-label={`${container.service || container.name} details`}>
     <ContainerRow container={container} />
+    <LifecycleControls name={container.service || container.name} state={container.state} selfTarget={selfTarget} helperTarget={helperTarget} busy={busy} onRun={onRun} />
     {loading && <p className={styles.detailSummary} role="status">Loading container details…</p>}
     {detailError && <p className={styles.inventoryError} role="alert">{detailError}</p>}
     {inspection?.id === container.id && <ContainerInspectionView
@@ -544,6 +588,35 @@ function ContainerDetails({ container, csrfToken }: { container: Container; csrf
       onHide={hideEnvironment}
     />}
   </section>;
+}
+
+function LifecycleControls({ name, state, selfTarget = false, helperTarget = false, busy, onRun }: {
+  name: string;
+  state: string;
+  selfTarget?: boolean;
+  helperTarget?: boolean;
+  busy: boolean;
+  onRun: (action: LifecycleAction) => Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState<"stop" | "restart" | null>(null);
+  const running = state === "running" || state === "partial";
+
+  return <div className={styles.lifecycleControls}>
+    <div className={styles.actionRow} aria-label={`${name} actions`}>
+      <button type="button" className={styles.inspectButton} disabled={busy || state === "running"} onClick={() => { void onRun("start"); }}>Start</button>
+      <button type="button" className={styles.inspectButton} disabled={busy || !running || selfTarget || helperTarget} onClick={() => setConfirming("stop")}>Stop</button>
+      <button type="button" className={styles.inspectButton} disabled={busy || !running || helperTarget} onClick={() => setConfirming("restart")}>Restart</button>
+    </div>
+    {selfTarget && <p className={styles.actionHint}>NoX Yard cannot stop itself. Restart uses a temporary helper.</p>}
+    {helperTarget && <p className={styles.actionHint}>Maintenance helpers are managed automatically.</p>}
+    {confirming && <div className={styles.actionConfirm} role="group" aria-label={`Confirm ${confirming}`}>
+      <p>{confirming === "stop" ? "Stop" : "Restart"} <strong>{name}</strong>?</p>
+      <div className={styles.actionRow}>
+        <button type="button" className={styles.inspectButton} disabled={busy} onClick={() => setConfirming(null)}>Cancel</button>
+        <button type="button" className={`${styles.inspectButton} ${confirming === "stop" ? styles.dangerAction : ""}`} disabled={busy} onClick={() => { const action = confirming; if (!action) return; setConfirming(null); void onRun(action); }}>Confirm {confirming}</button>
+      </div>
+    </div>}
+  </div>;
 }
 
 const checkIntervals = [5, 15, 30, 60, 360] as const;

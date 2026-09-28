@@ -15,6 +15,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/auth"
 	"github.com/mapherez/nox-yard/internal/httpapi"
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"golang.org/x/term"
@@ -29,6 +30,9 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) == 3 && os.Args[1] == "restart-worker" {
+		return lifecycle.RunRestartWorker(os.Args[2])
+	}
 	dataDir := environment("NOX_DATA_DIR", "./data")
 	data, err := store.Open(dataDir)
 	if err != nil {
@@ -59,6 +63,12 @@ func run() error {
 	}
 	defer dockerInventory.Close()
 	api.SetInventory(dockerInventory)
+	dockerLifecycle, err := lifecycle.New()
+	if err != nil {
+		return err
+	}
+	defer dockerLifecycle.Close()
+	api.SetLifecycle(dockerLifecycle)
 	updates := selfupdate.New(data, buildSHA)
 	api.SetSelfUpdate(updates)
 	server := &http.Server{
@@ -66,7 +76,7 @@ func run() error {
 		Handler:           api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      130 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

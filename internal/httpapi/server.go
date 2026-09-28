@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/mapherez/nox-yard/internal/auth"
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 )
@@ -36,6 +38,7 @@ type Server struct {
 	secureCookie bool
 	limiter      loginLimiter
 	inventory    inventory.Reader
+	lifecycle    lifecycle.Controller
 	updates      *selfupdate.Manager
 }
 
@@ -73,6 +76,10 @@ func (s *Server) SetInventory(reader inventory.Reader) {
 	s.inventory = reader
 }
 
+func (s *Server) SetLifecycle(controller lifecycle.Controller) {
+	s.lifecycle = controller
+}
+
 func (s *Server) SetSelfUpdate(manager *selfupdate.Manager) {
 	s.updates = manager
 }
@@ -84,6 +91,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/projects", s.projects)
 	mux.HandleFunc("GET /api/containers/{id}", s.containerInspection)
 	mux.HandleFunc("POST /api/containers/{id}/environment", s.containerEnvironment)
+	mux.HandleFunc("POST /api/containers/{id}/actions", s.containerAction)
+	mux.HandleFunc("POST /api/projects/{id}/actions", s.projectAction)
 	mux.HandleFunc("GET /api/self-update", s.selfUpdateStatus)
 	mux.HandleFunc("PUT /api/self-update", s.selfUpdateSettings)
 	mux.HandleFunc("POST /api/self-update/check", s.selfUpdateCheck)
@@ -222,6 +231,62 @@ func (s *Server) containerEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeContainerInspection(w, r, true)
+}
+
+func (s *Server) containerAction(w http.ResponseWriter, r *http.Request) {
+	s.lifecycleAction(w, r, true)
+}
+
+func (s *Server) projectAction(w http.ResponseWriter, r *http.Request) {
+	s.lifecycleAction(w, r, false)
+}
+
+func (s *Server) lifecycleAction(w http.ResponseWriter, r *http.Request, container bool) {
+	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
+		return
+	}
+	id := r.PathValue("id")
+	if container && !containerIDPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "Invalid container ID.")
+		return
+	}
+	if !container && !(strings.HasPrefix(id, "compose:") || strings.HasPrefix(id, "container:")) {
+		writeError(w, http.StatusBadRequest, "Invalid project ID.")
+		return
+	}
+	var input struct {
+		Action lifecycle.Action `json:"action"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.Action != lifecycle.Start && input.Action != lifecycle.Stop && input.Action != lifecycle.Restart {
+		writeError(w, http.StatusBadRequest, "Action must be start, stop, or restart.")
+		return
+	}
+	if s.lifecycle == nil {
+		writeError(w, http.StatusServiceUnavailable, "Docker management is unavailable.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	var result lifecycle.Result
+	var err error
+	if container {
+		result, err = s.lifecycle.Container(ctx, id, input.Action)
+	} else {
+		result, err = s.lifecycle.Project(ctx, id, input.Action)
+	}
+	switch {
+	case errors.Is(err, lifecycle.ErrNotFound):
+		writeError(w, http.StatusNotFound, "Target no longer exists. Refresh the project list.")
+	case errors.Is(err, lifecycle.ErrProtected):
+		writeError(w, http.StatusConflict, "This NoX Yard container cannot be managed by that action.")
+	case err != nil:
+		writeError(w, http.StatusServiceUnavailable, "Cannot perform this action on the local Docker Engine.")
+	default:
+		writeJSON(w, http.StatusOK, result)
+	}
 }
 
 func (s *Server) writeContainerInspection(w http.ResponseWriter, r *http.Request, revealEnvironment bool) {

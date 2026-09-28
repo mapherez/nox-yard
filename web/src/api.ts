@@ -38,6 +38,17 @@ export type Inventory = {
   projects: Project[];
 };
 
+export type LifecycleAction = "start" | "stop" | "restart";
+
+export type LifecycleResult = {
+  action: LifecycleAction;
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  queued: number;
+  errors?: string[];
+};
+
 export type ContainerInspection = {
   id: string;
   ports: { containerPort: string; hostIP?: string; hostPort?: string }[];
@@ -101,6 +112,22 @@ export function getProjects(signal?: AbortSignal): Promise<Inventory> {
 
 export function getContainerInspection(id: string, signal?: AbortSignal): Promise<ContainerInspection> {
   return request<ContainerInspection>(`/api/containers/${encodeURIComponent(id)}`, { signal });
+}
+
+export function runContainerAction(id: string, action: LifecycleAction, csrfToken: string): Promise<LifecycleResult> {
+  return request<LifecycleResult>(`/api/containers/${encodeURIComponent(id)}/actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ action }),
+  });
+}
+
+export function runProjectAction(id: string, action: LifecycleAction, csrfToken: string): Promise<LifecycleResult> {
+  return request<LifecycleResult>(`/api/projects/${encodeURIComponent(id)}/actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ action }),
+  });
 }
 
 export function revealContainerEnvironment(id: string, csrfToken: string, signal?: AbortSignal): Promise<ContainerInspection> {
