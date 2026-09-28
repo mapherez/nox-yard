@@ -443,7 +443,13 @@ function Dashboard({
 
 function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: Project; csrfToken: string; onChanged: () => void; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const backButtonRef = useRef<HTMLButtonElement>(null);
+  const containerButtonsRef = useRef<Record<string, HTMLButtonElement | null>>({});
+  const lastSelectionRef = useRef<string | null>(null);
+  const tabsID = useId();
   const dismiss = useCallback(() => dialogRef.current?.close(), []);
+  const [selectedContainerID, setSelectedContainerID] = useState<string | null>(null);
   const [busyTarget, setBusyTarget] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
@@ -452,7 +458,26 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
   useEffect(() => {
     setActionMessage("");
     setActionError("");
+    setSelectedContainerID(null);
+    lastSelectionRef.current = null;
   }, [project?.id]);
+
+  useEffect(() => {
+    if (selectedContainerID) backButtonRef.current?.focus();
+    else if (lastSelectionRef.current) containerButtonsRef.current[lastSelectionRef.current]?.focus();
+  }, [selectedContainerID]);
+
+  const activeContainer = project?.kind === "standalone"
+    ? project.containers[0]
+    : project?.containers.find((container) => container.id === selectedContainerID);
+
+  function showContainer(id: string | null) {
+    if (id) lastSelectionRef.current = id;
+    setSelectedContainerID(id);
+    setActionMessage("");
+    setActionError("");
+    contentRef.current?.scrollTo({ top: 0 });
+  }
 
   async function runAction(target: "project" | "container", id: string, action: LifecycleAction) {
     setBusyTarget(id);
@@ -495,28 +520,49 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
   >
     {project && <div className={styles.settingsBody}>
       <header className={styles.settingsHeader}>
-        <div>
-          <span className={styles.sectionLabel}>PROJECT DETAILS</span>
-          <h2 id="project-drawer-title">{project.name}</h2>
-        </div>
+        <h2 id="project-drawer-title">{project.name}</h2>
         <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close project details">×</button>
       </header>
-      <div className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
-        <p className={styles.detailSummary}>
-          {project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · {project.state} · Health: {healthLabel(project.health)}
-        </p>
-        {project.kind === "external-compose" && <LifecycleControls
-          name={project.name}
-          state={project.state}
-          selfTarget={project.containers.some((container) => project.name === "nox-yard" && container.service === "nox-yard")}
-          busy={busyTarget !== null}
-          onRun={(action) => runAction("project", project.id, action)}
-        />}
+      <div className={styles.projectTabs} role="tablist" aria-label={`${project.name} sections`}>
+        <button id={`${tabsID}-details-tab`} type="button" role="tab" aria-selected="true" aria-controls={`${tabsID}-details-panel`} className={styles.projectTab}>Details</button>
+        <button type="button" role="tab" aria-selected="false" className={styles.projectTab} disabled title="Logs are not available yet">Logs</button>
+        <button type="button" role="tab" aria-selected="false" className={styles.projectTab} disabled title="Terminal is not available yet">Terminal</button>
+      </div>
+      <div ref={contentRef} id={`${tabsID}-details-panel`} role="tabpanel" aria-labelledby={`${tabsID}-details-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
+        {activeContainer && project.kind === "external-compose" && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}>← Back to project</button>}
+        {!activeContainer && <>
+          {project.kind === "external-compose" && <LifecycleControls
+            name={project.name}
+            state={project.state}
+            selfTarget={project.containers.some((container) => project.name === "nox-yard" && container.service === "nox-yard")}
+            busy={busyTarget !== null}
+            onRun={(action) => runAction("project", project.id, action)}
+          />}
+          <section className={styles.projectOverview} aria-label="Project overview">
+            <p className={styles.detailSummary}>
+              {project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · {project.state} · Health: {healthLabel(project.health)}
+            </p>
+            <div className={styles.projectOverviewMetrics}>
+              <Metric label="CPU" value={formatCPU(project.cpuPercent)} />
+              <Metric label="Memory" value={formatBytes(project.memoryBytes)} />
+              <Metric label="Uptime" value={formatUptime(project.uptimeSeconds)} />
+            </div>
+          </section>
+        </>}
         {actionMessage && <p className={styles.actionMessage} role="status">{actionMessage}</p>}
         {actionError && <p className={styles.inventoryError} role="alert">{actionError}</p>}
-        <div className={styles.containerList}>
-          {project.containers.map((container) => <ContainerDetails key={container.id} container={container} csrfToken={csrfToken} busy={busyTarget !== null} selfTarget={project.name === "nox-yard" && container.service === "nox-yard"} helperTarget={container.name.startsWith("nox-yard-update-")} onRun={(action) => runAction("container", container.id, action)} />)}
-        </div>
+        {activeContainer
+          ? <ContainerDetails key={activeContainer.id} container={activeContainer} csrfToken={csrfToken} busy={busyTarget !== null} selfTarget={project.name === "nox-yard" && activeContainer.service === "nox-yard"} helperTarget={activeContainer.name.startsWith("nox-yard-update-")} onRun={(action) => runAction("container", activeContainer.id, action)} />
+          : <section className={styles.containerPicker} aria-labelledby={`${tabsID}-containers-title`}>
+              <h3 id={`${tabsID}-containers-title`}>Containers</h3>
+              <div className={styles.containerList}>
+                {project.containers.map((container) => <button key={container.id} ref={(element) => { containerButtonsRef.current[container.id] = element; }} type="button" className={styles.containerChoice} onClick={() => showContainer(container.id)}>
+                  <span className={styles.containerChoiceName}><strong>{container.service || container.name}</strong>{container.service && <small>{container.name}</small>}</span>
+                  <span className={`${styles.statusBadge} ${statusClass(container.state)}`}>{container.state}</span>
+                  <span className={styles.containerChoiceArrow} aria-hidden="true">›</span>
+                </button>)}
+              </div>
+            </section>}
       </div>
     </div>}
   </dialog>;
@@ -576,8 +622,8 @@ function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget
   }
 
   return <section className={styles.containerDetails} aria-label={`${container.service || container.name} details`}>
-    <ContainerRow container={container} />
     <LifecycleControls name={container.service || container.name} state={container.state} selfTarget={selfTarget} helperTarget={helperTarget} busy={busy} onRun={onRun} />
+    <ContainerRow container={container} />
     {loading && <p className={styles.detailSummary} role="status">Loading container details…</p>}
     {detailError && <p className={styles.inventoryError} role="alert">{detailError}</p>}
     {inspection?.id === container.id && <ContainerInspectionView
