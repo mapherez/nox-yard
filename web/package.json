@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "docker:up": "docker compose -f ../compose.dev.yaml up -d --build",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit"
   },

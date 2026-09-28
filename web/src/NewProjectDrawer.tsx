@@ -169,6 +169,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
     {preview && <div className={styles.previewBody}>
       <h2 id="managed-preview-title">Review {preview.name}</h2>
       <p>Docker Compose validated this project. Confirm to pull its images and deploy it.</p>
+	  {preview.projectDir && <p>Compose file: <code>{preview.projectDir}/compose.yml</code></p>}
       {(preview.duplicates.length > 0 || preview.externalMatch) && <fieldset className={styles.sourceChoices} disabled={busy}><legend>Existing project</legend>
         {preview.duplicates.length > 0 && <p>Source URL already used by: {preview.duplicates.join(", ")}.</p>}
         {preview.externalMatch && <p>An external Compose project already uses this name.</p>}

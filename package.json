@@ -1,0 +1,7 @@
+{
+  "name": "nox-yard",
+  "private": true,
+  "scripts": {
+    "docker": "npm --prefix web run docker:up"
+  }
+}

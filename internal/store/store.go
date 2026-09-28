@@ -71,10 +71,10 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	if version > 5 {
+	if version > 6 {
 		return fmt.Errorf("database schema version %d is newer than this application", version)
 	}
-	if version == 5 {
+	if version == 6 {
 		return nil
 	}
 	if version == 0 {
@@ -199,14 +199,34 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+	if version < 5 {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		for _, statement := range []string{
+			"ALTER TABLE managed_projects ADD COLUMN env_files_json TEXT NOT NULL DEFAULT '{}'",
+			"PRAGMA user_version = 5",
+		} {
+			if _, err := tx.Exec(statement); err != nil {
+				return fmt.Errorf("migrate database: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	for _, statement := range []string{
-		"ALTER TABLE managed_projects ADD COLUMN env_files_json TEXT NOT NULL DEFAULT '{}'",
-		"PRAGMA user_version = 5",
+		"ALTER TABLE managed_projects ADD COLUMN project_dir TEXT NOT NULL DEFAULT ''",
+		"CREATE TABLE managed_settings (id INTEGER PRIMARY KEY CHECK (id = 1), projects_base TEXT NOT NULL DEFAULT '')",
+		"INSERT INTO managed_settings (id) VALUES (1)",
+		"PRAGMA user_version = 6",
 	} {
 		if _, err := tx.Exec(statement); err != nil {
 			return fmt.Errorf("migrate database: %w", err)

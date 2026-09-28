@@ -13,6 +13,8 @@ services:
       NOX_WEB_DIR: /srv/nox-yard/web
       NOX_LISTEN_ADDR: :8080
       NOX_PUBLIC_URL: ${NOX_PUBLIC_URL:-}
+      NOX_HOST_HOME: ${HOME:-}
+      NOX_HOST_USERPROFILE: ${USERPROFILE:-}
     volumes:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock

@@ -119,5 +119,5 @@ func envFileEntries(raw any) ([]EnvFile, error) {
 
 func validEnvPath(name string) bool {
 	clean := path.Clean(name)
-	return name != "" && clean != "." && clean != "__nox_compose.yaml" && !strings.HasPrefix(clean, "../") && clean != ".." && !strings.HasPrefix(name, "/") && !strings.ContainsAny(name, "\\\x00") && !strings.Contains(name, "$")
+	return name != "" && clean != "." && clean != "__nox_compose.yaml" && clean != "compose.yml" && !strings.HasPrefix(clean, "../") && clean != ".." && !strings.HasPrefix(name, "/") && !strings.ContainsAny(name, "\\\x00") && !strings.Contains(name, "$")
 }

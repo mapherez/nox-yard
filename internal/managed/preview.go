@@ -74,7 +74,7 @@ func Variables(content string) []Variable {
 	return result
 }
 
-func Validate(ctx context.Context, name string, source Source, variables map[string]string, envFiles map[string]string) (Preview, error) {
+func Validate(ctx context.Context, name string, source Source, variables map[string]string, envFiles map[string]string, hostProjectDir string) (Preview, error) {
 	if !projectNamePattern.MatchString(name) {
 		return Preview{}, fmt.Errorf("%w: project name must use lowercase letters, numbers, hyphens, or underscores", ErrInvalidSource)
 	}
@@ -160,9 +160,6 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 			item.Ports = append(item.Ports, fmt.Sprintf("%s:%d/%s", port.Published, port.Target, port.Protocol))
 		}
 		for _, volume := range service.Volumes {
-			if volume.Type == "bind" && !strings.HasPrefix(volume.Source, "/") {
-				return Preview{}, fmt.Errorf("%w: service %s uses a relative bind mount", ErrInvalidSource, name)
-			}
 			if volume.Type != "bind" && volume.Type != "volume" {
 				return Preview{}, fmt.Errorf("%w: service %s uses an unsupported mount", ErrInvalidSource, name)
 			}
@@ -186,11 +183,12 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 	sort.Strings(preview.Volumes)
 	sort.Strings(preview.Networks)
 	canonical, _ := json.Marshal(struct {
-		Name      string
-		YAML      string
-		Variables map[string]string
-		EnvFiles  map[string]string
-	}{name, source.YAML, variables, envFiles})
+		Name           string
+		YAML           string
+		Variables      map[string]string
+		EnvFiles       map[string]string
+		HostProjectDir string
+	}{name, source.YAML, variables, envFiles, hostProjectDir})
 	fingerprint := sha256.Sum256(canonical)
 	preview.Fingerprint = hex.EncodeToString(fingerprint[:])
 	return preview, nil

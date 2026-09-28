@@ -59,6 +59,7 @@ export type ManagedSource = {
 export type ManagedRequest = { name: string; source: ManagedSourceInput; variables: Record<string, string>; envFiles: Record<string, string>; mode: "new" | "copy" | "sync" | "adopt"; fingerprint?: string };
 export type ManagedPreview = {
   name: string;
+	projectDir: string;
   services: { name: string; image: string; ports: string[]; volumes: string[]; networks: string[] }[];
   volumes: string[];
   networks: string[];
@@ -117,6 +118,8 @@ export type SelfUpdateStatus = {
   error?: string;
 };
 
+export type ManagedSettings = { projectsBase: string };
+
 type Credentials = {
   username: string;
   password: string;
@@ -172,6 +175,18 @@ export function loadManagedSource(input: ManagedSourceInput, csrfToken: string):
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify(input),
+  });
+}
+
+export function getManagedSettings(): Promise<ManagedSettings> {
+  return request<ManagedSettings>("/api/managed/settings");
+}
+
+export function saveManagedSettings(projectsBase: string, csrfToken: string): Promise<ManagedSettings> {
+  return request<ManagedSettings>("/api/managed/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ projectsBase }),
   });
 }
 

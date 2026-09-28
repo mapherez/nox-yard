@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -33,6 +34,7 @@ type Request struct {
 
 type ProjectPreview struct {
 	Preview
+	ProjectDir    string   `json:"projectDir"`
 	SourceKind    string   `json:"sourceKind"`
 	SourceURL     string   `json:"sourceURL,omitempty"`
 	Duplicates    []string `json:"duplicates"`
@@ -55,16 +57,48 @@ func NewManager(data *store.Store, reader inventory.Reader) (*Manager, error) {
 	return &Manager{data: data, inventory: reader, active: make(map[string]bool)}, nil
 }
 
+func (m *Manager) ProjectsBase() (string, error) { return m.data.ProjectsBase() }
+
+func (m *Manager) SetProjectsBase(ctx context.Context, value string) (string, error) {
+	base, err := NormalizeProjectsBase(value)
+	if err != nil {
+		return "", err
+	}
+	if err := checkHostBase(ctx, base); err != nil {
+		return "", err
+	}
+	return base, m.data.SetProjectsBase(base)
+}
+
 func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, Source, error) {
+	projectDir := ""
+	if input.Mode == "new" || input.Mode == "copy" {
+		base, err := m.data.ProjectsBase()
+		if err != nil {
+			return ProjectPreview{}, Source{}, err
+		}
+		if base == "" {
+			return ProjectPreview{}, Source{}, fmt.Errorf("%w: set the projects directory in Settings before creating a project", ErrInvalidSource)
+		}
+		projectDir = path.Join(base, input.Name)
+	} else if input.Mode == "sync" {
+		old, found, err := m.data.ManagedProject(input.Name)
+		if err != nil {
+			return ProjectPreview{}, Source{}, err
+		}
+		if found {
+			projectDir = old.ProjectDir
+		}
+	}
 	source, err := LoadSource(ctx, input.Source)
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
 	}
-	preview, err := Validate(ctx, input.Name, source, input.Variables, input.EnvFiles)
+	preview, err := Validate(ctx, input.Name, source, input.Variables, input.EnvFiles, projectDir)
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
 	}
-	result := ProjectPreview{Preview: preview, SourceKind: source.Kind, SourceURL: source.URL, Duplicates: []string{}, Changes: []string{}, Mode: input.Mode}
+	result := ProjectPreview{Preview: preview, ProjectDir: projectDir, SourceKind: source.Kind, SourceURL: source.URL, Duplicates: []string{}, Changes: []string{}, Mode: input.Mode}
 	if source.URL != "" {
 		matches, err := m.data.ManagedByURL(source.URL)
 		if err != nil {
@@ -73,7 +107,7 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 		for _, match := range matches {
 			result.Duplicates = append(result.Duplicates, match.Name)
 			if match.Name == input.Name && input.Mode == "sync" {
-				result.Changes = append(result.Changes, describeSourceChanges(ctx, input.Name, match, source, input.Variables, input.EnvFiles, preview)...)
+				result.Changes = append(result.Changes, describeSourceChanges(ctx, input.Name, match, source, input.Variables, input.EnvFiles, projectDir, preview)...)
 			}
 		}
 	}
@@ -108,7 +142,7 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 	return result, source, nil
 }
 
-func describeSourceChanges(ctx context.Context, name string, old store.ManagedProject, source Source, variables, envFiles map[string]string, next Preview) []string {
+func describeSourceChanges(ctx context.Context, name string, old store.ManagedProject, source Source, variables, envFiles map[string]string, projectDir string, next Preview) []string {
 	changes := []string{}
 	if old.YAML != source.YAML {
 		changes = append(changes, "Compose YAML changed")
@@ -121,12 +155,15 @@ func describeSourceChanges(ctx context.Context, name string, old store.ManagedPr
 	if old.EnvFilesJSON != string(encodedEnv) {
 		changes = append(changes, "Environment files changed")
 	}
+	if old.ProjectDir != projectDir {
+		changes = append(changes, "Project directory changed")
+	}
 	previousVariables := map[string]string{}
 	previousEnvFiles := map[string]string{}
 	if json.Unmarshal([]byte(old.VariablesJSON), &previousVariables) != nil || json.Unmarshal([]byte(old.EnvFilesJSON), &previousEnvFiles) != nil {
 		return changes
 	}
-	previous, err := Validate(ctx, name, Source{YAML: old.YAML}, previousVariables, previousEnvFiles)
+	previous, err := Validate(ctx, name, Source{YAML: old.YAML}, previousVariables, previousEnvFiles, old.ProjectDir)
 	if err != nil {
 		return append(changes, "Previous configuration could not be compared")
 	}
@@ -292,7 +329,7 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 	envFilesJSON, _ := json.Marshal(input.EnvFiles)
 	projectRecord := store.ManagedProject{
 		Name: input.Name, SourceKind: source.Kind, SourceURL: source.URL, Filename: source.Filename,
-		YAML: source.YAML, VariablesJSON: string(variablesJSON), EnvFilesJSON: string(envFilesJSON),
+		YAML: source.YAML, VariablesJSON: string(variablesJSON), EnvFilesJSON: string(envFilesJSON), ProjectDir: preview.ProjectDir,
 	}
 	var bytes [16]byte
 	if _, err := rand.Read(bytes[:]); err != nil {
@@ -319,8 +356,14 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 		}
 		jobCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		if err := composeCommand(jobCtx, input.Name, source.YAML, input.Variables, input.EnvFiles, "pull"); err == nil {
-			err = composeCommand(jobCtx, input.Name, source.YAML, input.Variables, input.EnvFiles, "up", "-d", "--no-build")
+		if projectRecord.ProjectDir != "" {
+			if err := writeHostCompose(jobCtx, projectRecord.ProjectDir, source.YAML, input.EnvFiles, input.Mode != "sync"); err != nil {
+				_ = m.data.FinishManagedJob(job.ID, "failed", err.Error())
+				return
+			}
+		}
+		if err := composeCommand(jobCtx, input.Name, source.YAML, input.Variables, input.EnvFiles, preview.ProjectDir, "pull"); err == nil {
+			err = composeCommand(jobCtx, input.Name, source.YAML, input.Variables, input.EnvFiles, preview.ProjectDir, "up", "-d", "--no-build")
 			if err == nil {
 				m.finishWithProject(job.ID, projectRecord, nil)
 				return
@@ -331,7 +374,10 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 	return job, nil
 }
 
-func composeCommand(ctx context.Context, name, content string, variables, envFiles map[string]string, args ...string) error {
+func composeCommand(ctx context.Context, name, content string, variables, envFiles map[string]string, hostProjectDir string, args ...string) error {
+	if hostProjectDir != "" {
+		return runHostCompose(ctx, name, hostProjectDir, variables, args...)
+	}
 	composePath, cleanup, err := prepareCompose(content, envFiles)
 	if err != nil {
 		return err
@@ -413,13 +459,13 @@ func (m *Manager) Operation(name, operation string, removeVolumes bool) (store.M
 				args = append(args, "--volumes")
 			}
 		case "update":
-			if err := composeCommand(ctx, name, project.YAML, variables, envFiles, "pull"); err != nil {
+			if err := composeCommand(ctx, name, project.YAML, variables, envFiles, project.ProjectDir, "pull"); err != nil {
 				_ = m.data.FinishManagedJob(job.ID, "failed", "Image pull failed.")
 				return
 			}
 			args = []string{"up", "-d", "--no-build", "--force-recreate"}
 		}
-		if err := composeCommand(ctx, name, project.YAML, variables, envFiles, args...); err != nil {
+		if err := composeCommand(ctx, name, project.YAML, variables, envFiles, project.ProjectDir, args...); err != nil {
 			_ = m.data.FinishManagedJob(job.ID, "failed", "Docker Compose could not complete the operation.")
 			return
 		}

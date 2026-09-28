@@ -104,6 +104,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/projects", s.projects)
 	mux.HandleFunc("POST /api/managed/source", s.managedSource)
+	mux.HandleFunc("GET /api/managed/settings", s.managedSettingsGet)
+	mux.HandleFunc("PUT /api/managed/settings", s.managedSettingsPut)
 	mux.HandleFunc("POST /api/managed/preview", s.managedPreview)
 	mux.HandleFunc("POST /api/managed/deploy", s.managedDeploy)
 	mux.HandleFunc("GET /api/managed/jobs/{id}", s.managedJob)

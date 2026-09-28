@@ -7,6 +7,7 @@ import {
   getContainerInspection,
   getProjects,
   getManagedJob,
+	getManagedSettings,
   getSelfUpdateStatus,
   pullContainerImage,
   pullProjectImages,
@@ -15,6 +16,7 @@ import {
   removeContainer,
   removeProject,
   saveSelfUpdateSettings,
+	saveManagedSettings,
   revealContainerEnvironment,
   runContainerAction,
   runProjectAction,
@@ -1042,6 +1044,10 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
   const dismiss = useCallback(() => dialogRef.current?.close(), []);
   useDrawerSwipe(dialogRef, "left", open, dismiss);
   const [status, setStatus] = useState<SelfUpdateStatus | null>(null);
+	const [projectsBase, setProjectsBase] = useState("");
+	const [savedProjectsBase, setSavedProjectsBase] = useState("");
+	const [savingProjectsBase, setSavingProjectsBase] = useState(false);
+	const [projectsError, setProjectsError] = useState("");
   const [automatic, setAutomatic] = useState(false);
   const [intervalMinutes, setIntervalMinutes] = useState(15);
   const [error, setError] = useState("");
@@ -1059,6 +1065,9 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
     if (!open) return;
     setStatus(null);
     setError("");
+	let settingsActive = true;
+	setProjectsError("");
+	void getManagedSettings().then((settings) => { if (settingsActive) { setProjectsBase(settings.projectsBase); setSavedProjectsBase(settings.projectsBase); } }).catch((cause: unknown) => { if (settingsActive) setProjectsError(cause instanceof Error ? cause.message : "Unable to load projects directory."); });
     let active = true;
     let initialized = false;
     const controller = new AbortController();
@@ -1086,6 +1095,7 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
     document.addEventListener("visibilitychange", refresh);
     return () => {
       active = false;
+	  settingsActive = false;
       controller.abort();
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refresh);
@@ -1117,6 +1127,19 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
     }
   }
 
+	async function saveProjectsDirectory(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setSavingProjectsBase(true);
+		setProjectsError("");
+		try {
+			const settings = await saveManagedSettings(projectsBase, csrfToken);
+			setProjectsBase(settings.projectsBase);
+			setSavedProjectsBase(settings.projectsBase);
+		} catch (cause) {
+			setProjectsError(cause instanceof Error ? cause.message : "Unable to save projects directory.");
+		} finally { setSavingProjectsBase(false); }
+	}
+
   const labels: Record<SelfUpdateStatus["status"], string> = {
     not_checked: "Not checked",
     checking: "Checking",
@@ -1146,6 +1169,16 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
         <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close settings">×</button>
       </header>
       <div className={styles.settingsContent}>
+		<section aria-labelledby="projects-directory-title" className={styles.settingsSection}>
+		  <h3 id="projects-directory-title">Projects directory</h3>
+		  <p>Choose an existing directory on the Docker host. New projects are saved as BASE/PROJECT_NAME/compose.yml. Relative bind mounts remain relative to that file. On Windows with Docker Desktop, you can use ~/projects or a drive path such as C:\Users\name\projects.</p>
+		  <form onSubmit={(event) => { void saveProjectsDirectory(event); }} className={styles.settingsForm}>
+			<label htmlFor="projects-base">Base directory on host</label>
+			<input id="projects-base" className={styles.settingsTextInput} type="text" value={projectsBase} onChange={(event) => setProjectsBase(event.target.value)} placeholder="/home/user/projects or ~/projects" required autoComplete="off" spellCheck={false} />
+			<button type="submit" className={styles.primaryButton} disabled={savingProjectsBase || projectsBase.trim() === savedProjectsBase}>{savingProjectsBase ? "Saving…" : "Save directory"}</button>
+			{projectsError && <p className={styles.updateError} role="alert">{projectsError}</p>}
+		  </form>
+		</section>
         <section aria-labelledby="updates-title" className={styles.settingsSection}>
           <h3 id="updates-title">NoX Yard updates</h3>
           <p>Check the public GHCR image and install new builds automatically.</p>

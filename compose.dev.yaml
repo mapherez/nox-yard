@@ -13,6 +13,8 @@ services:
       NOX_DATA_DIR: /data
       NOX_LISTEN_ADDR: :8080
       NOX_PUBLIC_URL: http://127.0.0.1:5173
+      NOX_HOST_HOME: ${HOME:-}
+      NOX_HOST_USERPROFILE: ${USERPROFILE:-}
     volumes:
       - dev-data:/data
       - /var/run/docker.sock:/var/run/docker.sock
