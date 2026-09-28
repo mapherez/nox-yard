@@ -19,6 +19,21 @@ type inventoryStub struct {
 	inspectCalls int
 }
 
+func TestCSPAllowsTerminalStylesWithoutInlineScripts(t *testing.T) {
+	data, api := newTestServer(t, t.TempDir(), "")
+	defer data.Close()
+
+	result := httptest.NewRecorder()
+	api.Handler().ServeHTTP(result, httptest.NewRequest(http.MethodGet, "http://yard.test/api/bootstrap", nil))
+	policy := result.Header().Get("Content-Security-Policy")
+	if !strings.Contains(policy, "style-src 'self' 'unsafe-inline'") {
+		t.Fatalf("terminal runtime styles are blocked by CSP: %q", policy)
+	}
+	if !strings.Contains(policy, "script-src 'self';") {
+		t.Fatalf("CSP must continue to restrict scripts to this origin: %q", policy)
+	}
+}
+
 func (s *inventoryStub) Snapshot(context.Context) (inventory.Snapshot, error) {
 	s.calls++
 	return inventory.Snapshot{Projects: []inventory.Project{{ID: "compose:yard", Name: "yard"}}}, nil
