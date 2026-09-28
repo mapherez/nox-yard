@@ -17,6 +17,14 @@ ARG BUILD_SHA
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X main.buildSHA=${BUILD_SHA}" -o /out/nox-yard ./cmd/nox-yard \
     && go version -m /out/nox-yard | grep -Eq "GOARCH=${TARGETARCH}$"
 
+FROM alpine:3.23 AS dev-backend
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=backend /out/nox-yard /usr/local/bin/nox-yard
+ENV NOX_DATA_DIR=/data \
+    NOX_LISTEN_ADDR=:8080
+EXPOSE 8080
+CMD ["nox-yard"]
+
 FROM alpine:3.23
 LABEL org.opencontainers.image.source="https://github.com/mapherez/nox-yard"
 RUN apk add --no-cache ca-certificates tzdata

@@ -89,6 +89,9 @@ type Credentials = {
   password: string;
 };
 
+const localBackendMessage =
+  "The local API is not responding on 127.0.0.1:8080. Start Docker Desktop, then run docker compose -f compose.dev.yaml up -d --build from the project root and retry.";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -99,6 +102,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    if (import.meta.env.DEV && path === "/api/bootstrap") throw new Error(localBackendMessage);
     throw new Error("Cannot reach NoX Yard. Check the connection and try again.");
   }
 
@@ -114,7 +118,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       "error" in payload &&
       typeof payload.error === "string"
         ? payload.error
-        : "The request could not be completed.";
+        : import.meta.env.DEV && path === "/api/bootstrap" && response.status >= 500
+          ? localBackendMessage
+          : "The request could not be completed.";
     throw new Error(message);
   }
   return payload as T;
