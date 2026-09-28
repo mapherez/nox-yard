@@ -9,6 +9,8 @@ import {
   getSelfUpdateStatus,
   pullContainerImage,
   pullProjectImages,
+  previewRemoveContainer,
+  previewRemoveProject,
   removeContainer,
   removeProject,
   saveSelfUpdateSettings,
@@ -23,6 +25,8 @@ import {
   type LifecycleAction,
   type MaintenanceResult,
   type Project,
+  type RemovalPlan,
+  type RemovalReport,
   type SelfUpdateStatus,
 } from "./api";
 import styles from "./App.module.css";
@@ -448,7 +452,7 @@ function Dashboard({
   );
 }
 
-type RemovalTarget = { kind: "project" | "container"; id: string; name: string; containerIds: string[] };
+type RemovalTarget = { kind: "project" | "container"; id: string; name: string };
 
 function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: Project; csrfToken: string; onChanged: () => void; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -472,7 +476,6 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
   useEffect(() => {
     setActionMessage("");
     setActionError("");
-    setRemovalTarget(null);
     setSelectedContainerID(null);
     setActiveTab("details");
     lastSelectionRef.current = null;
@@ -524,25 +527,15 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     }
   }
 
-  async function runMaintenance(target: "project" | "container", id: string, operation: "pull" | "remove", expectedIDs: string[] = []) {
+  async function runMaintenance(target: "project" | "container", id: string) {
     setBusyTarget(id);
-    setActionMessage(operation === "pull" ? "Pulling images… Containers will keep running." : "Removing containers…");
+    setActionMessage("Pulling images… Containers will keep running.");
     setActionError("");
     try {
-      let result: MaintenanceResult;
-      if (operation === "pull") {
-        result = target === "project" ? await pullProjectImages(id, csrfToken) : await pullContainerImage(id, csrfToken);
-        setActionMessage(result.succeeded ? `Pulled ${result.succeeded} ${result.succeeded === 1 ? "image" : "images"}. Running containers were not changed.` : "");
-      } else {
-        result = target === "project" ? await removeProject(id, expectedIDs, csrfToken) : await removeContainer(id, csrfToken);
-        setRemovalTarget(null);
-        setActionMessage(result.succeeded ? `Removed ${result.succeeded} ${result.succeeded === 1 ? "container" : "containers"}. Volumes and images were kept.` : "");
-        onChanged();
-        if (!result.failed && result.succeeded) dialogRef.current?.close();
-      }
+      const result: MaintenanceResult = target === "project" ? await pullProjectImages(id, csrfToken) : await pullContainerImage(id, csrfToken);
+      setActionMessage(result.succeeded ? `Pulled ${result.succeeded} ${result.succeeded === 1 ? "image" : "images"}. Running containers were not changed.` : "");
       if (result.failed) setActionError(result.errors?.join(" ") || `${result.failed} operations failed.`);
     } catch (cause) {
-      setRemovalTarget(null);
       setActionMessage("");
       setActionError(cause instanceof Error ? cause.message : "Unable to complete the operation.");
       onChanged();
@@ -595,8 +588,8 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
             onRun={(action) => runAction("project", project.id, action)}
             pullLabel="Pull project images"
             removeLabel="Remove project"
-            onPull={() => { void runMaintenance("project", project.id, "pull"); }}
-            onRemove={() => setRemovalTarget({ kind: "project", id: project.id, name: project.name, containerIds: project.containers.map((container) => container.id) })}
+            onPull={() => { void runMaintenance("project", project.id); }}
+            onRemove={() => setRemovalTarget({ kind: "project", id: project.id, name: project.name })}
           />}
           <section className={styles.projectOverview} aria-label="Project overview">
             <p className={styles.detailSummary}>
@@ -622,10 +615,10 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
               onRun={(action) => runAction("container", activeContainer.id, action)}
               pullLabel={project.kind === "external-compose" && project.containers.length === 1 ? "Pull project image" : "Pull image"}
               removeLabel={project.kind === "external-compose" && project.containers.length === 1 ? "Remove project" : "Remove container"}
-              onPull={() => { void runMaintenance(project.kind === "external-compose" && project.containers.length === 1 ? "project" : "container", project.kind === "external-compose" && project.containers.length === 1 ? project.id : activeContainer.id, "pull"); }}
+              onPull={() => { void runMaintenance(project.kind === "external-compose" && project.containers.length === 1 ? "project" : "container", project.kind === "external-compose" && project.containers.length === 1 ? project.id : activeContainer.id); }}
               onRemove={() => setRemovalTarget(project.kind === "external-compose" && project.containers.length === 1
-                ? { kind: "project", id: project.id, name: project.name, containerIds: [activeContainer.id] }
-                : { kind: "container", id: activeContainer.id, name: activeContainer.name, containerIds: [activeContainer.id] })}
+                ? { kind: "project", id: project.id, name: project.name }
+                : { kind: "container", id: activeContainer.id, name: activeContainer.name })}
             />
           : <section className={styles.containerPicker} aria-labelledby={`${tabsID}-containers-title`}>
               <h3 id={`${tabsID}-containers-title`}>Containers</h3>
@@ -643,9 +636,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
       </div>
     </div>}
   </dialog>
-    <RemoveConfirmation target={removalTarget} busy={busyTarget !== null} onCancel={() => setRemovalTarget(null)} onConfirm={() => {
-      if (removalTarget) void runMaintenance(removalTarget.kind, removalTarget.id, "remove", removalTarget.containerIds);
-    }} />
+    <RemoveConfirmation target={removalTarget} csrfToken={csrfToken} onClose={() => setRemovalTarget(null)} onChanged={onChanged} />
   </>;
 }
 
@@ -892,14 +883,20 @@ function MaintenanceMenu({ busy, pullLabel, removeLabel, canPull, canRemove, onP
   </details>;
 }
 
-function RemoveConfirmation({ target, busy, onCancel, onConfirm }: {
+function RemoveConfirmation({ target, csrfToken, onClose, onChanged }: {
   target: RemovalTarget | null;
-  busy: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
+  csrfToken: string;
+  onClose: () => void;
+  onChanged: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleID = useId();
+  const [plan, setPlan] = useState<RemovalPlan | null>(null);
+  const [report, setReport] = useState<RemovalReport | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -907,17 +904,73 @@ function RemoveConfirmation({ target, busy, onCancel, onConfirm }: {
     if (!target && dialog.open) dialog.close();
   }, [target]);
 
-  return <dialog ref={dialogRef} className={styles.confirmDialog} aria-labelledby={titleID} onClose={onCancel} onCancel={(event) => { if (busy) event.preventDefault(); }}>
+  useEffect(() => {
+    if (!target) return;
+    let current = true;
+    setPlan(null);
+    setReport(null);
+    setError("");
+    setLoading(true);
+    const load = target.kind === "project" ? previewRemoveProject(target.id) : previewRemoveContainer(target.id);
+    void load.then((result) => { if (current) setPlan(result); })
+      .catch((cause: unknown) => { if (current) setError(cause instanceof Error ? cause.message : "Unable to inspect Docker resources."); })
+      .finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
+  }, [target]);
+
+  async function confirm() {
+    if (!target || !plan || removing) return;
+    setRemoving(true);
+    setError("");
+    try {
+      const result = target.kind === "project"
+        ? await removeProject(target.id, plan.fingerprint, csrfToken)
+        : await removeContainer(target.id, plan.fingerprint, csrfToken);
+      setReport(result);
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to complete removal.");
+      // A changed preview must be reviewed again before a new attempt.
+      setPlan(null);
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  const removed = report?.items.filter((item) => item.status === "removed").length ?? 0;
+  const retained = report?.items.filter((item) => item.status === "retained").length ?? 0;
+  const failed = report?.items.filter((item) => item.status === "failed").length ?? 0;
+
+  return <dialog ref={dialogRef} className={styles.confirmDialog} aria-labelledby={titleID} onClose={onClose} onCancel={(event) => { if (removing) event.preventDefault(); }}>
     {target && <div className={styles.confirmBody}>
-      <h2 id={titleID}>Remove {target.kind}?</h2>
-      <p><strong>{target.name}</strong> {target.kind === "project" ? `contains ${target.containerIds.length} ${target.containerIds.length === 1 ? "container" : "containers"}.` : "will be removed."} Running containers will be stopped and removed.</p>
-      <p>Volumes, networks, and images will be kept. The removed containers will disappear from the dashboard.</p>
+      <h2 id={titleID}>{report ? "Removal report" : `Remove ${target.kind}?`}</h2>
+      <p><strong>{target.name}</strong></p>
+      {loading && <p role="status">Inspecting containers, volumes, networks, and images…</p>}
+      {error && <p className={styles.inventoryError} role="alert">{error}</p>}
+      {plan && !report && <>
+        <p>Review the exact resources below. Running containers will be stopped before removal. Host paths and shared or unowned resources remain on the host.</p>
+        <RemovalItems items={plan.items.map((item) => ({ ...item, status: item.action === "remove" ? "will remove" : "will keep" }))} />
+      </>}
+      {report && <>
+        <p role="status">{failed || retained ? "Removal incomplete." : "Removal complete."} {removed} removed · {retained} retained · {failed} failed.</p>
+        <RemovalItems items={report.items} />
+      </>}
       <div className={styles.confirmActions}>
-        <button type="button" className={styles.inspectButton} autoFocus disabled={busy} onClick={onCancel}>Cancel</button>
-        <button type="button" className={`${styles.inspectButton} ${styles.dangerAction}`} disabled={busy} onClick={onConfirm}>{busy ? "Removing…" : `Remove ${target.kind}`}</button>
+        <button type="button" className={styles.inspectButton} autoFocus disabled={removing} onClick={onClose}>{report ? "Close report" : "Cancel"}</button>
+        {plan && !report && <button type="button" className={`${styles.inspectButton} ${styles.dangerAction}`} disabled={loading || removing} onClick={() => { void confirm(); }}>{removing ? "Removing…" : `Remove ${target.kind}`}</button>}
       </div>
     </div>}
   </dialog>;
+}
+
+function RemovalItems({ items }: { items: { kind: string; id: string; name: string; status: string; reason?: string }[] }) {
+  return <ul className={styles.removalList} aria-label="Resources">
+    {items.map((item) => <li key={`${item.kind}:${item.id}`} className={styles.removalItem} data-status={item.status}>
+      <div><strong>{item.kind}</strong><span className={styles.removalStatus}>{item.status}</span></div>
+      <code>{item.name || item.id}</code>
+      {item.reason && <small>{item.reason}</small>}
+    </li>)}
+  </ul>;
 }
 
 const checkIntervals = [5, 15, 30, 60, 360] as const;

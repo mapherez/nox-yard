@@ -56,6 +56,17 @@ export type MaintenanceResult = {
   errors?: string[];
 };
 
+export type RemovalItem = {
+  kind: string;
+  id: string;
+  name: string;
+  action: "remove" | "keep";
+  reason?: string;
+};
+
+export type RemovalPlan = { fingerprint: string; items: RemovalItem[] };
+export type RemovalReport = { items: (RemovalItem & { status: "removed" | "retained" | "failed" })[] };
+
 export type ContainerInspection = {
   id: string;
   ports: { containerPort: string; hostIP?: string; hostPort?: string }[];
@@ -155,19 +166,27 @@ export function pullProjectImages(id: string, csrfToken: string): Promise<Mainte
   });
 }
 
-export function removeContainer(id: string, csrfToken: string): Promise<MaintenanceResult> {
-  return request<MaintenanceResult>(`/api/containers/${encodeURIComponent(id)}/remove`, {
+export function previewRemoveContainer(id: string): Promise<RemovalPlan> {
+  return request<RemovalPlan>(`/api/containers/${encodeURIComponent(id)}/remove/preview`);
+}
+
+export function previewRemoveProject(id: string): Promise<RemovalPlan> {
+  return request<RemovalPlan>(`/api/projects/${encodeURIComponent(id)}/remove/preview`);
+}
+
+export function removeContainer(id: string, fingerprint: string, csrfToken: string): Promise<RemovalReport> {
+  return request<RemovalReport>(`/api/containers/${encodeURIComponent(id)}/remove`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ confirm: true }),
+    body: JSON.stringify({ confirm: true, fingerprint }),
   });
 }
 
-export function removeProject(id: string, containerIds: string[], csrfToken: string): Promise<MaintenanceResult> {
-  return request<MaintenanceResult>(`/api/projects/${encodeURIComponent(id)}/remove`, {
+export function removeProject(id: string, fingerprint: string, csrfToken: string): Promise<RemovalReport> {
+  return request<RemovalReport>(`/api/projects/${encodeURIComponent(id)}/remove`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ confirm: true, containerIds }),
+    body: JSON.stringify({ confirm: true, fingerprint }),
   });
 }
 

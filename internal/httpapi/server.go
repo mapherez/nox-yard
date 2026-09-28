@@ -109,6 +109,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/projects/{id}/pull", s.projectPull)
 	mux.HandleFunc("POST /api/containers/{id}/remove", s.containerRemove)
 	mux.HandleFunc("POST /api/projects/{id}/remove", s.projectRemove)
+	mux.HandleFunc("GET /api/containers/{id}/remove/preview", s.containerRemovePreview)
+	mux.HandleFunc("GET /api/projects/{id}/remove/preview", s.projectRemovePreview)
 	mux.HandleFunc("GET /api/self-update", s.selfUpdateStatus)
 	mux.HandleFunc("PUT /api/self-update", s.selfUpdateSettings)
 	mux.HandleFunc("POST /api/self-update/check", s.selfUpdateCheck)

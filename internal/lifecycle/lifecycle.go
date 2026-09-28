@@ -23,7 +23,7 @@ const (
 )
 
 var ErrNotFound = errors.New("target not found")
-var ErrChanged = errors.New("project containers changed")
+var ErrChanged = errors.New("Docker removal plan changed")
 var ErrProtected = errors.New("NoX Yard cannot be stopped from its own web process")
 var ErrInvalidAction = errors.New("invalid lifecycle action")
 
@@ -41,8 +41,10 @@ type Controller interface {
 	Project(context.Context, string, Action) (Result, error)
 	PullContainer(context.Context, string) (MaintenanceResult, error)
 	PullProject(context.Context, string) (MaintenanceResult, error)
-	RemoveContainer(context.Context, string) (MaintenanceResult, error)
-	RemoveProject(context.Context, string, []string) (MaintenanceResult, error)
+	PreviewRemoveContainer(context.Context, string) (RemovalPlan, error)
+	PreviewRemoveProject(context.Context, string) (RemovalPlan, error)
+	RemoveContainer(context.Context, string, string) (RemovalReport, error)
+	RemoveProject(context.Context, string, string) (RemovalReport, error)
 }
 
 // Manager serializes lifecycle requests so a group action cannot race another

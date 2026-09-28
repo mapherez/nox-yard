@@ -1343,7 +1343,7 @@
 }
 
 .confirmDialog {
-  inline-size: min(28rem, calc(100dvw - 2rem));
+  inline-size: min(38rem, calc(100dvw - 2rem));
   max-block-size: calc(100dvh - 2rem);
   overflow: auto;
   padding: 0;
@@ -1384,6 +1384,63 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   padding-block-start: var(--space-2);
+}
+
+.removalList {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-block-size: min(45dvh, 24rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.removalItem {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  font-size: 0.8rem;
+}
+
+.removalItem > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  text-transform: capitalize;
+}
+
+.removalItem code {
+  overflow-wrap: anywhere;
+  color: var(--color-text-primary);
+}
+
+.removalItem small {
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.removalStatus {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.removalItem[data-status="will remove"] .removalStatus,
+.removalItem[data-status="failed"] .removalStatus {
+  color: var(--color-danger);
+}
+
+.removalItem[data-status="removed"] .removalStatus {
+  color: var(--color-success);
+}
+
+.removalItem[data-status="will keep"] .removalStatus,
+.removalItem[data-status="retained"] .removalStatus {
+  color: var(--color-warning);
 }
 
 .actionConfirm {
