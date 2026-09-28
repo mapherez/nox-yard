@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/moby/moby/api/pkg/stdcopy"
 )
 
 const maxLogLineBytes = 16 * 1024
