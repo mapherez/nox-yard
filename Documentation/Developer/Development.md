@@ -13,6 +13,7 @@
 - `internal/store/`: SQLite schema, administrator, and sessions.
 - `internal/httpapi/`: same-origin HTTP routes, session protection, and static asset serving.
 - `internal/selfupdate/`: opt-in GHCR checks and the temporary Engine-based update worker; see [Self-Update](Self-Update.md).
+- `internal/managed/`: source intake for new managed Compose projects; validation and deployment follow in Phase 3.
 - `web/src/`: typed API client, React views, and CSS Modules. Shared tokens and global rules are in `web/src/styles/`.
 - `Dockerfile`, `compose.yaml`, `compose.dev.yaml`, `.env.example`: production and local development images and Compose configurations.
 - `scripts/check.sh`, `scripts/test.sh`, `scripts/ci-local.sh`: shared local and CI validation.

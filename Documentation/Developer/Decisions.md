@@ -1,6 +1,6 @@
 # Technical decisions
 
-Record decisions here when they change the architecture, security model, product behavior, or development conventions. Add a date, decision, reason, and consequences; do not silently replace an earlier decision. All entries below were agreed during planning on **2026-09-24**.
+Record decisions here when they change the architecture, security model, product behavior, or development conventions. Add a date, decision, reason, and consequences; do not silently replace an earlier decision. The initial decisions were agreed during planning on **2026-09-24**; later entries carry their own dates.
 
 ## D-001 — English-only project
 
@@ -61,3 +61,7 @@ The app checks the public GHCR `latest` manifest for its platform and uses the i
 ## D-015 — Dedicated settings drawer and configurable check interval (2026-09-25)
 
 This supersedes the fixed six-hour interval in D-014. Global update settings belong in a sidebar drawer so the dashboard remains focused on projects. The persisted interval defaults to 15 minutes and can be set to 5, 15, 30, 60, or 360 minutes. Saving enabled settings triggers an immediate check; scheduled checks are due within about one minute of the selected interval. Rounded UI surfaces use only `--radius-sm`.
+
+## D-016 — Public Compose source intake (2026-09-28)
+
+New managed projects may start from pasted YAML, an uploaded file, or a public HTTPS URL. Source intake limits the file to 1 MiB. URL retrieval uses port 443, rejects private and special-purpose DNS results, disables proxy use and redirects, and limits request duration. This restriction keeps the web service from fetching host-local or internal-network resources through the Docker-capable API. Compose validation and deployment remain separate steps after source intake.
