@@ -1,22 +1,22 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$script_dir/ci-output.sh"
+repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
 cd "$repo_root"
 
-echo "Running Go tests..."
-go test ./...
+run_check 'go test ./...' go test ./...
 
 if [ ! -d web/node_modules ]; then
-  echo "Frontend dependencies are missing. Run 'cd web && npm ci' first." >&2
+  printf '[FAIL] Frontend dependencies are missing. Run "npm ci --prefix web" first.\n' >&2
   exit 1
 fi
 
 cd web
-echo "Type-checking and building the frontend..."
-npm run build
+run_check 'Frontend typecheck and build' npm run build
 
 # These are no-ops until the corresponding package.json scripts are added.
-npm run --if-present test
-npm run --if-present lint
-npm run --if-present stylelint
+run_check 'Optional frontend tests' npm run --if-present test
+run_check 'Optional frontend lint' npm run --if-present lint
+run_check 'Optional frontend stylelint' npm run --if-present stylelint

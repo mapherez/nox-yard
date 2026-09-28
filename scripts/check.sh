@@ -1,18 +1,19 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$script_dir/ci-output.sh"
+repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
 cd "$repo_root"
 
-echo "Checking Go formatting..."
-unformatted=$(git ls-files -z -- '*.go' | xargs -0 -r gofmt -l)
-if [ -n "$unformatted" ]; then
-  printf 'Go files need gofmt:\n%s\n' "$unformatted" >&2
-  exit 1
-fi
+check_gofmt() {
+  unformatted=$(git ls-files -z -- '*.go' | xargs -0 -r gofmt -l) || return $?
+  if [ -n "$unformatted" ]; then
+    printf 'Go files need gofmt:\n%s\n' "$unformatted" >&2
+    return 1
+  fi
+}
 
-echo "Running go vet..."
-go vet ./...
-
-echo "Validating Docker Compose..."
-docker compose config --quiet
+run_check 'gofmt' check_gofmt
+run_check 'go vet ./...' go vet ./...
+run_check 'Docker Compose configuration' docker compose config --quiet
