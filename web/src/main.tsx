@@ -1,5 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import "@phosphor-icons/web/bold/style.css";
+import "@phosphor-icons/web/fill/style.css";
 import App from "./App";
 import "./styles/tokens.css";
 import "./styles/global.css";

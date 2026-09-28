@@ -33,6 +33,7 @@ The account avatar is intentionally circular to identify the user; this is the o
 - Variants should be explicit component properties (`intent`, `size`, `loading`, `disabled`) and map to token-based CSS classes. A disabled or loading action must have a clear text explanation when the reason matters.
 - Keep data fetching and Docker-specific mapping outside presentational components. Views consume typed application models, not raw Engine responses.
 - Use native semantic elements. Prefer a native `<dialog>` for modal confirmation and an accessible dialog pattern for detail drawers. Icon-only controls need accessible names; opening and closing overlays must preserve sensible focus.
+- Use the self-hosted `@phosphor-icons/web` font for interface icons. Import only the `bold` and `fill` weights in `web/src/main.tsx`. Choose `fill` for solid shapes such as Play, Stop, and Projects; use `bold` for line-based actions and navigation. Render decorative glyphs with `aria-hidden="true"` and give icon-only buttons an accessible name. Size icons with `font-size` and inherit their color from the control; do not draw replacement SVG paths or override the Phosphor font family.
 - Never indicate running, unhealthy, or failed state by color alone. Pair color with text or an icon. Provide visible `:focus-visible` styles, sufficient contrast, and reduced-motion behavior.
 
 ## Responsive layout

@@ -4,7 +4,6 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { Project } from "./api";
 import styles from "./App.module.css";
-import { RefreshIcon } from "./RefreshIcon";
 
 type TerminalStatus = "connecting" | "connected" | "exited" | "error";
 
@@ -28,14 +27,14 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
     const terminal = new Terminal({
       cursorBlink: true,
       cursorStyle: "bar",
-      cursorWidth: 2,
+      cursorWidth: 3,
       cursorInactiveStyle: "bar",
       fontFamily: palette.getPropertyValue("--font-code").trim(),
       fontSize: 13,
       theme: {
         background: palette.getPropertyValue("--color-terminal").trim(),
         foreground: palette.getPropertyValue("--color-text-primary").trim(),
-        cursor: palette.getPropertyValue("--color-accent").trim(),
+        cursor: palette.getPropertyValue("--color-text-primary").trim(),
         selectionBackground: palette.getPropertyValue("--color-border-strong").trim(),
       },
     });
@@ -43,9 +42,19 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
     terminal.loadAddon(fit);
     terminal.open(surface);
     fit.fit();
-    terminal.focus();
 
     let active = true;
+    let focusFrame = 0;
+    const focusTerminal = () => {
+      cancelAnimationFrame(focusFrame);
+      focusFrame = requestAnimationFrame(() => {
+        if (active && surface.isConnected && surface.closest("dialog")?.open) {
+          terminal.focus();
+          terminal.refresh(0, terminal.rows - 1);
+        }
+      });
+    };
+    focusTerminal();
     let ready = false;
     let ended = false;
     setStatus("connecting");
@@ -90,7 +99,7 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
           ready = true;
           setStatus("connected");
           resize();
-          requestAnimationFrame(() => { if (active) terminal.focus(); });
+          focusTerminal();
         } else if (response.type === "exit") {
           ended = true;
           setStatus("exited");
@@ -123,6 +132,7 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
 
     return () => {
       active = false;
+      cancelAnimationFrame(focusFrame);
       observer.disconnect();
       input.dispose();
       socket.close();
@@ -147,7 +157,7 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
             </select>
           </label>
         : <strong className={styles.logsContainerName}>{container.service || container.name}</strong>}
-      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect terminal" title="Reconnect terminal" disabled={container.state !== "running"} onClick={() => setRetryKey((key) => key + 1)}><RefreshIcon /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect terminal" title="Reconnect terminal" disabled={container.state !== "running"} onClick={() => setRetryKey((key) => key + 1)}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
     </div>
     {container.state !== "running" && <p className={styles.detailSummary}>Start this container before opening a terminal.</p>}
     {container.state === "running" && <>

@@ -343,9 +343,8 @@
   color: var(--color-text-primary);
 }
 
-.sidebarToggle svg {
-  inline-size: 1.25rem;
-  block-size: 1.25rem;
+.sidebarToggle i {
+  font-size: 1.25rem;
 }
 
 .dashboard[data-collapsed="true"] .sidebarHeader {
@@ -410,10 +409,9 @@
   color: var(--color-accent-hover);
 }
 
-.navLink svg {
-  inline-size: 1.2rem;
-  block-size: 1.2rem;
+.navLink i {
   flex: none;
+  font-size: 1.2rem;
 }
 
 .sidebarFooter {
@@ -476,9 +474,8 @@
   transition: opacity var(--duration-fast);
 }
 
-.compactSignOut svg {
-  inline-size: 1.2rem;
-  block-size: 1.2rem;
+.compactSignOut i {
+  font-size: 1.2rem;
 }
 
 .compactSignOut:hover,
@@ -515,9 +512,8 @@
   color: var(--color-text-primary);
 }
 
-.signOutButton svg {
-  inline-size: 1.2rem;
-  block-size: 1.2rem;
+.signOutButton i {
+  font-size: 1.2rem;
 }
 
 .sidebarScrim {
@@ -871,10 +867,9 @@
   place-items: center;
 }
 
-.refreshButton svg,
-.iconAction svg {
-  inline-size: 1.2rem;
-  block-size: 1.2rem;
+.refreshButton i,
+.iconAction i {
+  font-size: 1.2rem;
 }
 
 .refreshButton:hover:not(:disabled),
@@ -1187,6 +1182,10 @@
   background: var(--color-terminal);
   overflow: hidden;
   touch-action: manipulation;
+}
+
+.terminalSurface:focus-within {
+  border-color: var(--color-focus);
 }
 
 .terminalHint {
@@ -1534,9 +1533,8 @@
   color: var(--color-accent-hover);
 }
 
-.emptyIcon svg {
-  inline-size: 1.6rem;
-  block-size: 1.6rem;
+.emptyIcon i {
+  font-size: 1.6rem;
 }
 
 .emptyPanel h2 {
@@ -1656,9 +1654,8 @@
     background: var(--color-surface-2);
   }
 
-  .mobileMenuButton svg {
-    inline-size: 1.2rem;
-    block-size: 1.2rem;
+  .mobileMenuButton i {
+    font-size: 1.2rem;
   }
 
   .emptyPanel {

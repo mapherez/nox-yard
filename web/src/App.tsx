@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type MouseEvent } from "react";
 import {
   checkSelfUpdateNow,
   containerLogsURL,
@@ -28,7 +28,6 @@ import {
 import styles from "./App.module.css";
 import { useDrawerSwipe } from "./useDrawerSwipe";
 import { TerminalPanel } from "./TerminalPanel";
-import { RefreshIcon } from "./RefreshIcon";
 
 type View =
   | { kind: "loading" }
@@ -365,28 +364,28 @@ function Dashboard({
             {!compactSidebar && <span className={styles.brandName}>NoX Yard</span>}
           </div>
           <button type="button" className={`${styles.sidebarToggle} ${compactSidebar ? styles.sidebarExpand : ""}`} aria-label={isMobile ? "Close menu" : compactSidebar ? "Expand sidebar" : "Hide sidebar"} title={isMobile ? "Close menu" : compactSidebar ? "Expand sidebar" : "Hide sidebar"} aria-expanded={!compactSidebar} onClick={() => isMobile ? setMobileOpen(false) : changeSidebar(!sidebarCollapsed)}>
-            <SidebarIcon collapsed={compactSidebar} />
+            <i className={`ph-bold ${compactSidebar ? "ph-sidebar-simple" : "ph-sidebar"}`} aria-hidden="true" />
           </button>
         </div>
         <nav aria-label="Primary" className={styles.sidebarNav}>
           <a href="#projects" aria-current="page" className={styles.navLink} aria-label="Projects" title={compactSidebar ? "Projects" : undefined} onClick={() => setMobileOpen(false)}>
-            <GridIcon />{!compactSidebar && <span>Projects</span>}
+            <i className="ph-fill ph-squares-four" aria-hidden="true" />{!compactSidebar && <span>Projects</span>}
           </a>
         </nav>
         <div className={styles.sidebarFooter}>
           <button type="button" className={styles.navLink} aria-label="Settings" title={compactSidebar ? "Settings" : undefined} aria-haspopup="dialog" aria-controls="settings-drawer" aria-expanded={settingsOpen} onClick={() => { setMobileOpen(false); setSettingsOpen(true); }}>
-            <SettingsIcon />{!compactSidebar && <span>Settings</span>}
+            <i className="ph-bold ph-sliders-horizontal" aria-hidden="true" />{!compactSidebar && <span>Settings</span>}
           </button>
           <div className={styles.accountRow}>
             {compactSidebar
               ? <div className={styles.accountCompact}>
                 <span className={styles.accountAvatar} aria-hidden="true">{displayName.charAt(0)}</span>
-                <button type="button" onClick={handleSignOut} disabled={pending} className={styles.compactSignOut} aria-label={`Sign out ${displayName}`} title="Sign out"><SignOutIcon /></button>
+                <button type="button" onClick={handleSignOut} disabled={pending} className={styles.compactSignOut} aria-label={`Sign out ${displayName}`} title="Sign out"><i className="ph-bold ph-sign-out" aria-hidden="true" /></button>
               </div>
               : <>
                 <span className={styles.accountAvatar} aria-hidden="true">{displayName.charAt(0)}</span>
                 <span className={styles.accountName} title={displayName}>{displayName}</span>
-                <button type="button" onClick={handleSignOut} disabled={pending} className={styles.signOutButton} aria-label="Sign out" title="Sign out"><SignOutIcon /></button>
+                <button type="button" onClick={handleSignOut} disabled={pending} className={styles.signOutButton} aria-label="Sign out" title="Sign out"><i className="ph-bold ph-sign-out" aria-hidden="true" /></button>
               </>}
           </div>
         </div>
@@ -397,9 +396,9 @@ function Dashboard({
           <div className={styles.dashboardHeader}>
             <div className={styles.pageHeading} id="projects">
               <h1 className={styles.visuallyHidden}>Projects</h1>
-              <button type="button" className={styles.mobileMenuButton} aria-label="Open menu" aria-controls="primary-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><MenuIcon /></button>
+              <button type="button" className={styles.mobileMenuButton} aria-label="Open menu" aria-controls="primary-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><i className="ph-bold ph-list" aria-hidden="true" /></button>
               <button type="button" className={styles.refreshButton} aria-label={refreshing ? "Refreshing projects" : "Refresh projects"} title={refreshing ? "Refreshing projects" : "Refresh projects"} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
-                <RefreshIcon />
+                <i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />
               </button>
             </div>
             {projects && projects.length > 0 && <div className={styles.inventoryMeta}>
@@ -412,7 +411,7 @@ function Dashboard({
           {inventoryError && <p className={styles.inventoryError} role="alert">{inventoryError}</p>}
           {projects === null && !inventoryError && <div className={styles.emptyPanel} role="status">Loading Docker projects…</div>}
           {projects?.length === 0 && <section className={styles.emptyPanel} aria-labelledby="empty-title">
-            <div className={styles.emptyIcon}><GridIcon /></div>
+            <div className={styles.emptyIcon}><i className="ph-fill ph-squares-four" aria-hidden="true" /></div>
             <h2 id="empty-title">No containers found</h2>
             <p>Compose projects and standalone containers on this host will appear here.</p>
           </section>}
@@ -734,7 +733,7 @@ function LogsPanel({ project, preferredContainerID, onSelectContainer }: {
             </select>
           </label>
         : <strong className={styles.logsContainerName}>{container.service || container.name}</strong>}
-      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect logs" title="Reconnect logs" onClick={() => setRetryKey((key) => key + 1)}><RefreshIcon /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect logs" title="Reconnect logs" onClick={() => setRetryKey((key) => key + 1)}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
     </div>
     <p className={styles.logStatus} role="status">{statusLabels[status]}</p>
     {error && <p className={styles.inventoryError} role="alert">{error}</p>}
@@ -842,9 +841,9 @@ function LifecycleControls({ name, state, selfTarget = false, helperTarget = fal
 
   return <div className={styles.lifecycleControls}>
     <div className={styles.actionRow} aria-label={`${name} actions`}>
-      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Start ${name}`} title={`Start ${name}`} disabled={busy || state === "running"} onClick={() => { void onRun("start"); }}><StartIcon /></button>
-      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Stop ${name}`} title={`Stop ${name}`} disabled={busy || !running || selfTarget || helperTarget} onClick={() => setConfirming("stop")}><StopIcon /></button>
-      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Restart ${name}`} title={`Restart ${name}`} disabled={busy || !running || helperTarget} onClick={() => setConfirming("restart")}><RefreshIcon /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Start ${name}`} title={`Start ${name}`} disabled={busy || state === "running"} onClick={() => { void onRun("start"); }}><i className="ph-fill ph-play" aria-hidden="true" /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Stop ${name}`} title={`Stop ${name}`} disabled={busy || !running || selfTarget || helperTarget} onClick={() => setConfirming("stop")}><i className="ph-fill ph-stop" aria-hidden="true" /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Restart ${name}`} title={`Restart ${name}`} disabled={busy || !running || helperTarget} onClick={() => setConfirming("restart")}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
       <MaintenanceMenu busy={busy} pullLabel={pullLabel} removeLabel={removeLabel} canPull={!helperTarget && !selfTarget} canRemove={!helperTarget && !selfTarget} onPull={onPull} onRemove={onRemove} />
     </div>
     {selfTarget && <p className={styles.actionHint}>NoX Yard cannot stop or remove itself. Use Settings for self-update; restart uses a temporary helper.</p>}
@@ -1186,58 +1185,4 @@ function formatUptime(seconds: number | null): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
   return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
-}
-
-function GridIcon(): ReactNode {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  );
-}
-
-function StartIcon(): ReactNode {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="m8 5 11 7-11 7V5Z" />
-  </svg>;
-}
-
-function StopIcon(): ReactNode {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="6" y="6" width="12" height="12" rx="1" />
-  </svg>;
-}
-
-function SettingsIcon(): ReactNode {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 6h6m6 0h6M3 12h10m6 0h2M3 18h2m6 0h10" />
-      <circle cx="12" cy="6" r="3" />
-      <circle cx="16" cy="12" r="3" />
-      <circle cx="8" cy="18" r="3" />
-    </svg>
-  );
-}
-
-function SidebarIcon({ collapsed }: { collapsed: boolean }): ReactNode {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="3" y="3" width="18" height="18" rx="2" />
-    <path d="M9 3v18" />
-    {collapsed ? <path d="m13 9 3 3-3 3" /> : <path d="m16 9-3 3 3 3" />}
-  </svg>;
-}
-
-function MenuIcon(): ReactNode {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
-    <path d="M4 6h16M4 12h16M4 18h16" />
-  </svg>;
-}
-
-function SignOutIcon(): ReactNode {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M10 4H5v16h5M7 12h11m-4-4 4 4-4 4" />
-  </svg>;
 }
