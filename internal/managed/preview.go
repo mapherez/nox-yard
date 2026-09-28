@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -40,6 +41,7 @@ type Preview struct {
 	Services    []Service `json:"services"`
 	Volumes     []string  `json:"volumes"`
 	Networks    []string  `json:"networks"`
+	EnvFiles    []string  `json:"envFiles"`
 	Fingerprint string    `json:"fingerprint"`
 }
 
@@ -72,7 +74,7 @@ func Variables(content string) []Variable {
 	return result
 }
 
-func Validate(ctx context.Context, name string, source Source, variables map[string]string) (Preview, error) {
+func Validate(ctx context.Context, name string, source Source, variables map[string]string, envFiles map[string]string) (Preview, error) {
 	if !projectNamePattern.MatchString(name) {
 		return Preview{}, fmt.Errorf("%w: project name must use lowercase letters, numbers, hyphens, or underscores", ErrInvalidSource)
 	}
@@ -81,7 +83,8 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 	}
 	for _, variable := range Variables(source.YAML) {
 		if variable.Required {
-			if _, ok := variables[variable.Name]; !ok {
+			_, supplied := variables[variable.Name]
+			if !supplied && !envFileDefines(envFiles[".env"], variable.Name) {
 				return Preview{}, fmt.Errorf("%w: provide %s before validation", ErrInvalidSource, variable.Name)
 			}
 		}
@@ -91,10 +94,15 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 			return Preview{}, fmt.Errorf("%w: invalid interpolation variable name", ErrInvalidSource)
 		}
 	}
+	composePath, cleanup, err := prepareCompose(source.YAML, envFiles)
+	if err != nil {
+		return Preview{}, err
+	}
+	defer cleanup()
 	commandCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	command := exec.CommandContext(commandCtx, "docker", "compose", "--ansi", "never", "-p", name, "-f", "-", "config", "--format", "json", "--no-path-resolution", "--no-env-resolution")
-	command.Stdin = strings.NewReader(source.YAML)
+	command := exec.CommandContext(commandCtx, "docker", "compose", "--ansi", "never", "-p", name, "-f", composePath, "config", "--format", "json", "--no-path-resolution")
+	command.Dir = filepath.Dir(composePath)
 	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
 	for key, value := range variables {
 		command.Env = append(command.Env, key+"="+value)
@@ -103,6 +111,9 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 	if err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
+			if len(envFiles) > 0 || len(variables) > 0 {
+				return Preview{}, fmt.Errorf("%w: Compose validation failed; check the YAML and environment file syntax", ErrInvalidSource)
+			}
 			message := strings.TrimSpace(string(exit.Stderr))
 			if len(message) > 500 {
 				message = message[:500]
@@ -135,7 +146,11 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 	if len(model.Services) == 0 {
 		return Preview{}, fmt.Errorf("%w: Compose file has no services", ErrInvalidSource)
 	}
-	preview := Preview{Name: name, Services: []Service{}, Volumes: []string{}, Networks: []string{}}
+	preview := Preview{Name: name, Services: []Service{}, Volumes: []string{}, Networks: []string{}, EnvFiles: []string{}}
+	info, _ := InspectSource(source.YAML)
+	for _, file := range info.EnvFiles {
+		preview.EnvFiles = append(preview.EnvFiles, file.Path)
+	}
 	for name, service := range model.Services {
 		if service.Image == "" {
 			return Preview{}, fmt.Errorf("%w: service %s needs a prebuilt image", ErrInvalidSource, name)
@@ -174,7 +189,8 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 		Name      string
 		YAML      string
 		Variables map[string]string
-	}{name, source.YAML, variables})
+		EnvFiles  map[string]string
+	}{name, source.YAML, variables, envFiles})
 	fingerprint := sha256.Sum256(canonical)
 	preview.Fingerprint = hex.EncodeToString(fingerprint[:])
 	return preview, nil
@@ -209,7 +225,7 @@ func validateSourceStructure(content string) error {
 		if !ok || service["image"] == nil || service["build"] != nil {
 			return fmt.Errorf("%w: service %s must use a prebuilt image", ErrInvalidSource, name)
 		}
-		for _, key := range []string{"env_file", "extends", "configs", "secrets", "develop", "label_file", "credential_spec"} {
+		for _, key := range []string{"extends", "configs", "secrets", "develop", "label_file", "credential_spec"} {
 			if service[key] != nil {
 				return fmt.Errorf("%w: service %s uses unsupported %s", ErrInvalidSource, name, key)
 			}

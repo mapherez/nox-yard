@@ -13,6 +13,7 @@ type ManagedProject struct {
 	Filename      string
 	YAML          string
 	VariablesJSON string
+	EnvFilesJSON  string
 }
 
 type ManagedJob struct {
@@ -26,7 +27,7 @@ type ManagedJob struct {
 }
 
 func (s *Store) ManagedProjects() ([]ManagedProject, error) {
-	rows, err := s.db.Query(`SELECT name, source_kind, source_url, filename, yaml, variables_json FROM managed_projects ORDER BY name`)
+	rows, err := s.db.Query(`SELECT name, source_kind, source_url, filename, yaml, variables_json, env_files_json FROM managed_projects ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +35,7 @@ func (s *Store) ManagedProjects() ([]ManagedProject, error) {
 	projects := []ManagedProject{}
 	for rows.Next() {
 		var project ManagedProject
-		if err := rows.Scan(&project.Name, &project.SourceKind, &project.SourceURL, &project.Filename, &project.YAML, &project.VariablesJSON); err != nil {
+		if err := rows.Scan(&project.Name, &project.SourceKind, &project.SourceURL, &project.Filename, &project.YAML, &project.VariablesJSON, &project.EnvFilesJSON); err != nil {
 			return nil, err
 		}
 		projects = append(projects, project)
@@ -44,8 +45,8 @@ func (s *Store) ManagedProjects() ([]ManagedProject, error) {
 
 func (s *Store) ManagedProject(name string) (ManagedProject, bool, error) {
 	var project ManagedProject
-	err := s.db.QueryRow(`SELECT name, source_kind, source_url, filename, yaml, variables_json FROM managed_projects WHERE name = ?`, name).
-		Scan(&project.Name, &project.SourceKind, &project.SourceURL, &project.Filename, &project.YAML, &project.VariablesJSON)
+	err := s.db.QueryRow(`SELECT name, source_kind, source_url, filename, yaml, variables_json, env_files_json FROM managed_projects WHERE name = ?`, name).
+		Scan(&project.Name, &project.SourceKind, &project.SourceURL, &project.Filename, &project.YAML, &project.VariablesJSON, &project.EnvFilesJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ManagedProject{}, false, nil
 	}
@@ -53,7 +54,7 @@ func (s *Store) ManagedProject(name string) (ManagedProject, bool, error) {
 }
 
 func (s *Store) ManagedByURL(sourceURL string) ([]ManagedProject, error) {
-	rows, err := s.db.Query(`SELECT name, source_kind, source_url, filename, yaml, variables_json FROM managed_projects WHERE source_url = ? ORDER BY name`, sourceURL)
+	rows, err := s.db.Query(`SELECT name, source_kind, source_url, filename, yaml, variables_json, env_files_json FROM managed_projects WHERE source_url = ? ORDER BY name`, sourceURL)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +62,7 @@ func (s *Store) ManagedByURL(sourceURL string) ([]ManagedProject, error) {
 	projects := []ManagedProject{}
 	for rows.Next() {
 		var project ManagedProject
-		if err := rows.Scan(&project.Name, &project.SourceKind, &project.SourceURL, &project.Filename, &project.YAML, &project.VariablesJSON); err != nil {
+		if err := rows.Scan(&project.Name, &project.SourceKind, &project.SourceURL, &project.Filename, &project.YAML, &project.VariablesJSON, &project.EnvFilesJSON); err != nil {
 			return nil, err
 		}
 		projects = append(projects, project)
@@ -71,11 +72,14 @@ func (s *Store) ManagedByURL(sourceURL string) ([]ManagedProject, error) {
 
 func (s *Store) SaveManagedProject(project ManagedProject) error {
 	now := time.Now().Unix()
-	_, err := s.db.Exec(`INSERT INTO managed_projects (name, source_kind, source_url, filename, yaml, variables_json, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	if project.EnvFilesJSON == "" {
+		project.EnvFilesJSON = "{}"
+	}
+	_, err := s.db.Exec(`INSERT INTO managed_projects (name, source_kind, source_url, filename, yaml, variables_json, env_files_json, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET source_kind = excluded.source_kind, source_url = excluded.source_url,
-		filename = excluded.filename, yaml = excluded.yaml, variables_json = excluded.variables_json, updated_at = excluded.updated_at`,
-		project.Name, project.SourceKind, project.SourceURL, project.Filename, project.YAML, project.VariablesJSON, now, now)
+		filename = excluded.filename, yaml = excluded.yaml, variables_json = excluded.variables_json, env_files_json = excluded.env_files_json, updated_at = excluded.updated_at`,
+		project.Name, project.SourceKind, project.SourceURL, project.Filename, project.YAML, project.VariablesJSON, project.EnvFilesJSON, now, now)
 	return err
 }
 

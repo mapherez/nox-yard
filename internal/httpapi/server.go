@@ -286,10 +286,16 @@ func (s *Server) managedSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	info, err := managed.InspectSource(source.YAML)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, struct {
 		managed.Source
 		Variables []managed.Variable `json:"variables"`
-	}{source, managed.Variables(source.YAML)})
+		managed.SourceInfo
+	}{source, managed.Variables(source.YAML), info})
 }
 
 func (s *Server) containerInspection(w http.ResponseWriter, r *http.Request) {

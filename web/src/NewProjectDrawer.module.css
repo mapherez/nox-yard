@@ -71,6 +71,16 @@
 
 .loaded span { color: var(--color-text-secondary); font-size: 0.84rem; }
 
+.visibilityToggle { display: flex; align-items: center; gap: var(--space-3); min-block-size: 2.75rem; }
+.visibilityToggle input { accent-color: var(--color-accent); }
+.envSection { display: grid; gap: var(--space-4); min-inline-size: 0; margin: 0; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.envSection legend { padding-inline: var(--space-2); font-weight: 650; overflow-wrap: anywhere; }
+.envSection code { font-weight: 500; }
+.envRow { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: var(--space-3); min-inline-size: 0; }
+.uploaded { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); overflow-wrap: anywhere; }
+.rowRemove, .addVariable, .uploaded button { min-block-size: 2.75rem; padding-inline: var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface-2); color: var(--color-text-primary); }
+@media (max-width: 42rem) { .envRow { grid-template-columns: 1fr; } }
+
 .previewDialog {
   inline-size: min(42rem, calc(100vw - 2rem));
   max-block-size: min(48rem, calc(100dvh - 2rem));

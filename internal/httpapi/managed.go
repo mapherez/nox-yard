@@ -14,7 +14,7 @@ func decodeManaged(w http.ResponseWriter, r *http.Request, target any) bool {
 		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json.")
 		return false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, managed.MaxSourceBytes*2)
+	r.Body = http.MaxBytesReader(w, r.Body, managed.MaxSourceBytes*4)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(target) != nil || !errors.Is(decoder.Decode(new(any)), io.EOF) {

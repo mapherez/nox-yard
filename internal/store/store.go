@@ -71,10 +71,10 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	if version > 4 {
+	if version > 5 {
 		return fmt.Errorf("database schema version %d is newer than this application", version)
 	}
-	if version == 4 {
+	if version == 5 {
 		return nil
 	}
 	if version == 0 {
@@ -162,13 +162,14 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, statement := range []string{
-		`CREATE TABLE managed_projects (
+	if version < 4 {
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		for _, statement := range []string{
+			`CREATE TABLE managed_projects (
 			name TEXT PRIMARY KEY,
 			source_kind TEXT NOT NULL,
 			source_url TEXT NOT NULL DEFAULT '',
@@ -178,8 +179,8 @@ func migrate(db *sql.DB) error {
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
-		"CREATE INDEX managed_projects_source_url ON managed_projects (source_url)",
-		`CREATE TABLE managed_jobs (
+			"CREATE INDEX managed_projects_source_url ON managed_projects (source_url)",
+			`CREATE TABLE managed_jobs (
 			id TEXT PRIMARY KEY,
 			project_name TEXT NOT NULL,
 			operation TEXT NOT NULL,
@@ -188,7 +189,24 @@ func migrate(db *sql.DB) error {
 			created_at INTEGER NOT NULL,
 			completed_at INTEGER NOT NULL DEFAULT 0
 		)`,
-		"PRAGMA user_version = 4",
+			"PRAGMA user_version = 4",
+		} {
+			if _, err := tx.Exec(statement); err != nil {
+				return fmt.Errorf("migrate database: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		"ALTER TABLE managed_projects ADD COLUMN env_files_json TEXT NOT NULL DEFAULT '{}'",
+		"PRAGMA user_version = 5",
 	} {
 		if _, err := tx.Exec(statement); err != nil {
 			return fmt.Errorf("migrate database: %w", err)

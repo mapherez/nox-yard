@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ type Request struct {
 	Name        string            `json:"name"`
 	Source      SourceInput       `json:"source"`
 	Variables   map[string]string `json:"variables"`
+	EnvFiles    map[string]string `json:"envFiles"`
 	Mode        string            `json:"mode"`
 	Fingerprint string            `json:"fingerprint,omitempty"`
 }
@@ -58,7 +60,7 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
 	}
-	preview, err := Validate(ctx, input.Name, source, input.Variables)
+	preview, err := Validate(ctx, input.Name, source, input.Variables, input.EnvFiles)
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
 	}
@@ -71,7 +73,7 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 		for _, match := range matches {
 			result.Duplicates = append(result.Duplicates, match.Name)
 			if match.Name == input.Name && input.Mode == "sync" {
-				result.Changes = append(result.Changes, describeSourceChanges(ctx, input.Name, match, source, input.Variables, preview)...)
+				result.Changes = append(result.Changes, describeSourceChanges(ctx, input.Name, match, source, input.Variables, input.EnvFiles, preview)...)
 			}
 		}
 	}
@@ -106,7 +108,7 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 	return result, source, nil
 }
 
-func describeSourceChanges(ctx context.Context, name string, old store.ManagedProject, source Source, variables map[string]string, next Preview) []string {
+func describeSourceChanges(ctx context.Context, name string, old store.ManagedProject, source Source, variables, envFiles map[string]string, next Preview) []string {
 	changes := []string{}
 	if old.YAML != source.YAML {
 		changes = append(changes, "Compose YAML changed")
@@ -115,11 +117,16 @@ func describeSourceChanges(ctx context.Context, name string, old store.ManagedPr
 	if old.VariablesJSON != string(encoded) {
 		changes = append(changes, "Interpolation variables changed")
 	}
+	encodedEnv, _ := json.Marshal(envFiles)
+	if old.EnvFilesJSON != string(encodedEnv) {
+		changes = append(changes, "Environment files changed")
+	}
 	previousVariables := map[string]string{}
-	if json.Unmarshal([]byte(old.VariablesJSON), &previousVariables) != nil {
+	previousEnvFiles := map[string]string{}
+	if json.Unmarshal([]byte(old.VariablesJSON), &previousVariables) != nil || json.Unmarshal([]byte(old.EnvFilesJSON), &previousEnvFiles) != nil {
 		return changes
 	}
-	previous, err := Validate(ctx, name, Source{YAML: old.YAML}, previousVariables)
+	previous, err := Validate(ctx, name, Source{YAML: old.YAML}, previousVariables, previousEnvFiles)
 	if err != nil {
 		return append(changes, "Previous configuration could not be compared")
 	}
@@ -282,9 +289,10 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 		m.mu.Unlock()
 	}
 	variablesJSON, _ := json.Marshal(input.Variables)
+	envFilesJSON, _ := json.Marshal(input.EnvFiles)
 	projectRecord := store.ManagedProject{
 		Name: input.Name, SourceKind: source.Kind, SourceURL: source.URL, Filename: source.Filename,
-		YAML: source.YAML, VariablesJSON: string(variablesJSON),
+		YAML: source.YAML, VariablesJSON: string(variablesJSON), EnvFilesJSON: string(envFilesJSON),
 	}
 	var bytes [16]byte
 	if _, err := rand.Read(bytes[:]); err != nil {
@@ -311,8 +319,8 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 		}
 		jobCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		if err := composeCommand(jobCtx, input.Name, source.YAML, input.Variables, "pull"); err == nil {
-			err = composeCommand(jobCtx, input.Name, source.YAML, input.Variables, "up", "-d", "--no-build")
+		if err := composeCommand(jobCtx, input.Name, source.YAML, input.Variables, input.EnvFiles, "pull"); err == nil {
+			err = composeCommand(jobCtx, input.Name, source.YAML, input.Variables, input.EnvFiles, "up", "-d", "--no-build")
 			if err == nil {
 				m.finishWithProject(job.ID, projectRecord, nil)
 				return
@@ -323,10 +331,15 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 	return job, nil
 }
 
-func composeCommand(ctx context.Context, name, content string, variables map[string]string, args ...string) error {
-	commandArgs := append([]string{"compose", "--ansi", "never", "-p", name, "-f", "-"}, args...)
+func composeCommand(ctx context.Context, name, content string, variables, envFiles map[string]string, args ...string) error {
+	composePath, cleanup, err := prepareCompose(content, envFiles)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	commandArgs := append([]string{"compose", "--ansi", "never", "-p", name, "-f", composePath}, args...)
 	command := exec.CommandContext(ctx, "docker", commandArgs...)
-	command.Stdin = strings.NewReader(content)
+	command.Dir = filepath.Dir(composePath)
 	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
 	for key, value := range variables {
 		command.Env = append(command.Env, key+"="+value)
@@ -379,6 +392,11 @@ func (m *Manager) Operation(name, operation string, removeVolumes bool) (store.M
 			_ = m.data.FinishManagedJob(job.ID, "failed", "Saved variables could not be read.")
 			return
 		}
+		envFiles := map[string]string{}
+		if err := json.Unmarshal([]byte(project.EnvFilesJSON), &envFiles); err != nil {
+			_ = m.data.FinishManagedJob(job.ID, "failed", "Saved environment files could not be read.")
+			return
+		}
 		args := []string{}
 		switch operation {
 		case "start":
@@ -395,13 +413,13 @@ func (m *Manager) Operation(name, operation string, removeVolumes bool) (store.M
 				args = append(args, "--volumes")
 			}
 		case "update":
-			if err := composeCommand(ctx, name, project.YAML, variables, "pull"); err != nil {
+			if err := composeCommand(ctx, name, project.YAML, variables, envFiles, "pull"); err != nil {
 				_ = m.data.FinishManagedJob(job.ID, "failed", "Image pull failed.")
 				return
 			}
 			args = []string{"up", "-d", "--no-build", "--force-recreate"}
 		}
-		if err := composeCommand(ctx, name, project.YAML, variables, args...); err != nil {
+		if err := composeCommand(ctx, name, project.YAML, variables, envFiles, args...); err != nil {
 			_ = m.data.FinishManagedJob(job.ID, "failed", "Docker Compose could not complete the operation.")
 			return
 		}

@@ -52,14 +52,17 @@ export type ManagedSource = {
   filename?: string;
   yaml: string;
   variables: { name: string; required: boolean; default?: string }[];
+  envFiles: { path: string; required: boolean }[];
+  suggestedName?: string;
 };
 
-export type ManagedRequest = { name: string; source: ManagedSourceInput; variables: Record<string, string>; mode: "new" | "copy" | "sync" | "adopt"; fingerprint?: string };
+export type ManagedRequest = { name: string; source: ManagedSourceInput; variables: Record<string, string>; envFiles: Record<string, string>; mode: "new" | "copy" | "sync" | "adopt"; fingerprint?: string };
 export type ManagedPreview = {
   name: string;
   services: { name: string; image: string; ports: string[]; volumes: string[]; networks: string[] }[];
   volumes: string[];
   networks: string[];
+  envFiles: string[];
   duplicates: string[];
   externalMatch: boolean;
   changes: string[];
