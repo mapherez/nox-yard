@@ -948,7 +948,7 @@ function RemoveConfirmation({ target, csrfToken, onClose, onChanged }: {
       {loading && <p role="status">Inspecting containers, volumes, networks, and images…</p>}
       {error && <p className={styles.inventoryError} role="alert">{error}</p>}
       {plan && !report && <>
-        <p>Review the exact resources below. Running containers will be stopped before removal. Host paths and shared or unowned resources remain on the host.</p>
+        <p>NoX Yard will stop and remove the selected containers, then attempt to delete the volumes, networks, and images marked "will remove" below. Items marked "will keep" remain on the host for the stated reason.</p>
         <RemovalItems items={plan.items.map((item) => ({ ...item, status: item.action === "remove" ? "will remove" : "will keep" }))} />
       </>}
       {report && <>
