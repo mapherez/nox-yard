@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import {
   checkSelfUpdateNow,
+  containerLogsURL,
   createAdministrator,
   getBootstrap,
   getContainerInspection,
@@ -444,12 +445,15 @@ function Dashboard({
 function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: Project; csrfToken: string; onChanged: () => void; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const detailsTabRef = useRef<HTMLButtonElement>(null);
+  const logsTabRef = useRef<HTMLButtonElement>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
   const containerButtonsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const lastSelectionRef = useRef<string | null>(null);
   const tabsID = useId();
   const dismiss = useCallback(() => dialogRef.current?.close(), []);
   const [selectedContainerID, setSelectedContainerID] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"details" | "logs">("details");
   const [busyTarget, setBusyTarget] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
@@ -459,6 +463,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     setActionMessage("");
     setActionError("");
     setSelectedContainerID(null);
+    setActiveTab("details");
     lastSelectionRef.current = null;
   }, [project?.id]);
 
@@ -467,9 +472,15 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     else if (lastSelectionRef.current) containerButtonsRef.current[lastSelectionRef.current]?.focus();
   }, [selectedContainerID]);
 
-  const activeContainer = project?.kind === "standalone"
+  const activeContainer = project?.containers.length === 1
     ? project.containers[0]
     : project?.containers.find((container) => container.id === selectedContainerID);
+
+  function selectTab(tab: "details" | "logs", focus = false) {
+    setActiveTab(tab);
+    contentRef.current?.scrollTo({ top: 0 });
+    if (focus) (tab === "details" ? detailsTabRef : logsTabRef).current?.focus();
+  }
 
   function showContainer(id: string | null) {
     if (id) lastSelectionRef.current = id;
@@ -523,13 +534,18 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
         <h2 id="project-drawer-title">{project.name}</h2>
         <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close project details">×</button>
       </header>
-      <div className={styles.projectTabs} role="tablist" aria-label={`${project.name} sections`}>
-        <button id={`${tabsID}-details-tab`} type="button" role="tab" aria-selected="true" aria-controls={`${tabsID}-details-panel`} className={styles.projectTab}>Details</button>
-        <button type="button" role="tab" aria-selected="false" className={styles.projectTab} disabled title="Logs are not available yet">Logs</button>
-        <button type="button" role="tab" aria-selected="false" className={styles.projectTab} disabled title="Terminal is not available yet">Terminal</button>
+      <div className={styles.projectTabs} role="tablist" aria-label={`${project.name} sections`} onKeyDown={(event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        selectTab(event.key === "Home" ? "details" : event.key === "End" ? "logs" : activeTab === "details" ? "logs" : "details", true);
+      }}>
+        <button ref={detailsTabRef} id={`${tabsID}-details-tab`} type="button" role="tab" aria-selected={activeTab === "details"} aria-controls={`${tabsID}-details-panel`} tabIndex={activeTab === "details" ? 0 : -1} className={styles.projectTab} onClick={() => selectTab("details")}>Details</button>
+        <button ref={logsTabRef} id={`${tabsID}-logs-tab`} type="button" role="tab" aria-selected={activeTab === "logs"} aria-controls={`${tabsID}-logs-panel`} tabIndex={activeTab === "logs" ? 0 : -1} className={styles.projectTab} onClick={() => selectTab("logs")}>Logs</button>
+        <button type="button" role="tab" aria-selected="false" aria-disabled="true" className={styles.projectTab} disabled title="Terminal is not available yet">Terminal</button>
       </div>
-      <div ref={contentRef} id={`${tabsID}-details-panel`} role="tabpanel" aria-labelledby={`${tabsID}-details-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
-        {activeContainer && project.kind === "external-compose" && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}>← Back to project</button>}
+      <div ref={contentRef} id={`${tabsID}-${activeTab}-panel`} role="tabpanel" aria-labelledby={`${tabsID}-${activeTab}-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
+        {activeTab === "details" ? <>
+        {activeContainer && project.kind === "external-compose" && project.containers.length > 1 && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}>← Back to project</button>}
         {!activeContainer && <>
           {project.kind === "external-compose" && <LifecycleControls
             name={project.name}
@@ -563,9 +579,106 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
                 </button>)}
               </div>
             </section>}
+        </> : <LogsPanel key={project.id} project={project} preferredContainerID={activeContainer?.id} onSelectContainer={setSelectedContainerID} />}
       </div>
     </div>}
   </dialog>;
+}
+
+type LogLine = { stream: "stdout" | "stderr"; text: string };
+type LogStatus = "connecting" | "live" | "reconnecting" | "ended" | "paused" | "error";
+
+function LogsPanel({ project, preferredContainerID, onSelectContainer }: {
+  project: Project;
+  preferredContainerID?: string;
+  onSelectContainer: (id: string) => void;
+}) {
+  const [selectedID, setSelectedID] = useState(preferredContainerID || project.containers[0]?.id || "");
+  const [lines, setLines] = useState<LogLine[]>([]);
+  const [status, setStatus] = useState<LogStatus>("connecting");
+  const [error, setError] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
+  const [visible, setVisible] = useState(document.visibilityState === "visible");
+  const [followOutput, setFollowOutput] = useState(true);
+  const outputRef = useRef<HTMLPreElement>(null);
+  const container = project.containers.find((item) => item.id === selectedID) || project.containers[0];
+
+  useEffect(() => {
+    const sync = () => setVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", sync);
+    return () => document.removeEventListener("visibilitychange", sync);
+  }, []);
+
+  useEffect(() => {
+    if (!container || !visible) {
+      setStatus("paused");
+      return;
+    }
+    setLines([]);
+    setError("");
+    setStatus("connecting");
+    const source = new EventSource(containerLogsURL(container.id));
+    source.onopen = () => {
+      setLines([]);
+      setStatus("live");
+      setError("");
+    };
+    source.addEventListener("log", (event) => {
+      try {
+        const line: unknown = JSON.parse((event as MessageEvent).data);
+        if (!line || typeof line !== "object" || !("text" in line) || typeof line.text !== "string" ||
+            !("stream" in line) || (line.stream !== "stdout" && line.stream !== "stderr")) return;
+        setLines((current) => [...current, line as LogLine].slice(-500));
+      } catch { /* Ignore a malformed event and keep the stream open. */ }
+    });
+    source.addEventListener("end", () => {
+      setStatus("ended");
+      source.close();
+    });
+    source.addEventListener("stream-error", () => {
+      setStatus("error");
+      setError("Docker stopped the log stream. Reconnect to try again.");
+      source.close();
+    });
+    source.onerror = () => {
+      if (source.readyState !== EventSource.CLOSED) {
+        setStatus("reconnecting");
+        setError("Cannot connect to logs. Check Docker access or the container's logging driver.");
+      }
+    };
+    return () => source.close();
+  }, [container?.id, retryKey, visible]);
+
+  useEffect(() => {
+    if (followOutput && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+  }, [lines, followOutput]);
+
+  const statusLabels: Record<LogStatus, string> = {
+    connecting: "Connecting…", live: "Live", reconnecting: "Reconnecting…",
+    ended: "Stream ended", paused: "Paused while this tab is hidden", error: "Disconnected",
+  };
+
+  if (!container) return <p className={styles.detailSummary}>No containers are available for logs.</p>;
+
+  return <section className={styles.logsPanel} aria-label="Container logs">
+    <div className={styles.logsToolbar}>
+      {project.containers.length > 1
+        ? <label className={styles.logsSelector}>Container
+            <select value={container.id} onChange={(event) => { setSelectedID(event.target.value); onSelectContainer(event.target.value); }}>
+              {project.containers.map((item) => <option key={item.id} value={item.id}>{item.service ? `${item.service} · ${item.name}` : item.name}</option>)}
+            </select>
+          </label>
+        : <strong className={styles.logsContainerName}>{container.service || container.name}</strong>}
+      <button type="button" className={styles.inspectButton} onClick={() => setRetryKey((key) => key + 1)}>Reconnect</button>
+    </div>
+    <p className={styles.logStatus} role="status">{statusLabels[status]}</p>
+    {error && <p className={styles.inventoryError} role="alert">{error}</p>}
+    <pre ref={outputRef} className={styles.logOutput} aria-label={`${container.service || container.name} log output`} onScroll={(event) => {
+      const output = event.currentTarget;
+      setFollowOutput(output.scrollHeight - output.scrollTop - output.clientHeight < 32);
+    }}>{lines.length ? lines.map((line, index) => <span key={index} className={line.stream === "stderr" ? styles.logErrorLine : undefined}>{line.text}{"\n"}</span>) : status === "ended" ? "No recent logs.\n" : "Waiting for log output…\n"}</pre>
+    <label className={styles.followOutput}><input type="checkbox" checked={followOutput} onChange={(event) => setFollowOutput(event.target.checked)} /> Follow output</label>
+  </section>;
 }
 
 function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget, onRun }: { container: Container; csrfToken: string; busy: boolean; selfTarget: boolean; helperTarget: boolean; onRun: (action: LifecycleAction) => Promise<void> }) {

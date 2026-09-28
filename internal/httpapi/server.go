@@ -38,6 +38,7 @@ type Server struct {
 	secureCookie bool
 	limiter      loginLimiter
 	inventory    inventory.Reader
+	logs         inventory.LogReader
 	lifecycle    lifecycle.Controller
 	updates      *selfupdate.Manager
 }
@@ -76,6 +77,10 @@ func (s *Server) SetInventory(reader inventory.Reader) {
 	s.inventory = reader
 }
 
+func (s *Server) SetLogs(reader inventory.LogReader) {
+	s.logs = reader
+}
+
 func (s *Server) SetLifecycle(controller lifecycle.Controller) {
 	s.lifecycle = controller
 }
@@ -90,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/projects", s.projects)
 	mux.HandleFunc("GET /api/containers/{id}", s.containerInspection)
+	mux.HandleFunc("GET /api/containers/{id}/logs", s.containerLogs)
 	mux.HandleFunc("POST /api/containers/{id}/environment", s.containerEnvironment)
 	mux.HandleFunc("POST /api/containers/{id}/actions", s.containerAction)
 	mux.HandleFunc("POST /api/projects/{id}/actions", s.projectAction)

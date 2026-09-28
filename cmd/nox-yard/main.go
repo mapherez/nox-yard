@@ -63,6 +63,7 @@ func run() error {
 	}
 	defer dockerInventory.Close()
 	api.SetInventory(dockerInventory)
+	api.SetLogs(dockerInventory)
 	dockerLifecycle, err := lifecycle.New()
 	if err != nil {
 		return err

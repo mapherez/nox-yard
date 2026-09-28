@@ -114,6 +114,10 @@ export function getContainerInspection(id: string, signal?: AbortSignal): Promis
   return request<ContainerInspection>(`/api/containers/${encodeURIComponent(id)}`, { signal });
 }
 
+export function containerLogsURL(id: string): string {
+  return `/api/containers/${encodeURIComponent(id)}/logs`;
+}
+
 export function runContainerAction(id: string, action: LifecycleAction, csrfToken: string): Promise<LifecycleResult> {
   return request<LifecycleResult>(`/api/containers/${encodeURIComponent(id)}/actions`, {
     method: "POST",
