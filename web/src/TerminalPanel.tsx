@@ -25,16 +25,17 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
     const surface = surfaceRef.current;
     const palette = getComputedStyle(surface);
     const terminal = new Terminal({
-      cursorBlink: true,
+      // The visible caret below follows xterm's buffer position. Keeping the
+      // canvas cursor transparent avoids showing two carets at once.
+      cursorBlink: false,
       cursorStyle: "bar",
-      cursorWidth: 3,
       cursorInactiveStyle: "bar",
       fontFamily: palette.getPropertyValue("--font-code").trim(),
       fontSize: 13,
       theme: {
         background: palette.getPropertyValue("--color-terminal").trim(),
         foreground: palette.getPropertyValue("--color-text-primary").trim(),
-        cursor: palette.getPropertyValue("--color-text-primary").trim(),
+        cursor: palette.getPropertyValue("--color-terminal").trim(),
         selectionBackground: palette.getPropertyValue("--color-border-strong").trim(),
       },
     });
@@ -43,19 +44,44 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
     terminal.open(surface);
     fit.fit();
 
+    const screen = surface.querySelector<HTMLElement>(".xterm-screen");
+    const caret = document.createElement("span");
+    caret.className = styles.terminalCaret;
+    caret.textContent = "|";
+    caret.setAttribute("aria-hidden", "true");
+    screen?.append(caret);
+
     let active = true;
+    let ready = false;
     let focusFrame = 0;
+    const positionCaret = () => {
+      if (!screen || !active || !terminal.cols || !terminal.rows) return;
+      const cellWidth = screen.clientWidth / terminal.cols;
+      const cellHeight = screen.clientHeight / terminal.rows;
+      if (!cellWidth || !cellHeight) return;
+      const buffer = terminal.buffer.active;
+      caret.style.visibility = ready && buffer.viewportY === buffer.baseY ? "visible" : "hidden";
+      caret.style.inlineSize = `${cellWidth}px`;
+      caret.style.blockSize = `${cellHeight}px`;
+      caret.style.lineHeight = `${cellHeight}px`;
+      caret.style.fontSize = `${terminal.options.fontSize}px`;
+      caret.style.transform = `translate3d(${Math.min(buffer.cursorX, terminal.cols - 1) * cellWidth}px, ${buffer.cursorY * cellHeight}px, 0)`;
+    };
+    const cursorMove = terminal.onCursorMove(positionCaret);
+    const render = terminal.onRender(positionCaret);
+    const scroll = terminal.onScroll(positionCaret);
+    const terminalResize = terminal.onResize(positionCaret);
     const focusTerminal = () => {
       cancelAnimationFrame(focusFrame);
       focusFrame = requestAnimationFrame(() => {
-        if (active && surface.isConnected && surface.closest("dialog")?.open) {
+        if (active && surface.isConnected) {
           terminal.focus();
           terminal.refresh(0, terminal.rows - 1);
+          positionCaret();
         }
       });
     };
     focusTerminal();
-    let ready = false;
     let ended = false;
     setStatus("connecting");
     setMessage("");
@@ -65,6 +91,7 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
     const encoder = new TextEncoder();
     const resize = () => {
       fit.fit();
+      positionCaret();
       if (ready && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({
           type: "resize",
@@ -101,15 +128,21 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
           resize();
           focusTerminal();
         } else if (response.type === "exit") {
+          ready = false;
+          positionCaret();
           ended = true;
           setStatus("exited");
           setMessage(`Shell exited with code ${response.code ?? 0}.`);
         } else if (response.type === "error") {
+          ready = false;
+          positionCaret();
           ended = true;
           setStatus("error");
           setMessage(response.error || "Terminal connection failed.");
         }
       } catch {
+        ready = false;
+        positionCaret();
         ended = true;
         setStatus("error");
         setMessage("Invalid terminal response.");
@@ -118,12 +151,15 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
     };
     socket.onclose = () => {
       ready = false;
+      positionCaret();
       if (active && !ended) {
         setStatus("error");
         setMessage("Terminal disconnected. Reconnect to try again.");
       }
     };
     socket.onerror = () => {
+      ready = false;
+      positionCaret();
       if (active && !ended) {
         setStatus("error");
         setMessage("Cannot connect to the terminal.");
@@ -135,6 +171,10 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
       cancelAnimationFrame(focusFrame);
       observer.disconnect();
       input.dispose();
+      cursorMove.dispose();
+      render.dispose();
+      scroll.dispose();
+      terminalResize.dispose();
       socket.close();
       terminal.dispose();
       surface.replaceChildren();
