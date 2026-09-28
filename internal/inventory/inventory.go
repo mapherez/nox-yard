@@ -81,17 +81,18 @@ type Project struct {
 }
 
 type Container struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	Service        string   `json:"service,omitempty"`
-	Image          string   `json:"image"`
-	State          string   `json:"state"`
-	Health         string   `json:"health"`
-	CPUPercent     *float64 `json:"cpuPercent"`
-	MemoryBytes    *uint64  `json:"memoryBytes"`
-	NetworkRxBytes *uint64  `json:"networkRxBytes"`
-	NetworkTxBytes *uint64  `json:"networkTxBytes"`
-	UptimeSeconds  *int64   `json:"uptimeSeconds"`
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Service           string   `json:"service,omitempty"`
+	Image             string   `json:"image"`
+	State             string   `json:"state"`
+	Health            string   `json:"health"`
+	TerminalAvailable *bool    `json:"terminalAvailable"`
+	CPUPercent        *float64 `json:"cpuPercent"`
+	MemoryBytes       *uint64  `json:"memoryBytes"`
+	NetworkRxBytes    *uint64  `json:"networkRxBytes"`
+	NetworkTxBytes    *uint64  `json:"networkTxBytes"`
+	UptimeSeconds     *int64   `json:"uptimeSeconds"`
 }
 
 type DockerReader struct {
@@ -311,6 +312,11 @@ func (r *DockerReader) describe(ctx context.Context, summary container.Summary, 
 	}
 	if item.State != "running" || requestCtx.Err() != nil {
 		return item
+	}
+	_, shellErr := r.client.ContainerStatPath(requestCtx, summary.ID, client.ContainerStatPathOptions{Path: "/bin/sh"})
+	if shellErr == nil || errdefs.IsNotFound(shellErr) {
+		available := shellErr == nil
+		item.TerminalAvailable = &available
 	}
 	stats, err := r.client.ContainerStats(requestCtx, summary.ID, client.ContainerStatsOptions{
 		Stream: false, IncludePreviousSample: true,

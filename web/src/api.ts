@@ -12,6 +12,7 @@ export type Container = {
   image: string;
   state: string;
   health: string;
+  terminalAvailable: boolean | null;
   cpuPercent: number | null;
   memoryBytes: number | null;
   networkRxBytes: number | null;

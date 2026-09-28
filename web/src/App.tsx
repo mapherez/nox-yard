@@ -489,8 +489,17 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
   const activeContainer = project?.containers.length === 1
     ? project.containers[0]
     : project?.containers.find((container) => container.id === selectedContainerID);
+  const terminalUnavailable = Boolean(project?.containers.length && project.containers.every((container) => container.terminalAvailable === false));
+
+  useEffect(() => {
+    if (terminalUnavailable && activeTab === "terminal") {
+      setActiveTab("details");
+      detailsTabRef.current?.focus();
+    }
+  }, [terminalUnavailable, activeTab]);
 
   function selectTab(tab: "details" | "logs" | "terminal", focus = false) {
+    if (tab === "terminal" && terminalUnavailable) return;
     setActiveTab(tab);
     contentRef.current?.scrollTo({ top: 0 });
     if (focus) (tab === "details" ? detailsTabRef : tab === "logs" ? logsTabRef : terminalTabRef).current?.focus();
@@ -568,14 +577,15 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
       <div className={styles.projectTabs} role="tablist" aria-label={`${project.name} sections`} onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
-        const tabs = ["details", "logs", "terminal"] as const;
+        const tabs: ("details" | "logs" | "terminal")[] = terminalUnavailable ? ["details", "logs"] : ["details", "logs", "terminal"];
         const index = tabs.indexOf(activeTab);
-        selectTab(event.key === "Home" ? "details" : event.key === "End" ? "terminal" : tabs[(index + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length], true);
+        selectTab(event.key === "Home" ? "details" : event.key === "End" ? tabs[tabs.length - 1] : tabs[(index + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length], true);
       }}>
         <button ref={detailsTabRef} id={`${tabsID}-details-tab`} type="button" role="tab" aria-selected={activeTab === "details"} aria-controls={`${tabsID}-details-panel`} tabIndex={activeTab === "details" ? 0 : -1} className={styles.projectTab} onClick={() => selectTab("details")}>Details</button>
         <button ref={logsTabRef} id={`${tabsID}-logs-tab`} type="button" role="tab" aria-selected={activeTab === "logs"} aria-controls={`${tabsID}-logs-panel`} tabIndex={activeTab === "logs" ? 0 : -1} className={styles.projectTab} onClick={() => selectTab("logs")}>Logs</button>
-        <button ref={terminalTabRef} id={`${tabsID}-terminal-tab`} type="button" role="tab" aria-selected={activeTab === "terminal"} aria-controls={`${tabsID}-terminal-panel`} tabIndex={activeTab === "terminal" ? 0 : -1} className={styles.projectTab} onClick={() => selectTab("terminal")}>Terminal</button>
+        <button ref={terminalTabRef} id={`${tabsID}-terminal-tab`} type="button" role="tab" aria-selected={activeTab === "terminal"} aria-controls={`${tabsID}-terminal-panel`} tabIndex={activeTab === "terminal" ? 0 : -1} className={styles.projectTab} disabled={terminalUnavailable} title={terminalUnavailable ? "Terminal unavailable: /bin/sh is missing" : undefined} onClick={() => selectTab("terminal")}>Terminal</button>
       </div>
+      {terminalUnavailable && <p className={styles.terminalUnavailable} role="status">Terminal unavailable: /bin/sh is missing from this {project.containers.length === 1 ? "container" : "project's containers"}.</p>}
       <div ref={contentRef} id={`${tabsID}-${activeTab}-panel`} role="tabpanel" aria-labelledby={`${tabsID}-${activeTab}-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
         {activeTab === "details" ? <>
         {activeContainer && project.kind === "external-compose" && project.containers.length > 1 && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}>← Back to project</button>}

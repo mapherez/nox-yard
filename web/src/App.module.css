@@ -1172,6 +1172,13 @@
   gap: var(--space-4);
 }
 
+.terminalUnavailable {
+  margin: 0;
+  padding: var(--space-3) var(--space-5);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
 .terminalSurface {
   min-inline-size: 0;
   block-size: min(58dvh, 36rem);

@@ -13,7 +13,11 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
   csrfToken: string;
   onSelectContainer: (id: string) => void;
 }) {
-  const [selectedID, setSelectedID] = useState(preferredContainerID || project.containers.find((item) => item.state === "running")?.id || project.containers[0]?.id || "");
+  const [selectedID, setSelectedID] = useState(
+    project.containers.find((item) => item.id === preferredContainerID && item.state === "running" && item.terminalAvailable !== false)?.id
+    || project.containers.find((item) => item.state === "running" && item.terminalAvailable !== false)?.id
+    || preferredContainerID || project.containers[0]?.id || "",
+  );
   const [retryKey, setRetryKey] = useState(0);
   const [status, setStatus] = useState<TerminalStatus>("connecting");
   const [message, setMessage] = useState("");
@@ -21,7 +25,7 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
   const container = project.containers.find((item) => item.id === selectedID);
 
   useEffect(() => {
-    if (!container || container.state !== "running" || !surfaceRef.current) return;
+    if (!container || container.state !== "running" || container.terminalAvailable === false || !surfaceRef.current) return;
     const surface = surfaceRef.current;
     const palette = getComputedStyle(surface);
     const terminal = new Terminal({
@@ -143,7 +147,7 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
       terminal.dispose();
       surface.replaceChildren();
     };
-  }, [selectedID, retryKey, csrfToken, container?.state]);
+  }, [selectedID, retryKey, csrfToken, container?.state, container?.terminalAvailable]);
 
   if (!container) return <p className={styles.detailSummary}>No containers are available for a terminal.</p>;
 
@@ -157,14 +161,15 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
               setSelectedID(event.target.value);
               onSelectContainer(event.target.value);
             }}>
-              {project.containers.map((item) => <option key={item.id} value={item.id}>{item.service ? `${item.service} · ${item.name}` : item.name}{item.state === "running" ? "" : " (stopped)"}</option>)}
+              {project.containers.map((item) => <option key={item.id} value={item.id} disabled={item.terminalAvailable === false}>{item.service ? `${item.service} · ${item.name}` : item.name}{item.terminalAvailable === false ? " (no /bin/sh)" : item.state === "running" ? "" : " (stopped)"}</option>)}
             </select>
           </label>
         : <strong className={styles.logsContainerName}>{container.service || container.name}</strong>}
-      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect terminal" title="Reconnect terminal" disabled={container.state !== "running"} onClick={() => setRetryKey((key) => key + 1)}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect terminal" title="Reconnect terminal" disabled={container.state !== "running" || container.terminalAvailable === false} onClick={() => setRetryKey((key) => key + 1)}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
     </div>
     {container.state !== "running" && <p className={styles.detailSummary}>Start this container before opening a terminal.</p>}
-    {container.state === "running" && <>
+    {container.state === "running" && container.terminalAvailable === false && <p className={styles.detailSummary}>Terminal unavailable: this container has no /bin/sh shell.</p>}
+    {container.state === "running" && container.terminalAvailable !== false && <>
       <p className={styles.logStatus} role="status">{status === "connecting" ? "Connecting…" : status === "connected" ? "Connected" : status === "exited" ? "Session ended" : "Disconnected"}</p>
       {message && <p className={status === "error" ? styles.inventoryError : styles.detailSummary} role={status === "error" ? "alert" : "status"}>{message}</p>}
       <div ref={surfaceRef} className={styles.terminalSurface} data-drawer-swipe-ignore aria-label={`${container.service || container.name} interactive terminal`} />
