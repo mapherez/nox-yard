@@ -23,6 +23,7 @@ const (
 )
 
 var ErrNotFound = errors.New("target not found")
+var ErrChanged = errors.New("project containers changed")
 var ErrProtected = errors.New("NoX Yard cannot be stopped from its own web process")
 var ErrInvalidAction = errors.New("invalid lifecycle action")
 
@@ -38,6 +39,10 @@ type Result struct {
 type Controller interface {
 	Container(context.Context, string, Action) (Result, error)
 	Project(context.Context, string, Action) (Result, error)
+	PullContainer(context.Context, string) (MaintenanceResult, error)
+	PullProject(context.Context, string) (MaintenanceResult, error)
+	RemoveContainer(context.Context, string) (MaintenanceResult, error)
+	RemoveProject(context.Context, string, []string) (MaintenanceResult, error)
 }
 
 // Manager serializes lifecycle requests so a group action cannot race another
@@ -81,18 +86,9 @@ func (m *Manager) Project(ctx context.Context, id string, action Action) (Result
 	if !ok || name == "" {
 		return Result{}, ErrNotFound
 	}
-	listed, err := m.client.ContainerList(ctx, client.ContainerListOptions{All: true})
+	targets, err := m.projectTargets(ctx, name)
 	if err != nil {
 		return Result{}, err
-	}
-	var targets []container.Summary
-	for _, item := range listed.Items {
-		if item.Labels["com.docker.compose.project"] == name {
-			targets = append(targets, item)
-		}
-	}
-	if len(targets) == 0 {
-		return Result{}, ErrNotFound
 	}
 	// Preflight the whole group before touching any container.
 	if action == Stop || action == Restart {
@@ -102,9 +98,6 @@ func (m *Manager) Project(ctx context.Context, id string, action Action) (Result
 			}
 		}
 	}
-	sort.Slice(targets, func(i, j int) bool {
-		return targets[i].ID < targets[j].ID
-	})
 	result := Result{Action: action}
 	selfID := ""
 	for _, item := range targets {
@@ -136,6 +129,24 @@ func (m *Manager) Project(ctx context.Context, id string, action Action) (Result
 		}
 	}
 	return result, nil
+}
+
+func (m *Manager) projectTargets(ctx context.Context, name string) ([]container.Summary, error) {
+	listed, err := m.client.ContainerList(ctx, client.ContainerListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	var targets []container.Summary
+	for _, item := range listed.Items {
+		if item.Labels["com.docker.compose.project"] == name {
+			targets = append(targets, item)
+		}
+	}
+	if len(targets) == 0 {
+		return nil, ErrNotFound
+	}
+	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
+	return targets, nil
 }
 
 func (m *Manager) container(ctx context.Context, id string, action Action) (Result, error) {

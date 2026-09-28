@@ -7,6 +7,10 @@ import {
   getContainerInspection,
   getProjects,
   getSelfUpdateStatus,
+  pullContainerImage,
+  pullProjectImages,
+  removeContainer,
+  removeProject,
   saveSelfUpdateSettings,
   revealContainerEnvironment,
   runContainerAction,
@@ -17,12 +21,14 @@ import {
   type Container,
   type ContainerInspection,
   type LifecycleAction,
+  type MaintenanceResult,
   type Project,
   type SelfUpdateStatus,
 } from "./api";
 import styles from "./App.module.css";
 import { useDrawerSwipe } from "./useDrawerSwipe";
 import { TerminalPanel } from "./TerminalPanel";
+import { RefreshIcon } from "./RefreshIcon";
 
 type View =
   | { kind: "loading" }
@@ -392,8 +398,8 @@ function Dashboard({
             <div className={styles.pageHeading} id="projects">
               <h1 className={styles.visuallyHidden}>Projects</h1>
               <button type="button" className={styles.mobileMenuButton} aria-label="Open menu" aria-controls="primary-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><MenuIcon /></button>
-              <button type="button" className={styles.refreshButton} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
-                {refreshing ? "Refreshing…" : "Refresh"}
+              <button type="button" className={styles.refreshButton} aria-label={refreshing ? "Refreshing projects" : "Refresh projects"} title={refreshing ? "Refreshing projects" : "Refresh projects"} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
+                <RefreshIcon />
               </button>
             </div>
             {projects && projects.length > 0 && <div className={styles.inventoryMeta}>
@@ -443,6 +449,8 @@ function Dashboard({
   );
 }
 
+type RemovalTarget = { kind: "project" | "container"; id: string; name: string; containerIds: string[] };
+
 function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: Project; csrfToken: string; onChanged: () => void; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -459,11 +467,13 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
   const [busyTarget, setBusyTarget] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
+  const [removalTarget, setRemovalTarget] = useState<RemovalTarget | null>(null);
   useDrawerSwipe(dialogRef, "right", Boolean(project), dismiss);
 
   useEffect(() => {
     setActionMessage("");
     setActionError("");
+    setRemovalTarget(null);
     setSelectedContainerID(null);
     setActiveTab("details");
     lastSelectionRef.current = null;
@@ -515,6 +525,33 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     }
   }
 
+  async function runMaintenance(target: "project" | "container", id: string, operation: "pull" | "remove", expectedIDs: string[] = []) {
+    setBusyTarget(id);
+    setActionMessage(operation === "pull" ? "Pulling images… Containers will keep running." : "Removing containers…");
+    setActionError("");
+    try {
+      let result: MaintenanceResult;
+      if (operation === "pull") {
+        result = target === "project" ? await pullProjectImages(id, csrfToken) : await pullContainerImage(id, csrfToken);
+        setActionMessage(result.succeeded ? `Pulled ${result.succeeded} ${result.succeeded === 1 ? "image" : "images"}. Running containers were not changed.` : "");
+      } else {
+        result = target === "project" ? await removeProject(id, expectedIDs, csrfToken) : await removeContainer(id, csrfToken);
+        setRemovalTarget(null);
+        setActionMessage(result.succeeded ? `Removed ${result.succeeded} ${result.succeeded === 1 ? "container" : "containers"}. Volumes and images were kept.` : "");
+        onChanged();
+        if (!result.failed && result.succeeded) dialogRef.current?.close();
+      }
+      if (result.failed) setActionError(result.errors?.join(" ") || `${result.failed} operations failed.`);
+    } catch (cause) {
+      setRemovalTarget(null);
+      setActionMessage("");
+      setActionError(cause instanceof Error ? cause.message : "Unable to complete the operation.");
+      onChanged();
+    } finally {
+      setBusyTarget(null);
+    }
+  }
+
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -522,7 +559,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     if (!project && dialog.open) dialog.close();
   }, [project]);
 
-  return <dialog
+  return <><dialog
     id="project-drawer"
     ref={dialogRef}
     className={`${styles.settingsDrawer} ${styles.projectDrawer}`}
@@ -557,6 +594,10 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
             selfTarget={project.containers.some((container) => project.name === "nox-yard" && container.service === "nox-yard")}
             busy={busyTarget !== null}
             onRun={(action) => runAction("project", project.id, action)}
+            pullLabel="Pull project images"
+            removeLabel="Remove project"
+            onPull={() => { void runMaintenance("project", project.id, "pull"); }}
+            onRemove={() => setRemovalTarget({ kind: "project", id: project.id, name: project.name, containerIds: project.containers.map((container) => container.id) })}
           />}
           <section className={styles.projectOverview} aria-label="Project overview">
             <p className={styles.detailSummary}>
@@ -572,7 +613,21 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
         {actionMessage && <p className={styles.actionMessage} role="status">{actionMessage}</p>}
         {actionError && <p className={styles.inventoryError} role="alert">{actionError}</p>}
         {activeContainer
-          ? <ContainerDetails key={activeContainer.id} container={activeContainer} csrfToken={csrfToken} busy={busyTarget !== null} selfTarget={project.name === "nox-yard" && activeContainer.service === "nox-yard"} helperTarget={activeContainer.name.startsWith("nox-yard-update-")} onRun={(action) => runAction("container", activeContainer.id, action)} />
+          ? <ContainerDetails
+              key={activeContainer.id}
+              container={activeContainer}
+              csrfToken={csrfToken}
+              busy={busyTarget !== null}
+              selfTarget={project.name === "nox-yard" && activeContainer.service === "nox-yard"}
+              helperTarget={activeContainer.name.startsWith("nox-yard-update-")}
+              onRun={(action) => runAction("container", activeContainer.id, action)}
+              pullLabel={project.kind === "external-compose" && project.containers.length === 1 ? "Pull project image" : "Pull image"}
+              removeLabel={project.kind === "external-compose" && project.containers.length === 1 ? "Remove project" : "Remove container"}
+              onPull={() => { void runMaintenance(project.kind === "external-compose" && project.containers.length === 1 ? "project" : "container", project.kind === "external-compose" && project.containers.length === 1 ? project.id : activeContainer.id, "pull"); }}
+              onRemove={() => setRemovalTarget(project.kind === "external-compose" && project.containers.length === 1
+                ? { kind: "project", id: project.id, name: project.name, containerIds: [activeContainer.id] }
+                : { kind: "container", id: activeContainer.id, name: activeContainer.name, containerIds: [activeContainer.id] })}
+            />
           : <section className={styles.containerPicker} aria-labelledby={`${tabsID}-containers-title`}>
               <h3 id={`${tabsID}-containers-title`}>Containers</h3>
               <div className={styles.containerList}>
@@ -588,7 +643,11 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
           : <TerminalPanel key={project.id} project={project} preferredContainerID={activeContainer?.id} csrfToken={csrfToken} onSelectContainer={setSelectedContainerID} />}
       </div>
     </div>}
-  </dialog>;
+  </dialog>
+    <RemoveConfirmation target={removalTarget} busy={busyTarget !== null} onCancel={() => setRemovalTarget(null)} onConfirm={() => {
+      if (removalTarget) void runMaintenance(removalTarget.kind, removalTarget.id, "remove", removalTarget.containerIds);
+    }} />
+  </>;
 }
 
 type LogLine = { stream: "stdout" | "stderr"; text: string };
@@ -675,7 +734,7 @@ function LogsPanel({ project, preferredContainerID, onSelectContainer }: {
             </select>
           </label>
         : <strong className={styles.logsContainerName}>{container.service || container.name}</strong>}
-      <button type="button" className={styles.inspectButton} onClick={() => setRetryKey((key) => key + 1)}>Reconnect</button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect logs" title="Reconnect logs" onClick={() => setRetryKey((key) => key + 1)}><RefreshIcon /></button>
     </div>
     <p className={styles.logStatus} role="status">{statusLabels[status]}</p>
     {error && <p className={styles.inventoryError} role="alert">{error}</p>}
@@ -687,7 +746,18 @@ function LogsPanel({ project, preferredContainerID, onSelectContainer }: {
   </section>;
 }
 
-function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget, onRun }: { container: Container; csrfToken: string; busy: boolean; selfTarget: boolean; helperTarget: boolean; onRun: (action: LifecycleAction) => Promise<void> }) {
+function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget, onRun, pullLabel, removeLabel, onPull, onRemove }: {
+  container: Container;
+  csrfToken: string;
+  busy: boolean;
+  selfTarget: boolean;
+  helperTarget: boolean;
+  onRun: (action: LifecycleAction) => Promise<void>;
+  pullLabel: string;
+  removeLabel: string;
+  onPull: () => void;
+  onRemove: () => void;
+}) {
   const revealController = useRef<AbortController | null>(null);
   const [inspection, setInspection] = useState<ContainerInspection | null>(null);
   const [detailError, setDetailError] = useState("");
@@ -741,7 +811,7 @@ function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget
   }
 
   return <section className={styles.containerDetails} aria-label={`${container.service || container.name} details`}>
-    <LifecycleControls name={container.service || container.name} state={container.state} selfTarget={selfTarget} helperTarget={helperTarget} busy={busy} onRun={onRun} />
+    <LifecycleControls name={container.service || container.name} state={container.state} selfTarget={selfTarget} helperTarget={helperTarget} busy={busy} onRun={onRun} pullLabel={pullLabel} removeLabel={removeLabel} onPull={onPull} onRemove={onRemove} />
     <ContainerRow container={container} />
     {loading && <p className={styles.detailSummary} role="status">Loading container details…</p>}
     {detailError && <p className={styles.inventoryError} role="alert">{detailError}</p>}
@@ -755,24 +825,29 @@ function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget
   </section>;
 }
 
-function LifecycleControls({ name, state, selfTarget = false, helperTarget = false, busy, onRun }: {
+function LifecycleControls({ name, state, selfTarget = false, helperTarget = false, busy, onRun, pullLabel, removeLabel, onPull, onRemove }: {
   name: string;
   state: string;
   selfTarget?: boolean;
   helperTarget?: boolean;
   busy: boolean;
   onRun: (action: LifecycleAction) => Promise<void>;
+  pullLabel: string;
+  removeLabel: string;
+  onPull: () => void;
+  onRemove: () => void;
 }) {
   const [confirming, setConfirming] = useState<"stop" | "restart" | null>(null);
   const running = state === "running" || state === "partial";
 
   return <div className={styles.lifecycleControls}>
     <div className={styles.actionRow} aria-label={`${name} actions`}>
-      <button type="button" className={styles.inspectButton} disabled={busy || state === "running"} onClick={() => { void onRun("start"); }}>Start</button>
-      <button type="button" className={styles.inspectButton} disabled={busy || !running || selfTarget || helperTarget} onClick={() => setConfirming("stop")}>Stop</button>
-      <button type="button" className={styles.inspectButton} disabled={busy || !running || helperTarget} onClick={() => setConfirming("restart")}>Restart</button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Start ${name}`} title={`Start ${name}`} disabled={busy || state === "running"} onClick={() => { void onRun("start"); }}><StartIcon /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Stop ${name}`} title={`Stop ${name}`} disabled={busy || !running || selfTarget || helperTarget} onClick={() => setConfirming("stop")}><StopIcon /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Restart ${name}`} title={`Restart ${name}`} disabled={busy || !running || helperTarget} onClick={() => setConfirming("restart")}><RefreshIcon /></button>
+      <MaintenanceMenu busy={busy} pullLabel={pullLabel} removeLabel={removeLabel} canPull={!helperTarget && !selfTarget} canRemove={!helperTarget && !selfTarget} onPull={onPull} onRemove={onRemove} />
     </div>
-    {selfTarget && <p className={styles.actionHint}>NoX Yard cannot stop itself. Restart uses a temporary helper.</p>}
+    {selfTarget && <p className={styles.actionHint}>NoX Yard cannot stop or remove itself. Use Settings for self-update; restart uses a temporary helper.</p>}
     {helperTarget && <p className={styles.actionHint}>Maintenance helpers are managed automatically.</p>}
     {confirming && <div className={styles.actionConfirm} role="group" aria-label={`Confirm ${confirming}`}>
       <p>{confirming === "stop" ? "Stop" : "Restart"} <strong>{name}</strong>?</p>
@@ -782,6 +857,68 @@ function LifecycleControls({ name, state, selfTarget = false, helperTarget = fal
       </div>
     </div>}
   </div>;
+}
+
+function MaintenanceMenu({ busy, pullLabel, removeLabel, canPull, canRemove, onPull, onRemove }: {
+  busy: boolean;
+  pullLabel: string;
+  removeLabel: string;
+  canPull: boolean;
+  canRemove: boolean;
+  onPull: () => void;
+  onRemove: () => void;
+}) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    function closeOutside(event: PointerEvent) {
+      if (ref.current && event.target instanceof Node && !ref.current.contains(event.target)) ref.current.open = false;
+    }
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, []);
+  useEffect(() => { if (busy && ref.current) ref.current.open = false; }, [busy]);
+
+  return <details ref={ref} className={styles.maintenanceMenu} onKeyDown={(event) => {
+    if (event.key === "Escape" && ref.current?.open) {
+      event.preventDefault();
+      ref.current.open = false;
+      ref.current.querySelector("summary")?.focus();
+    }
+  }}>
+    <summary className={styles.inspectButton} aria-label="More actions" aria-disabled={busy} onClick={(event) => { if (busy) event.preventDefault(); }} title="More actions">···</summary>
+    <div className={styles.maintenanceOptions}>
+      <button type="button" disabled={busy || !canPull} onClick={() => { if (ref.current) ref.current.open = false; onPull(); }}>{pullLabel}</button>
+      <button type="button" className={styles.maintenanceRemove} disabled={busy || !canRemove} onClick={() => { if (ref.current) ref.current.open = false; onRemove(); }}>{removeLabel}</button>
+    </div>
+  </details>;
+}
+
+function RemoveConfirmation({ target, busy, onCancel, onConfirm }: {
+  target: RemovalTarget | null;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleID = useId();
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (target && !dialog.open) dialog.showModal();
+    if (!target && dialog.open) dialog.close();
+  }, [target]);
+
+  return <dialog ref={dialogRef} className={styles.confirmDialog} aria-labelledby={titleID} onClose={onCancel} onCancel={(event) => { if (busy) event.preventDefault(); }}>
+    {target && <div className={styles.confirmBody}>
+      <h2 id={titleID}>Remove {target.kind}?</h2>
+      <p><strong>{target.name}</strong> {target.kind === "project" ? `contains ${target.containerIds.length} ${target.containerIds.length === 1 ? "container" : "containers"}.` : "will be removed."} Running containers will be stopped and removed.</p>
+      <p>Volumes, networks, and images will be kept. The removed containers will disappear from the dashboard.</p>
+      <div className={styles.confirmActions}>
+        <button type="button" className={styles.inspectButton} autoFocus disabled={busy} onClick={onCancel}>Cancel</button>
+        <button type="button" className={`${styles.inspectButton} ${styles.dangerAction}`} disabled={busy} onClick={onConfirm}>{busy ? "Removing…" : `Remove ${target.kind}`}</button>
+      </div>
+    </div>}
+  </dialog>;
 }
 
 const checkIntervals = [5, 15, 30, 60, 360] as const;
@@ -1060,6 +1197,18 @@ function GridIcon(): ReactNode {
       <rect x="14" y="14" width="7" height="7" rx="1.5" />
     </svg>
   );
+}
+
+function StartIcon(): ReactNode {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m8 5 11 7-11 7V5Z" />
+  </svg>;
+}
+
+function StopIcon(): ReactNode {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="6" y="6" width="12" height="12" rx="1" />
+  </svg>;
 }
 
 function SettingsIcon(): ReactNode {

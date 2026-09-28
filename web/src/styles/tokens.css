@@ -23,6 +23,7 @@
   --color-sidebar: var(--palette-ink-900);
   --color-surface-1: var(--palette-ink-850);
   --color-surface-2: var(--palette-ink-800);
+  --color-terminal: #03060b;
   --color-border: var(--palette-ink-700);
   --color-border-strong: var(--palette-ink-600);
   --color-text-primary: var(--palette-white);
@@ -61,6 +62,7 @@
     --color-sidebar: Canvas;
     --color-surface-1: Canvas;
     --color-surface-2: Canvas;
+    --color-terminal: Canvas;
     --color-border: CanvasText;
     --color-border-strong: CanvasText;
     --color-text-primary: CanvasText;

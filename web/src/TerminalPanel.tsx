@@ -4,8 +4,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { Project } from "./api";
 import styles from "./App.module.css";
+import { RefreshIcon } from "./RefreshIcon";
 
-type TerminalStatus = "idle" | "connecting" | "connected" | "exited" | "error";
+type TerminalStatus = "connecting" | "connected" | "exited" | "error";
 
 export function TerminalPanel({ project, preferredContainerID, csrfToken, onSelectContainer }: {
   project: Project;
@@ -14,23 +15,25 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
   onSelectContainer: (id: string) => void;
 }) {
   const [selectedID, setSelectedID] = useState(preferredContainerID || project.containers.find((item) => item.state === "running")?.id || project.containers[0]?.id || "");
-  const [sessionOpen, setSessionOpen] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
-  const [status, setStatus] = useState<TerminalStatus>("idle");
+  const [status, setStatus] = useState<TerminalStatus>("connecting");
   const [message, setMessage] = useState("");
   const surfaceRef = useRef<HTMLDivElement>(null);
   const container = project.containers.find((item) => item.id === selectedID);
 
   useEffect(() => {
-    if (!sessionOpen || !container || container.state !== "running" || !surfaceRef.current) return;
+    if (!container || container.state !== "running" || !surfaceRef.current) return;
     const surface = surfaceRef.current;
     const palette = getComputedStyle(surface);
     const terminal = new Terminal({
       cursorBlink: true,
+      cursorStyle: "bar",
+      cursorWidth: 2,
+      cursorInactiveStyle: "bar",
       fontFamily: palette.getPropertyValue("--font-code").trim(),
       fontSize: 13,
       theme: {
-        background: palette.getPropertyValue("--color-canvas").trim(),
+        background: palette.getPropertyValue("--color-terminal").trim(),
         foreground: palette.getPropertyValue("--color-text-primary").trim(),
         cursor: palette.getPropertyValue("--color-accent").trim(),
         selectionBackground: palette.getPropertyValue("--color-border-strong").trim(),
@@ -87,6 +90,7 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
           ready = true;
           setStatus("connected");
           resize();
+          requestAnimationFrame(() => { if (active) terminal.focus(); });
         } else if (response.type === "exit") {
           ended = true;
           setStatus("exited");
@@ -125,7 +129,7 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
       terminal.dispose();
       surface.replaceChildren();
     };
-  }, [sessionOpen, selectedID, retryKey, csrfToken, container?.state]);
+  }, [selectedID, retryKey, csrfToken, container?.state]);
 
   if (!container) return <p className={styles.detailSummary}>No containers are available for a terminal.</p>;
 
@@ -134,8 +138,7 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
       {project.containers.length > 1
         ? <label className={styles.logsSelector}>Container
             <select value={container.id} onChange={(event) => {
-              setSessionOpen(false);
-              setStatus("idle");
+              setStatus("connecting");
               setMessage("");
               setSelectedID(event.target.value);
               onSelectContainer(event.target.value);
@@ -144,16 +147,11 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
             </select>
           </label>
         : <strong className={styles.logsContainerName}>{container.service || container.name}</strong>}
-      {sessionOpen
-        ? <div className={styles.terminalActions}>
-            <button type="button" className={styles.inspectButton} onClick={() => setRetryKey((key) => key + 1)}>Reconnect</button>
-            <button type="button" className={styles.inspectButton} onClick={() => { setSessionOpen(false); setStatus("idle"); setMessage(""); }}>Close terminal</button>
-          </div>
-        : <button type="button" className={styles.inspectButton} disabled={container.state !== "running"} onClick={() => setSessionOpen(true)}>Open terminal</button>}
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect terminal" title="Reconnect terminal" disabled={container.state !== "running"} onClick={() => setRetryKey((key) => key + 1)}><RefreshIcon /></button>
     </div>
     {container.state !== "running" && <p className={styles.detailSummary}>Start this container before opening a terminal.</p>}
-    {sessionOpen && <>
-      <p className={styles.logStatus} role="status">{status === "connecting" ? "Connecting…" : status === "connected" ? "Connected" : status === "exited" ? "Session ended" : status === "error" ? "Disconnected" : "Opening…"}</p>
+    {container.state === "running" && <>
+      <p className={styles.logStatus} role="status">{status === "connecting" ? "Connecting…" : status === "connected" ? "Connected" : status === "exited" ? "Session ended" : "Disconnected"}</p>
       {message && <p className={status === "error" ? styles.inventoryError : styles.detailSummary} role={status === "error" ? "alert" : "status"}>{message}</p>}
       <div ref={surfaceRef} className={styles.terminalSurface} data-drawer-swipe-ignore aria-label={`${container.service || container.name} interactive terminal`} />
     </>}

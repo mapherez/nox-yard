@@ -864,9 +864,17 @@
 }
 
 .refreshButton {
+  display: grid;
+  inline-size: 2.7rem;
   min-block-size: 2.7rem;
-  padding-inline: var(--space-5);
-  font-weight: 650;
+  padding: 0;
+  place-items: center;
+}
+
+.refreshButton svg,
+.iconAction svg {
+  inline-size: 1.2rem;
+  block-size: 1.2rem;
 }
 
 .refreshButton:hover:not(:disabled),
@@ -1169,12 +1177,6 @@
   gap: var(--space-4);
 }
 
-.terminalActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
 .terminalSurface {
   min-inline-size: 0;
   block-size: min(58dvh, 36rem);
@@ -1182,7 +1184,7 @@
   padding: var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  background: var(--color-canvas);
+  background: var(--color-terminal);
   overflow: hidden;
   touch-action: manipulation;
 }
@@ -1257,6 +1259,15 @@
   opacity: 0.6;
 }
 
+.iconAction {
+  display: grid;
+  inline-size: 2.7rem;
+  min-block-size: 2.7rem;
+  flex: none;
+  padding: 0;
+  place-items: center;
+}
+
 .lifecycleControls {
   display: grid;
   gap: var(--space-3);
@@ -1266,6 +1277,114 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+.maintenanceMenu {
+  position: relative;
+  margin-inline-start: auto;
+}
+
+.maintenanceMenu summary {
+  display: grid;
+  min-inline-size: 2.7rem;
+  min-block-size: 2.7rem;
+  place-items: center;
+  list-style: none;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.maintenanceMenu summary::-webkit-details-marker {
+  display: none;
+}
+
+.maintenanceMenu summary[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.maintenanceOptions {
+  position: absolute;
+  z-index: 3;
+  inset-block-start: calc(100% + var(--space-2));
+  inset-inline-end: 0;
+  display: grid;
+  inline-size: max-content;
+  min-inline-size: 12rem;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  box-shadow: var(--shadow-panel);
+}
+
+.maintenanceOptions button {
+  min-block-size: 2.5rem;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: start;
+}
+
+.maintenanceOptions button:hover:not(:disabled) {
+  background: var(--color-border);
+}
+
+.maintenanceOptions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.maintenanceOptions .maintenanceRemove {
+  color: var(--color-danger);
+}
+
+.confirmDialog {
+  inline-size: min(28rem, calc(100dvw - 2rem));
+  max-block-size: calc(100dvh - 2rem);
+  overflow: auto;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-sidebar);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-panel);
+}
+
+.confirmDialog::backdrop {
+  background: rgb(0 0 0 / 0.7);
+}
+
+.confirmBody {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+
+.confirmBody h2,
+.confirmBody p {
+  margin: 0;
+}
+
+.confirmBody h2 {
+  font-size: 1.25rem;
+}
+
+.confirmBody p {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-block-start: var(--space-2);
 }
 
 .actionConfirm {

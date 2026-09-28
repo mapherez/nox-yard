@@ -49,6 +49,13 @@ export type LifecycleResult = {
   errors?: string[];
 };
 
+export type MaintenanceResult = {
+  succeeded: number;
+  failed: number;
+  images?: string[];
+  errors?: string[];
+};
+
 export type ContainerInspection = {
   id: string;
   ports: { containerPort: string; hostIP?: string; hostPort?: string }[];
@@ -131,6 +138,36 @@ export function runProjectAction(id: string, action: LifecycleAction, csrfToken:
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify({ action }),
+  });
+}
+
+export function pullContainerImage(id: string, csrfToken: string): Promise<MaintenanceResult> {
+  return request<MaintenanceResult>(`/api/containers/${encodeURIComponent(id)}/pull`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrfToken },
+  });
+}
+
+export function pullProjectImages(id: string, csrfToken: string): Promise<MaintenanceResult> {
+  return request<MaintenanceResult>(`/api/projects/${encodeURIComponent(id)}/pull`, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrfToken },
+  });
+}
+
+export function removeContainer(id: string, csrfToken: string): Promise<MaintenanceResult> {
+  return request<MaintenanceResult>(`/api/containers/${encodeURIComponent(id)}/remove`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ confirm: true }),
+  });
+}
+
+export function removeProject(id: string, containerIds: string[], csrfToken: string): Promise<MaintenanceResult> {
+  return request<MaintenanceResult>(`/api/projects/${encodeURIComponent(id)}/remove`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ confirm: true, containerIds }),
   });
 }
 
