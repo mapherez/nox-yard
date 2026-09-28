@@ -39,6 +39,7 @@ type Server struct {
 	limiter      loginLimiter
 	inventory    inventory.Reader
 	logs         inventory.LogReader
+	terminal     inventory.TerminalManager
 	lifecycle    lifecycle.Controller
 	updates      *selfupdate.Manager
 }
@@ -81,6 +82,10 @@ func (s *Server) SetLogs(reader inventory.LogReader) {
 	s.logs = reader
 }
 
+func (s *Server) SetTerminal(manager inventory.TerminalManager) {
+	s.terminal = manager
+}
+
 func (s *Server) SetLifecycle(controller lifecycle.Controller) {
 	s.lifecycle = controller
 }
@@ -96,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/projects", s.projects)
 	mux.HandleFunc("GET /api/containers/{id}", s.containerInspection)
 	mux.HandleFunc("GET /api/containers/{id}/logs", s.containerLogs)
+	mux.HandleFunc("GET /api/containers/{id}/terminal", s.containerTerminal)
 	mux.HandleFunc("POST /api/containers/{id}/environment", s.containerEnvironment)
 	mux.HandleFunc("POST /api/containers/{id}/actions", s.containerAction)
 	mux.HandleFunc("POST /api/projects/{id}/actions", s.projectAction)

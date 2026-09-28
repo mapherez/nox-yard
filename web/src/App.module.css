@@ -1163,6 +1163,36 @@
   accent-color: var(--color-accent);
 }
 
+.terminalPanel {
+  display: grid;
+  min-inline-size: 0;
+  gap: var(--space-4);
+}
+
+.terminalActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.terminalSurface {
+  min-inline-size: 0;
+  block-size: min(58dvh, 36rem);
+  min-block-size: 12rem;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-canvas);
+  overflow: hidden;
+  touch-action: manipulation;
+}
+
+.terminalHint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
 .containerDetails {
   display: grid;
   gap: var(--space-4);

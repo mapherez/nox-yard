@@ -3,6 +3,7 @@ module github.com/mapherez/nox-yard
 go 1.26.0
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/containerd/errdefs v1.0.0
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0

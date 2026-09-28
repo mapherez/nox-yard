@@ -47,7 +47,7 @@ export function useDrawerSwipe<T extends HTMLElement>(
       const bounds = element.getBoundingClientRect();
       if (event.clientX < bounds.left || event.clientX > bounds.right ||
           event.clientY < bounds.top || event.clientY > bounds.bottom) return;
-      if (event.target instanceof Element && event.target.closest("button, a, label, input, select, textarea, [contenteditable]")) return;
+      if (event.target instanceof Element && event.target.closest("button, a, label, input, select, textarea, [contenteditable], [data-drawer-swipe-ignore]")) return;
       gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, time: event.timeStamp, dragging: false };
     }
 

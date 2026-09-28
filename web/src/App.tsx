@@ -22,6 +22,7 @@ import {
 } from "./api";
 import styles from "./App.module.css";
 import { useDrawerSwipe } from "./useDrawerSwipe";
+import { TerminalPanel } from "./TerminalPanel";
 
 type View =
   | { kind: "loading" }
@@ -447,13 +448,14 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
   const contentRef = useRef<HTMLDivElement>(null);
   const detailsTabRef = useRef<HTMLButtonElement>(null);
   const logsTabRef = useRef<HTMLButtonElement>(null);
+  const terminalTabRef = useRef<HTMLButtonElement>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
   const containerButtonsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const lastSelectionRef = useRef<string | null>(null);
   const tabsID = useId();
   const dismiss = useCallback(() => dialogRef.current?.close(), []);
   const [selectedContainerID, setSelectedContainerID] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"details" | "logs">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "logs" | "terminal">("details");
   const [busyTarget, setBusyTarget] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
@@ -476,10 +478,10 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     ? project.containers[0]
     : project?.containers.find((container) => container.id === selectedContainerID);
 
-  function selectTab(tab: "details" | "logs", focus = false) {
+  function selectTab(tab: "details" | "logs" | "terminal", focus = false) {
     setActiveTab(tab);
     contentRef.current?.scrollTo({ top: 0 });
-    if (focus) (tab === "details" ? detailsTabRef : logsTabRef).current?.focus();
+    if (focus) (tab === "details" ? detailsTabRef : tab === "logs" ? logsTabRef : terminalTabRef).current?.focus();
   }
 
   function showContainer(id: string | null) {
@@ -537,11 +539,13 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
       <div className={styles.projectTabs} role="tablist" aria-label={`${project.name} sections`} onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
-        selectTab(event.key === "Home" ? "details" : event.key === "End" ? "logs" : activeTab === "details" ? "logs" : "details", true);
+        const tabs = ["details", "logs", "terminal"] as const;
+        const index = tabs.indexOf(activeTab);
+        selectTab(event.key === "Home" ? "details" : event.key === "End" ? "terminal" : tabs[(index + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length], true);
       }}>
         <button ref={detailsTabRef} id={`${tabsID}-details-tab`} type="button" role="tab" aria-selected={activeTab === "details"} aria-controls={`${tabsID}-details-panel`} tabIndex={activeTab === "details" ? 0 : -1} className={styles.projectTab} onClick={() => selectTab("details")}>Details</button>
         <button ref={logsTabRef} id={`${tabsID}-logs-tab`} type="button" role="tab" aria-selected={activeTab === "logs"} aria-controls={`${tabsID}-logs-panel`} tabIndex={activeTab === "logs" ? 0 : -1} className={styles.projectTab} onClick={() => selectTab("logs")}>Logs</button>
-        <button type="button" role="tab" aria-selected="false" aria-disabled="true" className={styles.projectTab} disabled title="Terminal is not available yet">Terminal</button>
+        <button ref={terminalTabRef} id={`${tabsID}-terminal-tab`} type="button" role="tab" aria-selected={activeTab === "terminal"} aria-controls={`${tabsID}-terminal-panel`} tabIndex={activeTab === "terminal" ? 0 : -1} className={styles.projectTab} onClick={() => selectTab("terminal")}>Terminal</button>
       </div>
       <div ref={contentRef} id={`${tabsID}-${activeTab}-panel`} role="tabpanel" aria-labelledby={`${tabsID}-${activeTab}-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
         {activeTab === "details" ? <>
@@ -579,7 +583,9 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
                 </button>)}
               </div>
             </section>}
-        </> : <LogsPanel key={project.id} project={project} preferredContainerID={activeContainer?.id} onSelectContainer={setSelectedContainerID} />}
+        </> : activeTab === "logs"
+          ? <LogsPanel key={project.id} project={project} preferredContainerID={activeContainer?.id} onSelectContainer={setSelectedContainerID} />
+          : <TerminalPanel key={project.id} project={project} preferredContainerID={activeContainer?.id} csrfToken={csrfToken} onSelectContainer={setSelectedContainerID} />}
       </div>
     </div>}
   </dialog>;
