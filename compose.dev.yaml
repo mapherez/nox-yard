@@ -25,5 +25,21 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  web:
+    image: node:24-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "127.0.0.1:5173:5173"
+    environment:
+      NOX_API_PROXY_TARGET: http://api:8080
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   dev-data:
+  web-node-modules:

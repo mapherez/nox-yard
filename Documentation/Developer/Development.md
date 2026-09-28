@@ -26,17 +26,15 @@ Keep Go packages and frontend modules small and named for their responsibilities
 
 ## Local run
 
-For frontend work against real containers on a machine with Docker Desktop in Linux container mode, start the API in a separate local container:
+For frontend work against real containers on a machine with Docker Desktop in Linux container mode, start the local API and Vite together:
 
 ```sh
 docker compose -f compose.dev.yaml up -d --build
-npm ci --prefix web
-npm run dev --prefix web
 ```
 
-Open `http://127.0.0.1:5173` and create a local administrator account on first run. Vite serves the frontend with hot reload and forwards `/api` to `127.0.0.1:8080`. The Compose service builds only the Go backend target from this checkout, binds the API to the host loopback interface, stores its database in a Compose named volume, and mounts the Docker Engine socket so the app can discover this machine's containers. No image is pulled from GHCR or built on GitHub. Frontend edits need no rebuild; after Go changes, run `docker compose -f compose.dev.yaml up -d --build` again. Stop the backend with `docker compose -f compose.dev.yaml down`; this keeps the local database volume. The development backend has the app's normal Docker management permissions, so use it only on a trusted machine.
+Open `http://127.0.0.1:5173` and create a local administrator account on first run. The `web` service runs Vite with hot reload and forwards `/api` to the `api` service. The `api` service builds the Go backend target from this checkout, binds to host loopback, stores its database in a Compose named volume, and mounts the Docker Engine socket. No image is pulled from GHCR or built on GitHub. Frontend edits reload automatically; after Go changes, run `docker compose -f compose.dev.yaml up -d --build api` to rebuild the API. Stop both services with `docker compose -f compose.dev.yaml down`; this keeps the local data and Node dependency volumes. The development backend has the app's normal Docker management permissions, so use it only on a trusted machine.
 
-If the page reports that the local API is unavailable, check `docker compose -f compose.dev.yaml ps` and `docker compose -f compose.dev.yaml logs api`. Docker Desktop must be running for the API to read inventory. Vite is fixed to port 5173 because the backend uses that origin for session and CSRF checks.
+If the page reports that the local API is unavailable, check `docker compose -f compose.dev.yaml ps` and `docker compose -f compose.dev.yaml logs api web`. Docker Desktop must be running for the API to read inventory. Vite is fixed to port 5173 because the backend uses that origin for session and CSRF checks.
 
 To run the Go server directly instead of using the development container, build the frontend first because the Go server serves `web/dist` by default:
 

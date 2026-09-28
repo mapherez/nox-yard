@@ -39,6 +39,20 @@ export type Inventory = {
   projects: Project[];
 };
 
+export type ManagedSourceInput = {
+  kind: "url" | "paste" | "upload";
+  url?: string;
+  filename?: string;
+  yaml?: string;
+};
+
+export type ManagedSource = {
+  kind: ManagedSourceInput["kind"];
+  url?: string;
+  filename?: string;
+  yaml: string;
+};
+
 export type LifecycleAction = "start" | "stop" | "restart";
 
 export type LifecycleResult = {
@@ -133,6 +147,14 @@ export function getBootstrap(): Promise<Bootstrap> {
 
 export function getProjects(signal?: AbortSignal): Promise<Inventory> {
   return request<Inventory>("/api/projects", { signal });
+}
+
+export function loadManagedSource(input: ManagedSourceInput, csrfToken: string): Promise<ManagedSource> {
+  return request<ManagedSource>("/api/managed/source", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify(input),
+  });
 }
 
 export function getContainerInspection(id: string, signal?: AbortSignal): Promise<ContainerInspection> {

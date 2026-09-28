@@ -35,11 +35,9 @@ To use Vite with live containers from Docker Desktop, start Docker Desktop in Li
 
 ```sh
 docker compose -f compose.dev.yaml up -d --build
-npm ci --prefix web
-npm run dev --prefix web
 ```
 
-Open `http://127.0.0.1:5173`. The small local image runs only the Go API; Vite serves the frontend and proxies `/api` to it. Frontend edits reload without a Docker build or a GitHub push. See the [development guide](Documentation/Developer/Development.md) for backend rebuilds and shutdown.
+Open `http://127.0.0.1:5173`. Compose runs a Go API container and a Vite container that proxies `/api` to it. Frontend edits reload without a Docker build or a GitHub push. See the [development guide](Documentation/Developer/Development.md) for backend rebuilds and shutdown.
 
 To run the Go server directly instead, install Go 1.26 and Node.js 24. From `web/`, run `npm ci` and `npm run build`. Then, from the repository root, run:
 

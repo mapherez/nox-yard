@@ -27,10 +27,10 @@ type SourceInput struct {
 }
 
 type Source struct {
-	Kind     string
-	URL      string
-	Filename string
-	YAML     string
+	Kind     string `json:"kind"`
+	URL      string `json:"url,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	YAML     string `json:"yaml"`
 }
 
 // LoadSource reads a Compose source without evaluating it or changing the host.

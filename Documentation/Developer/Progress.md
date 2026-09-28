@@ -8,6 +8,6 @@ The Linux `arm64` image runs on Raspberry Pi 5. The user completed administrator
 
 The remaining Phase 2 checkpoint is to confirm inspection and management of a standalone container created outside Compose. Docker disconnection, stale targets, and partial group failures remain deferred until they can be tested on a suitable host.
 
-Phase 3 has started with server-side intake for pasted YAML, uploaded YAML, and public HTTPS URLs. This intake enforces a 1 MiB source limit and public HTTPS URL restrictions; it does not yet validate Compose syntax, expose a creation API, or deploy projects. Next, add Compose validation and interpolation-variable collection, then connect the New Project drawer and confirmation preview specified in the implementation plan. No Phase 3 project has been deployed yet.
+Phase 3 has started with the New Project dashboard button and a right-side source drawer for pasted YAML, uploaded YAML, and public HTTPS URLs. The drawer calls a source-intake API that enforces a 1 MiB limit and public HTTPS URL restrictions. The local development Compose stack now runs Vite alongside the API for live UI testing. Source intake does not yet validate Compose syntax or deploy projects. Next, add Compose validation and interpolation-variable collection, then the confirmation preview and deployment path. No Phase 3 project has been deployed yet.
 
 Before closing Phase 1, confirm that account data survives a container restart, verify local password recovery on the Pi, and validate the Linux `amd64` image.

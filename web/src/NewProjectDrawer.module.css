@@ -1,0 +1,72 @@
+.content { gap: var(--space-6); }
+
+.intro,
+.hint,
+.loaded p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.84rem;
+}
+
+.form,
+.field,
+.loaded {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.sourceChoices {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.sourceChoices legend {
+  padding: 0;
+  margin-block-end: var(--space-3);
+  font-weight: 650;
+}
+
+.sourceChoices label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-block-size: 2.75rem;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+}
+
+.sourceChoices input { accent-color: var(--color-accent); }
+
+.field { gap: var(--space-2); }
+.field label { font-weight: 650; }
+.field input,
+.field textarea {
+  inline-size: 100%;
+  min-block-size: 3rem;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.field textarea { font-family: var(--font-code); resize: vertical; }
+.field :is(input, textarea):focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.field :is(input, textarea):user-invalid { border-color: var(--color-danger); }
+
+.loaded {
+  padding: var(--space-4);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+  overflow-wrap: anywhere;
+}
+
+.loaded span { color: var(--color-text-secondary); font-size: 0.84rem; }

@@ -22,6 +22,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/auth"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
+	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 )
@@ -99,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/projects", s.projects)
+	mux.HandleFunc("POST /api/managed/source", s.managedSource)
 	mux.HandleFunc("GET /api/containers/{id}", s.containerInspection)
 	mux.HandleFunc("GET /api/containers/{id}/logs", s.containerLogs)
 	mux.HandleFunc("GET /api/containers/{id}/terminal", s.containerTerminal)
@@ -235,6 +237,30 @@ func (s *Server) projects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, snapshot)
+}
+
+func (s *Server) managedSource(w http.ResponseWriter, r *http.Request) {
+	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
+		return
+	}
+	if r.Header.Get("Content-Type") != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json.")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, managed.MaxSourceBytes*2)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	var input managed.SourceInput
+	if decoder.Decode(&input) != nil || !errors.Is(decoder.Decode(new(any)), io.EOF) {
+		writeError(w, http.StatusBadRequest, "Invalid source request.")
+		return
+	}
+	source, err := managed.LoadSource(r.Context(), input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, source)
 }
 
 func (s *Server) containerInspection(w http.ResponseWriter, r *http.Request) {

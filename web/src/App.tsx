@@ -32,6 +32,7 @@ import {
 import styles from "./App.module.css";
 import { useDrawerSwipe } from "./useDrawerSwipe";
 import { TerminalPanel } from "./TerminalPanel";
+import { NewProjectDrawer } from "./NewProjectDrawer";
 
 type View =
   | { kind: "loading" }
@@ -262,6 +263,8 @@ function Dashboard({
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const newProjectButtonRef = useRef<HTMLButtonElement>(null);
   const skipLinkRef = useRef<HTMLAnchorElement>(null);
   const dashboardBodyRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -404,6 +407,9 @@ function Dashboard({
               <button type="button" className={styles.refreshButton} aria-label={refreshing ? "Refreshing projects" : "Refresh projects"} title={refreshing ? "Refreshing projects" : "Refresh projects"} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
                 <i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />
               </button>
+              <button ref={newProjectButtonRef} type="button" className={styles.refreshButton} aria-label="New Project" title="New Project" aria-haspopup="dialog" aria-controls="new-project-drawer" aria-expanded={newProjectOpen} onClick={() => setNewProjectOpen(true)}>
+                <i className="ph-bold ph-plus" aria-hidden="true" />
+              </button>
             </div>
             {projects && projects.length > 0 && <div className={styles.inventoryMeta}>
               <span>{projects.length} {projects.length === 1 ? "project" : "projects"} · {projects.reduce((sum, project) => sum + project.containers.length, 0)} containers</span>
@@ -447,6 +453,7 @@ function Dashboard({
         </main>
       </div>
       <ProjectDrawer project={selected} csrfToken={csrfToken} onChanged={() => setRefreshKey((key) => key + 1)} onClose={() => setSelectedID(null)} />
+      <NewProjectDrawer open={newProjectOpen} csrfToken={csrfToken} onClose={() => { setNewProjectOpen(false); newProjectButtonRef.current?.focus(); }} />
       <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} onClose={() => setSettingsOpen(false)} />
     </div>
   );
