@@ -42,6 +42,10 @@
 
 .sourceChoices input { accent-color: var(--color-accent); }
 
+.sourceChoices label { cursor: pointer; transition: border-color var(--duration-fast), background-color var(--duration-fast); }
+.sourceChoices label:hover { border-color: var(--color-border-strong); }
+.sourceChoices label:has(input:checked) { border-color: var(--color-accent-border); background: var(--color-accent-subtle); }
+
 .field { gap: var(--space-2); }
 .field label { font-weight: 650; }
 .field input,
@@ -61,11 +65,64 @@
 .field :is(input, textarea):focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .field :is(input, textarea):user-invalid { border-color: var(--color-danger); }
 
-.loaded {
-  padding: var(--space-4);
-  border: 1px solid var(--color-success);
+.uploadField {
+  display: grid;
+  min-inline-size: 0;
+  gap: var(--space-2);
+}
+
+.uploadField > label { font-weight: 650; }
+.uploadControl { position: relative; min-inline-size: 0; }
+
+/* Keep native file selection, keyboard access, and required-field validation. */
+.uploadInput {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
+.uploadTarget {
+  display: flex;
+  min-block-size: 6rem;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px dashed var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--color-surface-1);
+  cursor: pointer;
+  transition: border-color var(--duration-fast), background-color var(--duration-fast);
+}
+
+.uploadTarget > i { flex: none; font-size: 1.5rem; color: var(--color-text-muted); }
+.uploadCopy { display: grid; min-inline-size: 0; gap: var(--space-1); }
+.uploadFilename { color: var(--color-text-primary); font-size: 0.9rem; font-weight: 500; overflow-wrap: anywhere; }
+.uploadHint { color: var(--color-text-muted); font-size: 0.78rem; }
+
+.uploadInput:not(:disabled) + .uploadTarget:hover {
+  border-color: var(--color-text-muted);
+  background: var(--color-surface-2);
+}
+
+.uploadInput:focus-visible + .uploadTarget {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+.uploadInput:user-invalid + .uploadTarget { border-color: var(--color-danger); }
+.uploadInput:disabled + .uploadTarget { opacity: 0.6; cursor: not-allowed; }
+
+.loaded {
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-success-subtle);
   overflow-wrap: anywhere;
 }
 
@@ -82,16 +139,16 @@
 @media (max-width: 42rem) { .envRow { grid-template-columns: 1fr; } }
 
 .previewDialog {
-  inline-size: min(42rem, calc(100vw - 2rem));
+  inline-size: min(42rem, calc(100dvw - 2rem));
   max-block-size: min(48rem, calc(100dvh - 2rem));
   margin: auto;
   padding: 0;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--color-surface-1);
   color: var(--color-text-primary);
 }
-.previewDialog::backdrop { background: rgb(0 0 0 / 0.72); }
+.previewDialog::backdrop { background: var(--color-backdrop); }
 .previewBody { display: grid; gap: var(--space-4); padding: var(--space-6); overflow: auto; max-block-size: inherit; }
 .previewBody :is(h2, h3, p, ul) { margin-block: 0; }
 .previewBody section { display: grid; gap: var(--space-3); }

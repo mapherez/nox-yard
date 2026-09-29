@@ -36,15 +36,14 @@
   inline-size: 2.35rem;
   block-size: 2.35rem;
   place-items: center;
-  border: 1px solid var(--color-accent-hover);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
-  background: var(--color-accent-pressed);
+  background: var(--color-surface-2);
   color: var(--color-text-primary);
   font-size: 1.1rem;
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.09em;
-  box-shadow: 0 0 1.5rem rgb(75 137 255 / 0.18);
 }
 
 .brandName {
@@ -65,9 +64,7 @@
   justify-content: space-between;
   padding: clamp(var(--space-8), 4vw, var(--space-16));
   border-inline-end: 1px solid var(--color-border);
-  background:
-    radial-gradient(circle at 75% 70%, rgb(36 94 201 / 0.13), transparent 42%),
-    var(--color-sidebar);
+  background: var(--color-sidebar);
 }
 
 .authAsideContent {
@@ -77,7 +74,7 @@
 
 .eyebrow,
 .sectionLabel {
-  color: var(--color-accent-hover);
+  color: var(--color-text-muted);
   font-size: 0.72rem;
   font-weight: 750;
   letter-spacing: 0.16em;
@@ -85,9 +82,9 @@
 
 .authAsideContent h2 {
   margin: var(--space-5) 0 var(--space-4);
-  font-size: clamp(2.5rem, 4.2vw, 4.75rem);
-  line-height: 1.06;
-  letter-spacing: -0.065em;
+  font-size: clamp(2.5rem, 1.5rem + 3vw, 4rem);
+  line-height: 1.12;
+  letter-spacing: -0.05em;
   text-wrap: balance;
 }
 
@@ -118,7 +115,7 @@
 
 .authLines span:nth-child(3) {
   inline-size: 52%;
-  background: var(--color-accent-pressed);
+  background: var(--color-border-strong);
 }
 
 .authAsideFooter {
@@ -227,22 +224,23 @@
   align-items: center;
   justify-content: center;
   padding: var(--space-3) var(--space-6);
-  border: 1px solid var(--color-accent-hover);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--palette-ink-950);
+  background: var(--color-surface-2);
+  color: var(--color-text-primary);
   font-size: 0.92rem;
   font-weight: 750;
   transition: background-color var(--duration-fast), transform var(--duration-fast);
 }
 
 .primaryButton:hover:not(:disabled) {
-  background: var(--color-accent-hover);
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-subtle);
 }
 
 .primaryButton:active:not(:disabled) {
   transform: translateY(1px);
-  background: var(--color-accent-pressed);
+  background: var(--color-surface-1);
   color: var(--color-text-primary);
 }
 
@@ -309,7 +307,7 @@
 .sidebarHeader {
   position: relative;
   display: flex;
-  min-block-size: 4.75rem;
+  min-block-size: 5.25rem;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
@@ -378,7 +376,7 @@
   display: grid;
   gap: var(--space-1);
   inline-size: 100%;
-  padding: var(--space-3);
+  padding: var(--space-5) var(--space-3);
 }
 
 .navLink {
@@ -406,7 +404,11 @@
 .navLink[aria-current="page"] {
   border-color: var(--color-border);
   background: var(--color-surface-2);
-  color: var(--color-accent-hover);
+  color: var(--color-text-primary);
+}
+
+.navLink[aria-current="page"] i {
+  color: var(--color-accent);
 }
 
 .navLink i {
@@ -432,6 +434,9 @@
   align-items: center;
   gap: var(--space-3);
   padding-inline: var(--space-2);
+  padding-block-start: var(--space-4);
+  margin-block-start: var(--space-2);
+  border-block-start: 1px solid var(--color-border);
 }
 
 .dashboard[data-collapsed="true"] .accountRow {
@@ -445,9 +450,9 @@
   block-size: 2.25rem;
   flex: none;
   place-items: center;
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-border-strong);
   border-radius: 50%;
-  background: var(--color-accent-pressed);
+  background: var(--color-surface-2);
   color: var(--color-text-primary);
   font-size: 0.85rem;
   font-weight: 750;
@@ -493,6 +498,17 @@
   white-space: nowrap;
 }
 
+.accountInfo {
+  display: grid;
+  min-inline-size: 0;
+  gap: 0.125rem;
+}
+
+.accountRole {
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+}
+
 .signOutButton {
   display: grid;
   inline-size: 2.5rem;
@@ -523,7 +539,7 @@
 .content {
   max-inline-size: 100rem;
   margin-inline: auto;
-  padding: clamp(var(--space-6), 3vw, var(--space-12));
+  padding: clamp(var(--space-6), 3vw, var(--space-10));
 }
 
 .settingsDrawer {
@@ -571,7 +587,7 @@
 }
 
 .settingsDrawer::backdrop {
-  background: rgb(0 0 0 / 0.6);
+  background: var(--color-backdrop);
 }
 
 .settingsBody {
@@ -597,7 +613,9 @@
 
 .settingsHeader h2 {
   margin: var(--space-2) 0 0;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
   overflow-wrap: anywhere;
 }
 
@@ -644,7 +662,7 @@
 
 .projectTab[aria-selected="true"] {
   border-block-end-color: var(--color-accent);
-  color: var(--color-text-primary);
+  color: var(--color-accent-hover);
 }
 
 .projectTab:hover:not(:disabled) {
@@ -662,7 +680,7 @@
   gap: var(--space-5);
   padding: var(--space-4);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--color-surface-1);
 }
 
@@ -784,7 +802,8 @@
 }
 
 .intervalChoice:has(input:checked) {
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-subtle);
   color: var(--color-accent-hover);
 }
 
@@ -847,8 +866,27 @@
 .pageHeading {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-6);
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.headingCopy {
+  min-inline-size: 0;
+  margin-inline-end: auto;
+}
+
+.headingCopy h1 {
+  margin: 0;
+  font-size: clamp(1.35rem, 1.15rem + 0.5vw, 1.65rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.headingActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .visuallyHidden {
@@ -866,10 +904,11 @@
 
 .refreshButton,
 .closeButton {
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface-1);
   color: var(--color-text-primary);
+  transition: background-color var(--duration-fast), border-color var(--duration-fast);
 }
 
 .refreshButton {
@@ -887,7 +926,14 @@
 
 .refreshButton:hover:not(:disabled),
 .closeButton:hover {
+  border-color: var(--color-border-strong);
   background: var(--color-surface-2);
+}
+
+.newProjectButton {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent-hover);
 }
 
 .refreshButton:disabled {
@@ -906,9 +952,18 @@
   display: flex;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-block: var(--space-8) var(--space-5);
+  align-items: center;
+  margin-block: var(--space-5) var(--space-6);
+  padding-block-end: var(--space-5);
+  border-block-end: 1px solid var(--color-border);
   color: var(--color-text-muted);
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.metaSeparator {
+  margin-inline: var(--space-3);
+  color: var(--color-border-strong);
 }
 
 .projectGrid {
@@ -924,20 +979,25 @@
   min-block-size: 13.5rem;
   flex-direction: column;
   align-items: stretch;
-  padding: var(--space-5);
+  padding: var(--space-5) var(--space-6);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--color-surface-1);
   color: var(--color-text-primary);
   text-align: start;
-  box-shadow: var(--shadow-panel);
+  box-shadow: var(--shadow-card);
   transition: border-color var(--duration-fast), background-color var(--duration-fast);
 }
 
 .projectCard:hover,
 .projectCard[aria-expanded="true"] {
-  border-color: var(--color-accent);
-  background: var(--color-surface-2);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-1);
+}
+
+.projectCard:hover .cardName,
+.projectCard[aria-expanded="true"] .cardName {
+  color: var(--color-accent-hover);
 }
 
 .cardTopline,
@@ -949,40 +1009,60 @@
 }
 
 .cardKind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   color: var(--color-text-muted);
-  font-size: 0.68rem;
-  font-weight: 750;
-  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.cardKind i {
+  font-size: 1rem;
 }
 
 .statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   flex: none;
-  padding: 0.22rem 0.55rem;
-  border: 1px solid currentColor;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   font-size: 0.7rem;
   line-height: 1.3;
   text-transform: capitalize;
 }
 
-.statusRunning { color: var(--color-success); }
-.statusStopped { color: var(--color-text-muted); }
-.statusPartial { color: var(--color-warning); }
+.statusBadge::before {
+  content: "";
+  inline-size: 0.3rem;
+  block-size: 0.3rem;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.statusRunning { color: var(--color-success); background: var(--color-success-subtle); }
+.statusStopped { color: var(--color-text-muted); background: var(--color-surface-2); }
+.statusPartial { color: var(--color-warning); background: var(--color-warning-subtle); }
 
 .cardName {
   overflow: hidden;
   margin-block-start: var(--space-5);
-  font-size: 1.2rem;
-  font-weight: 720;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  transition: color var(--duration-fast);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .cardSubline {
   overflow: hidden;
-  margin-block-start: var(--space-2);
+  margin-block-start: var(--space-1);
   color: var(--color-text-muted);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -995,8 +1075,14 @@
 }
 
 .cardMetrics {
-  margin-block-start: auto;
-  padding-block-start: var(--space-6);
+  margin-block-start: var(--space-5);
+  padding-block-start: var(--space-4);
+  border-block-start: 1px solid var(--color-border);
+}
+
+.cardMetrics .metric + .metric {
+  padding-inline-start: var(--space-3);
+  border-inline-start: 1px solid var(--color-border);
 }
 
 .metric {
@@ -1017,6 +1103,7 @@
   overflow: hidden;
   font-size: 0.88rem;
   font-weight: 650;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1224,8 +1311,8 @@
   min-inline-size: 0;
   padding: var(--space-4);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-2);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-1);
 }
 
 .containerHeading h3 {
@@ -1269,7 +1356,7 @@
 }
 
 .inspectButton:hover:not(:disabled) {
-  border-color: var(--color-accent);
+  border-color: var(--color-accent-border);
   color: var(--color-accent-hover);
 }
 
@@ -1368,14 +1455,14 @@
   overflow: auto;
   padding: 0;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--color-sidebar);
   color: var(--color-text-primary);
   box-shadow: var(--shadow-panel);
 }
 
 .confirmDialog::backdrop {
-  background: rgb(0 0 0 / 0.7);
+  background: var(--color-backdrop);
 }
 
 .confirmBody {
@@ -1593,9 +1680,9 @@
   margin-block-start: var(--space-10);
   padding: var(--space-8);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--color-surface-1);
-  box-shadow: var(--shadow-panel);
+  box-shadow: var(--shadow-card);
   text-align: center;
 }
 
@@ -1694,7 +1781,7 @@
     block-size: 100%;
     padding: 0;
     border: 0;
-    background: rgb(0 0 0 / 0.55);
+    background: var(--color-backdrop);
   }
 
   .content {
@@ -1717,7 +1804,6 @@
 
   .mobileMenuButton {
     display: grid;
-    margin-inline-end: auto;
     inline-size: 2.7rem;
     block-size: 2.7rem;
     flex: none;
@@ -1742,12 +1828,14 @@
   }
 
   .inventoryMeta {
-    margin-block: var(--space-6) 0;
+    margin-block: var(--space-4) 0;
+    padding-block-end: 0;
+    border: 0;
   }
 }
 
 @media (max-width: 26rem) {
-  .inventoryMeta { flex-direction: column; }
+  .inventoryMeta { flex-direction: column; align-items: flex-start; gap: var(--space-1); }
 
   .brandCompact .brandName {
     font-size: 1rem;

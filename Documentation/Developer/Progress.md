@@ -1,8 +1,12 @@
 # Current checkpoint
 
-**Updated:** 2026-09-28
+**Updated:** 2026-09-29
 
 **Phase:** 3 — Managed Compose projects (implementation, host checkpoint pending)
+
+The UI now uses neutral graphite surfaces, softer text and status colors, restrained accent details, consistent panel radii, and clearer card metrics. Existing icon-only actions are preserved. A compact Projects heading and account role improve orientation without adding dashboard widgets. Frontend type checking and the production build pass. Browser review with isolated API fixtures covered desktop, 1024/768/390/320px layouts, collapsed navigation, project/settings/new-project drawers, login/setup, empty inventory, Escape/focus return, and reduced motion. Checked text/status color pairs exceed 4.5:1 contrast. This visual review does not replace the pending live Docker checkpoints below.
+
+Compose and environment-file uploads now share a clickable dashed field with an icon, filename, and replacement hint. The native picker, keyboard access, and required-field validation remain intact. Browser checks with fixtures covered mouse/keyboard selection, replacement, source switching, reselecting an environment file after removal, and long filenames at 320px. Type checking and the production build pass.
 
 The Linux `arm64` image runs on Raspberry Pi 5. The user completed administrator setup and confirmed that the live dashboard discovers 13 projects, including NoX Yard, with CPU, memory, health, and uptime. Memory accounting was initially disabled on the Pi host and is now enabled. Container inspection, lifecycle actions, logs, terminal, image pulls, and confirmed removal are implemented. The user verified start, stop, restart, image pulls (including private images on their host), and removal of containers and projects. Logs and terminal work in tested containers. Some containers lack `/bin/sh`; the UI now detects this and disables the terminal when known unavailable. The new availability behavior still needs verification against the Pi host.
 

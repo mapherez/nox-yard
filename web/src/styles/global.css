@@ -1,7 +1,7 @@
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+@layer reset {
+  :where(*, *::before, *::after) {
+    box-sizing: border-box;
+  }
 }
 
 html {
@@ -16,6 +16,8 @@ body {
   font-family: var(--font-ui);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  accent-color: var(--color-accent);
+  scrollbar-color: var(--color-text-muted) var(--color-canvas);
 }
 
 html:has(dialog[open]),
@@ -26,7 +28,9 @@ body:has([data-mobile-open="true"]) {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -42,7 +46,7 @@ a {
   color: inherit;
 }
 
-:where(a, button, input):focus-visible {
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 3px solid var(--color-focus);
   outline-offset: 3px;
 }
@@ -50,14 +54,4 @@ a {
 ::selection {
   color: var(--color-text-primary);
   background: var(--color-accent-pressed);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
 }

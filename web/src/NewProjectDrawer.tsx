@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEventHandler, type FormEvent } from "react";
 import { deployManaged, getManagedJob, loadManagedSource, previewManaged, type ManagedJob, type ManagedPreview, type ManagedRequest, type ManagedSource, type ManagedSourceInput } from "./api";
 import { useDrawerSwipe } from "./useDrawerSwipe";
 import appStyles from "./App.module.css";
@@ -6,6 +6,31 @@ import styles from "./NewProjectDrawer.module.css";
 
 type EnvRow = { id: string; key: string; value: string };
 let nextEnvRowId = 0;
+
+function FileUploadField({ id, label, accept, hint, filename, required = false, disabled, onChange }: {
+  id: string;
+  label: string;
+  accept: string;
+  hint: string;
+  filename?: string;
+  required?: boolean;
+  disabled: boolean;
+  onChange: ChangeEventHandler<HTMLInputElement>;
+}) {
+  return <div className={styles.uploadField}>
+    <label id={`${id}-label`} htmlFor={id}>{label}</label>
+    <div className={styles.uploadControl}>
+      <input className={styles.uploadInput} id={id} name={id} type="file" accept={accept} required={required} disabled={disabled} aria-labelledby={`${id}-label`} aria-describedby={`${id}-hint`} onChange={onChange} />
+      <label className={styles.uploadTarget} htmlFor={id}>
+        <i className={`ph-bold ${filename ? "ph-file-code" : "ph-upload-simple"}`} aria-hidden="true" />
+        <span className={styles.uploadCopy}>
+          <span className={styles.uploadFilename}>{filename || "Click to select a file"}</span>
+          <span id={`${id}-hint`} className={styles.uploadHint}>{filename ? "Click to replace" : hint}</span>
+        </span>
+      </label>
+    </div>
+  </div>;
+}
 
 export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open: boolean; csrfToken: string; onClose: () => void; onChanged: () => void }) {
   const drawer = useRef<HTMLDialogElement>(null);
@@ -128,13 +153,13 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
         <p className={styles.intro}>Choose a Compose source, enter its variables, then review the project before deployment.</p>
         <form className={styles.form} onSubmit={(event) => { void readSource(event); }}>
           <fieldset className={styles.sourceChoices} disabled={busy}><legend>Source</legend>
-            <label><input type="radio" name="kind" checked={kind === "url"} onChange={() => { setKind("url"); setSource(null); }} /> HTTPS URL</label>
-            <label><input type="radio" name="kind" checked={kind === "paste"} onChange={() => { setKind("paste"); setSource(null); }} /> Paste YAML</label>
+            <label><input type="radio" name="kind" checked={kind === "url"} onChange={() => { setKind("url"); setSource(null); setFile(null); }} /> HTTPS URL</label>
+            <label><input type="radio" name="kind" checked={kind === "paste"} onChange={() => { setKind("paste"); setSource(null); setFile(null); }} /> Paste YAML</label>
             <label><input type="radio" name="kind" checked={kind === "upload"} onChange={() => { setKind("upload"); setSource(null); }} /> Upload file</label>
           </fieldset>
           {kind === "url" && <div className={styles.field}><label htmlFor="managed-url">Public HTTPS URL</label><input id="managed-url" type="url" value={url} required onChange={(event) => { setURL(event.target.value); setSource(null); }} /></div>}
           {kind === "paste" && <div className={styles.field}><label htmlFor="managed-yaml">Compose YAML</label><textarea id="managed-yaml" rows={12} value={yaml} required spellCheck={false} onChange={(event) => { setYAML(event.target.value); setSource(null); }} /></div>}
-          {kind === "upload" && <div className={styles.field}><label htmlFor="managed-file">Compose file</label><input id="managed-file" type="file" accept=".yaml,.yml,text/yaml" required onChange={(event) => { setFile(event.target.files?.[0] || null); setSource(null); }} /></div>}
+          {kind === "upload" && <FileUploadField id="managed-file" label="Compose file" accept=".yaml,.yml,text/yaml" hint=".yaml or .yml · Up to 1 MiB" filename={file?.name} required disabled={busy} onChange={(event) => { setFile(event.target.files?.[0] || null); setSource(null); }} />}
           <button className={appStyles.primaryButton} type="submit" disabled={busy}>Read source</button>
         </form>
         {source && !job && <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void validate(); }}>
@@ -147,7 +172,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
           {source.envFiles.map((envFile, index) => <fieldset className={styles.envSection} key={envFile.path}>
             <legend>Environment file: <code>{envFile.path}</code>{envFile.required ? " *" : " (optional)"}</legend>
             <p className={styles.hint}>Load this file from your computer or enter its variables below. Values are hidden by default.</p>
-            <div className={styles.field}><label htmlFor={`managed-env-file-${index}`}>Load variables from .env file</label><input id={`managed-env-file-${index}`} type="file" accept=".env,.txt,text/plain" onChange={(event) => { void uploadEnv(envFile.path, event.target.files?.[0] || null); }} /></div>
+            <FileUploadField id={`managed-env-file-${index}`} label="Load variables from .env file" accept=".env,.txt,text/plain" hint=".env or .txt · Up to 1 MiB" filename={envUploads[envFile.path]?.filename} disabled={busy} onChange={(event) => { void uploadEnv(envFile.path, event.target.files?.[0] || null); event.target.value = ""; }} />
             {envUploads[envFile.path] && <div className={styles.uploaded}><span>{envUploads[envFile.path].filename} loaded · values hidden</span><button type="button" onClick={() => setEnvUploads((current) => { const next = { ...current }; delete next[envFile.path]; return next; })}>Remove file</button></div>}
             {!envUploads[envFile.path] && <>
               {(envRows[envFile.path] || []).map((row) => <div className={styles.envRow} key={row.id}>

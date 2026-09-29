@@ -396,7 +396,7 @@ function Dashboard({
               </div>
               : <>
                 <span className={styles.accountAvatar} aria-hidden="true">{displayName.charAt(0)}</span>
-                <span className={styles.accountName} title={displayName}>{displayName}</span>
+                <span className={styles.accountInfo}><span className={styles.accountName} title={displayName}>{displayName}</span><span className={styles.accountRole}>Administrator</span></span>
                 <button type="button" onClick={handleSignOut} disabled={pending} className={styles.signOutButton} aria-label="Sign out" title="Sign out"><i className="ph-bold ph-sign-out" aria-hidden="true" /></button>
               </>}
           </div>
@@ -407,17 +407,21 @@ function Dashboard({
         <main id="content" tabIndex={-1} className={styles.content}>
           <div className={styles.dashboardHeader}>
             <div className={styles.pageHeading} id="projects">
-              <h1 className={styles.visuallyHidden}>Projects</h1>
               <button type="button" className={styles.mobileMenuButton} aria-label="Open menu" aria-controls="primary-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><i className="ph-bold ph-list" aria-hidden="true" /></button>
-              <button type="button" className={styles.refreshButton} aria-label={refreshing ? "Refreshing projects" : "Refresh projects"} title={refreshing ? "Refreshing projects" : "Refresh projects"} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
-                <i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />
-              </button>
-              <button ref={newProjectButtonRef} type="button" className={styles.refreshButton} aria-label="New Project" title="New Project" aria-haspopup="dialog" aria-controls="new-project-drawer" aria-expanded={newProjectOpen} onClick={() => setNewProjectOpen(true)}>
-                <i className="ph-bold ph-plus" aria-hidden="true" />
-              </button>
+              <div className={styles.headingCopy}>
+                <h1>Projects</h1>
+              </div>
+              <div className={styles.headingActions}>
+                <button type="button" className={styles.refreshButton} aria-label={refreshing ? "Refreshing projects" : "Refresh projects"} title={refreshing ? "Refreshing projects" : "Refresh projects"} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
+                  <i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />
+                </button>
+                <button ref={newProjectButtonRef} type="button" className={`${styles.refreshButton} ${styles.newProjectButton}`} aria-label="New Project" title="New Project" aria-haspopup="dialog" aria-controls="new-project-drawer" aria-expanded={newProjectOpen} onClick={() => setNewProjectOpen(true)}>
+                  <i className="ph-bold ph-plus" aria-hidden="true" />
+                </button>
+              </div>
             </div>
             {projects && projects.length > 0 && <div className={styles.inventoryMeta}>
-              <span>{projects.length} {projects.length === 1 ? "project" : "projects"} · {projects.reduce((sum, project) => sum + project.containers.length, 0)} containers</span>
+              <span>{projects.length} {projects.length === 1 ? "project" : "projects"}<span className={styles.metaSeparator} aria-hidden="true">/</span>{projects.reduce((sum, project) => sum + project.containers.length, 0)} containers</span>
               <span>{collectedAt && `Updated ${new Date(collectedAt).toLocaleTimeString()}`}</span>
             </div>}
           </div>
@@ -442,10 +446,10 @@ function Dashboard({
                 onClick={() => setSelectedID(project.id)}
               >
                 <span className={styles.cardTopline}>
-          <span className={styles.cardKind}>{project.kind === "standalone" ? "CONTAINER" : project.kind === "managed-compose" ? "MANAGED COMPOSE" : "COMPOSE"}</span>
+                  <span className={styles.cardKind}><i className={`ph-bold ${project.kind === "standalone" ? "ph-cube" : "ph-stack"}`} aria-hidden="true" />{project.kind === "standalone" ? "Container" : project.kind === "managed-compose" ? "Managed Compose" : "Compose"}</span>
                   <span className={`${styles.statusBadge} ${statusClass(project.state)}`}>{project.state}</span>
                 </span>
-                <span className={styles.cardName}>{project.name}</span>
+                <span className={styles.cardName} title={project.name}>{project.name}</span>
                 <span className={styles.cardSubline}>{project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · Health: {healthLabel(project.health)}</span>
                 <span className={styles.cardMetrics}>
                   <Metric label="CPU" value={formatCPU(project.cpuPercent)} />
