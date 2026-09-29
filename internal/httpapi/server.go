@@ -44,6 +44,7 @@ type Server struct {
 	lifecycle    lifecycle.Controller
 	managed      *managed.Manager
 	updates      *selfupdate.Manager
+	changes      *inventory.Notifier
 }
 
 type bootstrapResponse struct {
@@ -63,7 +64,7 @@ type errorResponse struct {
 }
 
 func New(data *store.Store, webDir, publicURL string) (*Server, error) {
-	s := &Server{store: data, webDir: webDir, limiter: loginLimiter{entries: make(map[string]loginAttempt)}}
+	s := &Server{store: data, webDir: webDir, limiter: loginLimiter{entries: make(map[string]loginAttempt)}, changes: inventory.NewNotifier()}
 	if publicURL == "" {
 		return s, nil
 	}
@@ -92,7 +93,12 @@ func (s *Server) SetLifecycle(controller lifecycle.Controller) {
 	s.lifecycle = controller
 }
 
-func (s *Server) SetManaged(manager *managed.Manager) { s.managed = manager }
+func (s *Server) SetManaged(manager *managed.Manager) {
+	s.managed = manager
+	manager.SetNotifier(s.changes)
+}
+
+func (s *Server) Notify(change inventory.Change) { s.changes.Notify(change) }
 
 func (s *Server) SetSelfUpdate(manager *selfupdate.Manager) {
 	s.updates = manager
@@ -103,6 +109,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/projects", s.projects)
+	mux.HandleFunc("GET /api/projects/events", s.projectEvents)
+	mux.HandleFunc("GET /api/metrics", s.metrics)
 	mux.HandleFunc("POST /api/managed/source", s.managedSource)
 	mux.HandleFunc("GET /api/managed/settings", s.managedSettingsGet)
 	mux.HandleFunc("PUT /api/managed/settings", s.managedSettingsPut)
@@ -264,6 +272,7 @@ func (s *Server) projects(w http.ResponseWriter, r *http.Request) {
 			snapshot.Projects = append(snapshot.Projects, inventory.Project{ID: "compose:" + item.Name, Name: item.Name, Kind: "managed-compose", State: "stopped", Health: "none", Containers: []inventory.Container{}})
 		}
 	}
+	s.changes.Apply(&snapshot)
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
@@ -351,6 +360,12 @@ func (s *Server) lifecycleAction(w http.ResponseWriter, r *http.Request, contain
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
+	target := id
+	if container {
+		target = "container:" + id
+	}
+	finish := s.changes.Begin(target, string(input.Action))
+	defer finish()
 	var result lifecycle.Result
 	var err error
 	if container {

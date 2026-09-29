@@ -48,6 +48,16 @@ type Manager struct {
 	inventory inventory.Reader
 	mu        sync.Mutex
 	active    map[string]bool
+	changes   *inventory.Notifier
+}
+
+func (m *Manager) SetNotifier(changes *inventory.Notifier) { m.changes = changes }
+
+func (m *Manager) beginChange(name, operation string) func() {
+	if m.changes == nil {
+		return func() {}
+	}
+	return m.changes.Begin("compose:"+name, operation)
 }
 
 func NewManager(data *store.Store, reader inventory.Reader) (*Manager, error) {
@@ -348,7 +358,9 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 			return store.ManagedJob{}, err
 		}
 	}
+	finish := m.beginChange(input.Name, input.Mode)
 	go func() {
+		defer finish()
 		defer release()
 		if input.Mode == "adopt" {
 			m.finishWithProject(job.ID, projectRecord, nil)
@@ -429,7 +441,9 @@ func (m *Manager) Operation(name, operation string, removeVolumes bool) (store.M
 		m.release(name)
 		return store.ManagedJob{}, err
 	}
+	finish := m.beginChange(name, operation)
 	go func() {
+		defer finish()
 		defer m.release(name)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()

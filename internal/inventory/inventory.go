@@ -2,7 +2,6 @@ package inventory
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -71,6 +70,7 @@ type Project struct {
 	Name           string      `json:"name"`
 	Kind           string      `json:"kind"`
 	State          string      `json:"state"`
+	Operation      string      `json:"operation,omitempty"`
 	Health         string      `json:"health"`
 	CPUPercent     *float64    `json:"cpuPercent"`
 	MemoryBytes    *uint64     `json:"memoryBytes"`
@@ -86,6 +86,7 @@ type Container struct {
 	Service           string   `json:"service,omitempty"`
 	Image             string   `json:"image"`
 	State             string   `json:"state"`
+	Operation         string   `json:"operation,omitempty"`
 	Health            string   `json:"health"`
 	TerminalAvailable *bool    `json:"terminalAvailable"`
 	CPUPercent        *float64 `json:"cpuPercent"`
@@ -96,7 +97,15 @@ type Container struct {
 }
 
 type DockerReader struct {
-	client *client.Client
+	client     *client.Client
+	mu         sync.RWMutex
+	metrics    map[string]Metrics
+	started    map[string]time.Time
+	shells     map[string]shellEntry
+	generation uint64
+	once       sync.Once
+	cancel     context.CancelFunc
+	workers    sync.WaitGroup
 }
 
 func NewDockerReader() (*DockerReader, error) {
@@ -108,18 +117,37 @@ func NewDockerReader() (*DockerReader, error) {
 }
 
 func (r *DockerReader) Close() error {
+	if r.cancel != nil {
+		r.cancel()
+		r.workers.Wait()
+	}
 	return r.client.Close()
 }
 
 func (r *DockerReader) InspectContainer(ctx context.Context, id string, revealEnvironment bool) (ContainerInspection, error) {
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
+	r.mu.RLock()
+	generation := r.generation
+	r.mu.RUnlock()
 	result, err := r.client.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 	if errdefs.IsNotFound(err) {
 		return ContainerInspection{}, ErrContainerNotFound
 	}
 	if err != nil {
 		return ContainerInspection{}, err
+	}
+	if state := result.Container.State; state != nil && state.Running {
+		if started, err := time.Parse(time.RFC3339Nano, state.StartedAt); err == nil {
+			r.mu.Lock()
+			if r.started == nil {
+				r.started = make(map[string]time.Time)
+			}
+			if generation == r.generation {
+				r.started[id] = started
+			}
+			r.mu.Unlock()
+		}
 	}
 	return describeInspection(result.Container, revealEnvironment), nil
 }
@@ -227,22 +255,16 @@ func (r *DockerReader) Snapshot(ctx context.Context) (Snapshot, error) {
 	}
 	collectedAt := time.Now().UTC()
 	containers := make([]Container, len(listed.Items))
-	jobs := make(chan int)
-	var workers sync.WaitGroup
-	for range min(maxWorkers, len(listed.Items)) {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			for index := range jobs {
-				containers[index] = r.describe(ctx, listed.Items[index], collectedAt)
+	metrics := r.CachedMetrics()
+	for index, summary := range listed.Items {
+		item := describe(summary)
+		if item.State == "running" {
+			if sample, ok := metrics[summary.ID]; ok {
+				applyMetrics(&item, sample)
 			}
-		}()
+		}
+		containers[index] = item
 	}
-	for index := range listed.Items {
-		jobs <- index
-	}
-	close(jobs)
-	workers.Wait()
 	return group(listed.Items, containers, collectedAt), nil
 }
 
@@ -282,7 +304,7 @@ func group(items []container.Summary, containers []Container, collectedAt time.T
 	return result
 }
 
-func (r *DockerReader) describe(ctx context.Context, summary container.Summary, now time.Time) Container {
+func describe(summary container.Summary) Container {
 	name := strings.TrimPrefix(firstName(summary.Names), "/")
 	if name == "" {
 		name = summary.ID[:min(12, len(summary.ID))]
@@ -293,68 +315,15 @@ func (r *DockerReader) describe(ctx context.Context, summary container.Summary, 
 	}
 	if summary.Health != nil {
 		item.Health = string(summary.Health.Status)
-	}
-
-	requestCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-	inspected, err := r.client.ContainerInspect(requestCtx, summary.ID, client.ContainerInspectOptions{})
-	if err == nil && inspected.Container.State != nil {
-		state := inspected.Container.State
-		if state.Health != nil {
-			item.Health = string(state.Health.Status)
-		}
-		if state.Running {
-			if started, parseErr := time.Parse(time.RFC3339Nano, state.StartedAt); parseErr == nil {
-				seconds := max(int64(0), int64(now.Sub(started).Seconds()))
-				item.UptimeSeconds = &seconds
+	} else {
+		// Older Engines expose health only in the list's human-readable status.
+		for _, health := range []string{"unhealthy", "healthy", "starting"} {
+			if strings.Contains(summary.Status, "("+health+")") || strings.Contains(summary.Status, "(health: "+health+")") {
+				item.Health = health
+				break
 			}
 		}
 	}
-	if item.State != "running" || requestCtx.Err() != nil {
-		return item
-	}
-	_, shellErr := r.client.ContainerStatPath(requestCtx, summary.ID, client.ContainerStatPathOptions{Path: "/bin/sh"})
-	if shellErr == nil || errdefs.IsNotFound(shellErr) {
-		available := shellErr == nil
-		item.TerminalAvailable = &available
-	}
-	stats, err := r.client.ContainerStats(requestCtx, summary.ID, client.ContainerStatsOptions{
-		Stream: false, IncludePreviousSample: true,
-	})
-	if err != nil {
-		return item
-	}
-	defer stats.Body.Close()
-	var sample container.StatsResponse
-	if json.NewDecoder(stats.Body).Decode(&sample) != nil {
-		return item
-	}
-	if sample.CPUStats.CPUUsage.TotalUsage >= sample.PreCPUStats.CPUUsage.TotalUsage &&
-		sample.CPUStats.SystemUsage > sample.PreCPUStats.SystemUsage {
-		cpuDelta := sample.CPUStats.CPUUsage.TotalUsage - sample.PreCPUStats.CPUUsage.TotalUsage
-		systemDelta := sample.CPUStats.SystemUsage - sample.PreCPUStats.SystemUsage
-		cores := sample.CPUStats.OnlineCPUs
-		if cores == 0 {
-			cores = uint32(len(sample.CPUStats.CPUUsage.PercpuUsage))
-		}
-		if cores > 0 {
-			value := float64(cpuDelta) / float64(systemDelta) * float64(cores) * 100
-			item.CPUPercent = &value
-		}
-	}
-	usage := sample.MemoryStats.Usage
-	if inactive, ok := sample.MemoryStats.Stats["inactive_file"]; ok && inactive <= usage {
-		usage -= inactive
-	} else if inactive, ok := sample.MemoryStats.Stats["total_inactive_file"]; ok && inactive <= usage {
-		usage -= inactive
-	}
-	item.MemoryBytes = &usage
-	var rx, tx uint64
-	for _, network := range sample.Networks {
-		rx += network.RxBytes
-		tx += network.TxBytes
-	}
-	item.NetworkRxBytes, item.NetworkTxBytes = &rx, &tx
 	return item
 }
 

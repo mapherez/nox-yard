@@ -44,10 +44,22 @@ The implemented self-update flow, rollback snapshot, and operational preconditio
 ## API and live data
 
 - REST: bootstrap state, setup/login/logout, inventory and detail reads, import preview/commit/sync, actions, job status, and auto-update settings.
-- SSE: inventory changes, metrics, job progress, and live logs where one-way streaming is sufficient.
+- SSE: inventory/metrics invalidations through `/api/projects/events`, and live container logs. Managed job progress is read through its job endpoint.
 - WebSocket: authenticated, origin-checked bidirectional container terminal sessions.
 
 Mutating calls return a job ID for long-running work. The frontend can reconnect and recover progress after a page or service restart. API payloads never return raw Docker SDK structs or secrets by default; sensitive values require an explicit reveal action.
+
+### Inventory and metrics lifecycle
+
+`GET /api/projects` makes one Docker `ContainerList(All: true)` call, groups the summaries, and joins in-memory metrics and pending operations plus managed metadata. It does not inspect containers, collect stats, or probe their filesystems. Health comes from the list response. Detailed inspection is requested when opening a container's details or explicitly revealing its environment. Logs, terminal, and lifecycle operations retain their own on-demand Docker checks.
+
+The inventory reader owns two independent background workers. The metrics worker samples running containers with at most six concurrent stats requests, a four-second per-container timeout, a twenty-second cycle limit, and a five-second pause between cycles. The cache retains recent successful samples across transient failures and reports unknown values after thirty seconds. `/api/metrics` reads only this cache. No Docker I/O runs while holding the cache lock. Lifecycle events invalidate old samples and prevent in-flight responses from restoring them. Uptime uses observed start events or a lazy details inspection; an already-running container has unknown uptime after service startup until inspected or restarted.
+
+The Docker event worker watches container create/start/stop/die/destroy/restart, health, pause/unpause, rename, update, kill, and OOM events. It reconnects with bounded backoff and a timestamp cursor, and requests reconciliation on reconnect because Docker event history is bounded. Notifications coalesce without blocking producers. The authenticated SSE endpoint sends invalidations, an initial reconciliation, and heartbeat comments; reconnecting clients fetch current state instead of relying on replay. Session validity is rechecked on heartbeats. Reverse proxies must permit streaming without buffering.
+
+React coalesces event bursts for 100 ms and queues another inventory refresh if an event arrives during an in-flight request. Metrics notifications fetch only `/api/metrics`. Local actions expose pending states immediately and refresh inventory after their response, including failures; server-side pending states remain visible to other clients and last until managed jobs finish. Hidden tabs close SSE and resume with a fresh snapshot. A 15-second timer polls while disconnected, or reconciles after at least 60 seconds without an inventory refresh while connected. Polling is a recovery mechanism, not the normal update path.
+
+The `/bin/sh` capability check runs only when opening a terminal. Known presence/absence is cached for five minutes and invalidated by lifecycle events; other Docker errors are not cached as missing shells.
 
 ## Compose import flow
 

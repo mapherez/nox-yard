@@ -76,6 +76,8 @@ func (s *Server) containerTerminal(w http.ResponseWriter, r *http.Request) {
 			message = "Container no longer exists. Refresh the project list."
 		} else if errors.Is(err, inventory.ErrContainerNotRunning) {
 			message = "Start the container before opening a terminal."
+		} else if errors.Is(err, inventory.ErrShellUnavailable) {
+			message = "Terminal unavailable: this container has no /bin/sh shell."
 		}
 		_ = writeTerminalMessage(conn, terminalMessage{Type: "error", Error: message})
 		return

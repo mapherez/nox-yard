@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -79,6 +80,9 @@ func run() error {
 	api.SetLifecycle(dockerLifecycle)
 	updates := selfupdate.New(data, buildSHA)
 	api.SetSelfUpdate(updates)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	dockerInventory.Start(ctx, api.Notify)
 	server := &http.Server{
 		Addr:              environment("NOX_LISTEN_ADDR", ":8080"),
 		Handler:           api.Handler(),
@@ -86,9 +90,8 @@ func run() error {
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      130 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	updates.Start(ctx)
 	go func() {
 		<-ctx.Done()

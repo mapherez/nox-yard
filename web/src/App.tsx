@@ -5,7 +5,6 @@ import {
   createAdministrator,
   getBootstrap,
   getContainerInspection,
-  getProjects,
   getManagedJob,
 	getManagedSettings,
   getSelfUpdateStatus,
@@ -38,6 +37,7 @@ import styles from "./App.module.css";
 import { useDrawerSwipe } from "./useDrawerSwipe";
 import { TerminalPanel } from "./TerminalPanel";
 import { NewProjectDrawer } from "./NewProjectDrawer";
+import { useProjects } from "./useProjects";
 
 type View =
   | { kind: "loading" }
@@ -261,11 +261,7 @@ function Dashboard({
 }) {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
-  const [projects, setProjects] = useState<Project[] | null>(null);
-  const [inventoryError, setInventoryError] = useState("");
-  const [collectedAt, setCollectedAt] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const { projects, inventoryError, collectedAt, refreshing, refresh } = useProjects();
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -315,39 +311,6 @@ function Dashboard({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [mobileOpen]);
-
-  useEffect(() => {
-    let active = true;
-    let busy = false;
-    const controller = new AbortController();
-    async function refresh() {
-      if (busy || document.visibilityState === "hidden") return;
-      busy = true;
-      setRefreshing(true);
-      try {
-        const snapshot = await getProjects(controller.signal);
-        if (!active) return;
-        setProjects(snapshot.projects);
-        setCollectedAt(snapshot.collectedAt);
-        setInventoryError("");
-      } catch (cause) {
-        if (active) setInventoryError(cause instanceof Error ? cause.message : "Unable to load Docker projects.");
-      } finally {
-        busy = false;
-        if (active) setRefreshing(false);
-      }
-    }
-    void refresh();
-    const interval = window.setInterval(() => { void refresh(); }, 20_000);
-    function onVisible() { if (document.visibilityState === "visible") void refresh(); }
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      active = false;
-      controller.abort();
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [refreshKey]);
 
   const selected = projects?.find((project) => project.id === selectedID);
   const displayName = username.charAt(0).toUpperCase() + username.slice(1);
@@ -412,7 +375,7 @@ function Dashboard({
                 <h1>Projects</h1>
               </div>
               <div className={styles.headingActions}>
-                <button type="button" className={styles.refreshButton} aria-label={refreshing ? "Refreshing projects" : "Refresh projects"} title={refreshing ? "Refreshing projects" : "Refresh projects"} onClick={() => setRefreshKey((key) => key + 1)} disabled={refreshing}>
+                <button type="button" className={styles.refreshButton} aria-label={refreshing ? "Refreshing projects" : "Refresh projects"} title={refreshing ? "Refreshing projects" : "Refresh projects"} onClick={refresh} disabled={refreshing}>
                   <i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />
                 </button>
                 <button ref={newProjectButtonRef} type="button" className={`${styles.refreshButton} ${styles.newProjectButton}`} aria-label="New Project" title="New Project" aria-haspopup="dialog" aria-controls="new-project-drawer" aria-expanded={newProjectOpen} onClick={() => setNewProjectOpen(true)}>
@@ -447,7 +410,7 @@ function Dashboard({
               >
                 <span className={styles.cardTopline}>
                   <span className={styles.cardKind}><i className={`ph-bold ${project.kind === "standalone" ? "ph-cube" : "ph-stack"}`} aria-hidden="true" />{project.kind === "standalone" ? "Container" : project.kind === "managed-compose" ? "Managed Compose" : "Compose"}</span>
-                  <span className={`${styles.statusBadge} ${statusClass(project.state)}`}>{project.state}</span>
+                  <span className={`${styles.statusBadge} ${statusClass(project.operation || project.state)}`}>{project.operation || project.state}</span>
                 </span>
                 <span className={styles.cardName} title={project.name}>{project.name}</span>
                 <span className={styles.cardSubline}>{project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · Health: {healthLabel(project.health)}</span>
@@ -461,8 +424,8 @@ function Dashboard({
           </>}
         </main>
       </div>
-      <ProjectDrawer project={selected} csrfToken={csrfToken} onChanged={() => setRefreshKey((key) => key + 1)} onClose={() => setSelectedID(null)} />
-      <NewProjectDrawer open={newProjectOpen} csrfToken={csrfToken} onChanged={() => setRefreshKey((key) => key + 1)} onClose={() => { setNewProjectOpen(false); newProjectButtonRef.current?.focus(); }} />
+      <ProjectDrawer project={selected} csrfToken={csrfToken} onChanged={refresh} onClose={() => setSelectedID(null)} />
+      <NewProjectDrawer open={newProjectOpen} csrfToken={csrfToken} onChanged={refresh} onClose={() => { setNewProjectOpen(false); newProjectButtonRef.current?.focus(); }} />
       <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} onClose={() => setSettingsOpen(false)} />
     </div>
   );
@@ -611,7 +574,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
             name={project.name}
             state={project.state}
             selfTarget={project.containers.some((container) => project.name === "nox-yard" && container.service === "nox-yard")}
-            busy={busyTarget !== null}
+            busy={busyTarget !== null || Boolean(project.operation)}
             onRun={(action) => runAction("project", project.id, action)}
             pullLabel="Pull project images"
             removeLabel="Remove project"
@@ -620,7 +583,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
           />}
           <section className={styles.projectOverview} aria-label="Project overview">
             <p className={styles.detailSummary}>
-              {project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · {project.state} · Health: {healthLabel(project.health)}
+              {project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · {project.operation || project.state} · Health: {healthLabel(project.health)}
             </p>
             <div className={styles.projectOverviewMetrics}>
               <Metric label="CPU" value={formatCPU(project.cpuPercent)} />
@@ -637,7 +600,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
               container={activeContainer}
               hideActions={project.kind === "managed-compose"}
               csrfToken={csrfToken}
-              busy={busyTarget !== null}
+              busy={busyTarget !== null || Boolean(activeContainer.operation)}
               selfTarget={project.name === "nox-yard" && activeContainer.service === "nox-yard"}
               helperTarget={activeContainer.name.startsWith("nox-yard-update-")}
               onRun={(action) => runAction("container", activeContainer.id, action)}
@@ -653,7 +616,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
               <div className={styles.containerList}>
                 {project.containers.map((container) => <button key={container.id} ref={(element) => { containerButtonsRef.current[container.id] = element; }} type="button" className={styles.containerChoice} onClick={() => showContainer(container.id)}>
                   <span className={styles.containerChoiceName}><strong>{container.service || container.name}</strong>{container.service && <small>{container.name}</small>}</span>
-                  <span className={`${styles.statusBadge} ${statusClass(container.state)}`}>{container.state}</span>
+                  <span className={`${styles.statusBadge} ${statusClass(container.operation || container.state)}`}>{container.operation || container.state}</span>
                   <span className={styles.containerChoiceArrow} aria-hidden="true">›</span>
                 </button>)}
               </div>
@@ -673,7 +636,7 @@ function ManagedProjectControls({ project, csrfToken, onChanged }: { project: Pr
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState<"stop" | "restart" | "update" | "remove" | null>(null);
   const [removeVolumes, setRemoveVolumes] = useState(false);
-  const busy = job?.status === "running";
+  const busy = job?.status === "running" || Boolean(project.operation);
   useEffect(() => {
     if (!busy || !job) return;
     let live = true;
@@ -1240,7 +1203,7 @@ function ContainerRow({ container }: { container: Container }) {
   return <article className={styles.containerRow}>
     <div className={styles.containerHeading}>
       <div><h3>{container.service || container.name}</h3>{container.service && <span>{container.name}</span>}</div>
-      <span className={`${styles.statusBadge} ${statusClass(container.state)}`}>{container.state}</span>
+      <span className={`${styles.statusBadge} ${statusClass(container.operation || container.state)}`}>{container.operation || container.state}</span>
     </div>
     <p className={styles.imageName} title={container.image}>{container.image}</p>
     <p className={styles.containerHealth}>Health: {healthLabel(container.health)}</p>

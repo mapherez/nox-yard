@@ -1,3 +1,5 @@
+import { trackInventoryAction } from "./inventoryUpdates";
+
 export type Bootstrap = {
   needsSetup: boolean;
   authenticated: boolean;
@@ -11,6 +13,7 @@ export type Container = {
   service?: string;
   image: string;
   state: string;
+  operation?: string;
   health: string;
   terminalAvailable: boolean | null;
   cpuPercent: number | null;
@@ -25,6 +28,7 @@ export type Project = {
   name: string;
   kind: "managed-compose" | "external-compose" | "standalone";
   state: "running" | "partial" | "stopped";
+  operation?: string;
   health: string;
   cpuPercent: number | null;
   memoryBytes: number | null;
@@ -38,6 +42,12 @@ export type Inventory = {
   collectedAt: string;
   projects: Project[];
 };
+
+export type ContainerMetrics = Pick<Container, "cpuPercent" | "memoryBytes" | "networkRxBytes" | "networkTxBytes" | "uptimeSeconds"> & { collectedAt: string };
+
+export function getMetrics(signal?: AbortSignal): Promise<Record<string, ContainerMetrics>> {
+  return request<Record<string, ContainerMetrics>>("/api/metrics", { signal, priority: "low" });
+}
 
 export type ManagedSourceInput = {
   kind: "url" | "paste" | "upload";
@@ -195,7 +205,7 @@ export function previewManaged(input: ManagedRequest, csrfToken: string): Promis
 }
 
 export function deployManaged(input: ManagedRequest, csrfToken: string): Promise<ManagedJob> {
-  return request<ManagedJob>("/api/managed/deploy", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(input) });
+  return trackInventoryAction(`compose:${input.name}`, input.mode, () => request<ManagedJob>("/api/managed/deploy", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(input) }));
 }
 
 export function getManagedJob(id: string): Promise<ManagedJob> {
@@ -203,7 +213,7 @@ export function getManagedJob(id: string): Promise<ManagedJob> {
 }
 
 export function runManagedOperation(name: string, operation: "start" | "stop" | "restart" | "pull" | "update" | "remove", removeVolumes: boolean, csrfToken: string): Promise<ManagedJob> {
-  return request<ManagedJob>(`/api/managed/projects/${encodeURIComponent(name)}/operations`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ operation, removeVolumes }) });
+  return trackInventoryAction(`compose:${name}`, operation, () => request<ManagedJob>(`/api/managed/projects/${encodeURIComponent(name)}/operations`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ operation, removeVolumes }) }));
 }
 
 export function getContainerInspection(id: string, signal?: AbortSignal): Promise<ContainerInspection> {
@@ -215,19 +225,19 @@ export function containerLogsURL(id: string): string {
 }
 
 export function runContainerAction(id: string, action: LifecycleAction, csrfToken: string): Promise<LifecycleResult> {
-  return request<LifecycleResult>(`/api/containers/${encodeURIComponent(id)}/actions`, {
+  return trackInventoryAction(`container:${id}`, action, () => request<LifecycleResult>(`/api/containers/${encodeURIComponent(id)}/actions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify({ action }),
-  });
+  }));
 }
 
 export function runProjectAction(id: string, action: LifecycleAction, csrfToken: string): Promise<LifecycleResult> {
-  return request<LifecycleResult>(`/api/projects/${encodeURIComponent(id)}/actions`, {
+  return trackInventoryAction(id, action, () => request<LifecycleResult>(`/api/projects/${encodeURIComponent(id)}/actions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify({ action }),
-  });
+  }));
 }
 
 export function pullContainerImage(id: string, csrfToken: string): Promise<MaintenanceResult> {
@@ -253,19 +263,19 @@ export function previewRemoveProject(id: string): Promise<RemovalPlan> {
 }
 
 export function removeContainer(id: string, fingerprint: string, csrfToken: string): Promise<RemovalReport> {
-  return request<RemovalReport>(`/api/containers/${encodeURIComponent(id)}/remove`, {
+  return trackInventoryAction(`container:${id}`, "remove", () => request<RemovalReport>(`/api/containers/${encodeURIComponent(id)}/remove`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify({ confirm: true, fingerprint }),
-  });
+  }));
 }
 
 export function removeProject(id: string, fingerprint: string, csrfToken: string): Promise<RemovalReport> {
-  return request<RemovalReport>(`/api/projects/${encodeURIComponent(id)}/remove`, {
+  return trackInventoryAction(id, "remove", () => request<RemovalReport>(`/api/projects/${encodeURIComponent(id)}/remove`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify({ confirm: true, fingerprint }),
-  });
+  }));
 }
 
 export function revealContainerEnvironment(id: string, csrfToken: string, signal?: AbortSignal): Promise<ContainerInspection> {

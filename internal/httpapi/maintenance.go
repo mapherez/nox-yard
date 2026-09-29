@@ -106,6 +106,12 @@ func (s *Server) removeOperation(w http.ResponseWriter, r *http.Request, isConta
 			return
 		}
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+		target := id
+		if isContainer {
+			target = "container:" + id
+		}
+		finish := s.changes.Begin(target, "remove")
+		defer finish()
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
