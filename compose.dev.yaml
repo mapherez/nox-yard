@@ -13,6 +13,9 @@ services:
       NOX_DATA_DIR: /data
       NOX_LISTEN_ADDR: :8080
       NOX_PUBLIC_URL: http://127.0.0.1:5173
+      NOX_YARD_API_ENABLED: ${NOX_YARD_API_ENABLED:-false}
+      NOX_YARD_API_KEY: ${NOX_YARD_API_KEY:-}
+      NOX_YARD_VERSION: ${NOX_YARD_VERSION:-}
       NOX_HOST_HOME: ${HOME:-}
       NOX_HOST_USERPROFILE: ${USERPROFILE:-}
     volumes:

@@ -45,6 +45,7 @@ type Server struct {
 	managed      *managed.Manager
 	updates      *selfupdate.Manager
 	changes      *inventory.Notifier
+	control      controlSettings
 }
 
 type bootstrapResponse struct {
@@ -137,7 +138,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.Handle("GET /", s.staticHandler())
-	return s.securityHeaders(mux)
+	control := s.controlHandler()
+	return s.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/") {
+			control.ServeHTTP(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
 }
 
 func (s *Server) selfUpdateStatus(w http.ResponseWriter, r *http.Request) {
@@ -248,31 +256,16 @@ func (s *Server) projects(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "Docker inventory is unavailable.")
 		return
 	}
-	snapshot, err := s.inventory.Snapshot(r.Context())
+	snapshot, err := s.readProjects(r.Context())
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "Cannot reach the local Docker Engine. Check the Docker socket mount and access permissions.")
+		status := http.StatusServiceUnavailable
+		var storage managedReadError
+		if errors.As(err, &storage) {
+			status = http.StatusInternalServerError
+		}
+		writeError(w, status, projectReadMessage(err))
 		return
 	}
-	managedProjects, err := s.store.ManagedProjects()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to read managed projects.")
-		return
-	}
-	seen := map[string]bool{}
-	for index := range snapshot.Projects {
-		seen[snapshot.Projects[index].ID] = true
-		for _, item := range managedProjects {
-			if snapshot.Projects[index].ID == "compose:"+item.Name {
-				snapshot.Projects[index].Kind = "managed-compose"
-			}
-		}
-	}
-	for _, item := range managedProjects {
-		if !seen["compose:"+item.Name] {
-			snapshot.Projects = append(snapshot.Projects, inventory.Project{ID: "compose:" + item.Name, Name: item.Name, Kind: "managed-compose", State: "stopped", Health: "none", Containers: []inventory.Container{}})
-		}
-	}
-	s.changes.Apply(&snapshot)
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
@@ -360,19 +353,7 @@ func (s *Server) lifecycleAction(w http.ResponseWriter, r *http.Request, contain
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	target := id
-	if container {
-		target = "container:" + id
-	}
-	finish := s.changes.Begin(target, string(input.Action))
-	defer finish()
-	var result lifecycle.Result
-	var err error
-	if container {
-		result, err = s.lifecycle.Container(ctx, id, input.Action)
-	} else {
-		result, err = s.lifecycle.Project(ctx, id, input.Action)
-	}
+	result, err := s.runAction(ctx, id, container, input.Action)
 	switch {
 	case errors.Is(err, lifecycle.ErrNotFound):
 		writeError(w, http.StatusNotFound, "Target no longer exists. Refresh the project list.")

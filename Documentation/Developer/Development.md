@@ -11,7 +11,7 @@
 - `cmd/nox-yard/`: service entrypoint and interactive password reset command.
 - `internal/auth/`: password validation and Argon2id hashes.
 - `internal/store/`: SQLite schema, administrator, and sessions.
-- `internal/httpapi/`: same-origin HTTP routes, session protection, and static asset serving.
+- `internal/httpapi/`: browser HTTP routes, session protection, static assets, and the independent versioned machine Control API.
 - `internal/selfupdate/`: opt-in GHCR checks and the temporary Engine-based update worker; see [Self-Update](Self-Update.md).
 - `internal/managed/`: source intake for new managed Compose projects; validation and deployment follow in Phase 3.
 - `web/src/`: typed API client, React views, and CSS Modules. Shared tokens and global rules are in `web/src/styles/`.
@@ -19,6 +19,7 @@
 - `scripts/check.sh`, `scripts/test.sh`, `scripts/ci-local.sh`: shared local and CI validation.
 - `scripts/install-hooks.sh`: installs the local pre-push hook in a clone.
 - `scripts/smoke-arm64.sh`: CI-only ARM64 executable and runtime health validation.
+- `scripts/build-version.sh`: exact-commit Git tag/full-SHA version metadata for verified and published builds.
 - `.github/workflows/ci.yml`: source checks, Docker builds, ARM64 smoke test, and gated GHCR publication.
 - `Documentation/Developer/`: canonical architecture, implementation, style, decision, progress, and feature documentation.
 
@@ -74,6 +75,8 @@ For branch protection, require **Source validation** and **Docker builds and ARM
 The image package may be private. Set its visibility to public in GitHub package settings for an unauthenticated host pull. For a private package, authenticate the host to `ghcr.io` with a token that has `read:packages` access. The Compose file references the published image and has no local `build:` context, so the host needs only `compose.yaml` and optional `.env` configuration. Run `docker compose pull` followed by `docker compose up -d` to deploy the latest passing `master` image.
 
 ## Configuration, data, and recovery
+
+The optional [Control API](Control-API.md) uses the same backend port. `NOX_YARD_API_ENABLED` defaults to false; when true, `NOX_YARD_API_KEY` must be an independent key without whitespace, commas, or control characters. Compose passes both variables through from `.env`. Public `/v1/health` and `/v1/info` remain available. Machine requests use only Bearer auth; browser sessions/Origin/CSRF remain unchanged. `NOX_YARD_VERSION` optionally overrides the incorporated build version; leave it empty to use the exact Git tag/full-SHA metadata, or `dev` for unversioned builds. `buildSHA` remains separate for self-update. No changes to bind address, reverse proxy, or `/healthz` healthchecks are required.
 
 `NOX_LISTEN_ADDR` defaults to `:8080`; use `127.0.0.1:8080` for a local development server. `NOX_DATA_DIR` defaults to `./data`, and `NOX_WEB_DIR` defaults to `./web/dist`. In Compose, these are `/data` and `/srv/nox-yard/web`. The optional `NOX_PUBLIC_URL` must be an exact HTTP(S) origin without a path. Set it to the browser-facing HTTPS origin behind a reverse proxy so sessions use Secure cookies and Origin checks compare against that origin.
 

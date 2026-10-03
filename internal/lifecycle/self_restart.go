@@ -19,7 +19,7 @@ func (m *Manager) launchSelfRestart(ctx context.Context, id string) error {
 	}
 	for _, item := range listed.Items {
 		if isHelper(item.Labels) && item.State == container.StateRunning {
-			return errors.New("a NoX Yard maintenance helper is already running")
+			return ErrConflict
 		}
 	}
 	inspected, err := m.client.ContainerInspect(ctx, id, client.ContainerInspectOptions{})

@@ -13,10 +13,11 @@ import (
 
 // Pull changes only the host's local image cache.
 type MaintenanceResult struct {
-	Succeeded int      `json:"succeeded"`
-	Failed    int      `json:"failed"`
-	Images    []string `json:"images,omitempty"`
-	Errors    []string `json:"errors,omitempty"`
+	Succeeded int       `json:"succeeded"`
+	Failed    int       `json:"failed"`
+	Images    []string  `json:"images,omitempty"`
+	Errors    []string  `json:"errors,omitempty"`
+	Failures  []Failure `json:"-"`
 }
 
 func (m *Manager) PullContainer(ctx context.Context, id string) (MaintenanceResult, error) {
@@ -59,6 +60,7 @@ func (m *Manager) pullImages(ctx context.Context, images []string) MaintenanceRe
 	result := MaintenanceResult{}
 	for _, image := range images {
 		if ctx.Err() != nil {
+			result.Failures = append(result.Failures, Failure{Target: image, Cause: ctx.Err()})
 			break
 		}
 		response, err := m.client.ImagePull(ctx, image, client.ImagePullOptions{})
@@ -69,6 +71,7 @@ func (m *Manager) pullImages(ctx context.Context, images []string) MaintenanceRe
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", image, err))
+			result.Failures = append(result.Failures, Failure{Target: image, Cause: err})
 			continue
 		}
 		result.Succeeded++

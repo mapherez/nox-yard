@@ -65,3 +65,9 @@ This supersedes the fixed six-hour interval in D-014. Global update settings bel
 ## D-016 — Public Compose source intake (2026-09-28)
 
 New managed projects may start from pasted YAML, an uploaded file, or a public HTTPS URL. Source intake limits the file to 1 MiB. URL retrieval uses port 443, rejects private and special-purpose DNS results, disables proxy use and redirects, and limits request duration. This restriction keeps the web service from fetching host-local or internal-network resources through the Docker-capable API. Compose validation and deployment remain separate steps after source intake.
+
+## D-017 — Independent versioned machine Control API (2026-10-03)
+
+Expose machine inventory, inspection, start/stop/restart, and image pulls under `/v1` on the existing HTTP server. Keep `/api/*` as the browser interface with its session, Origin, CSRF, streaming, and terminal behavior. Machine routes are disabled by default and use an explicit independent Bearer key; public health/info remain available. Separate DTOs and stable error codes protect clients from internal model changes. Shared operation helpers reuse inventory metadata, lifecycle implementations, and notifications. Generic project operations remain Engine-backed, including existing managed containers; they do not deploy missing services through Compose.
+
+Preserve `/healthz` and its SQLite-only readiness for Docker healthchecks and self-update. Add independent application `buildVersion` metadata with runtime override, exact Git tag/full-SHA build fallback, and `dev` default. Keep `buildSHA` separate for self-update. The feature requires no new port, SQLite migration, CLI onboarding, or change to publication policy. See [Control API](Control-API.md) for the contract.

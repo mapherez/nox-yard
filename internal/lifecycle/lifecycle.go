@@ -7,7 +7,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
@@ -26,14 +25,23 @@ var ErrNotFound = errors.New("target not found")
 var ErrChanged = errors.New("Docker removal plan changed")
 var ErrProtected = errors.New("NoX Yard cannot be stopped from its own web process")
 var ErrInvalidAction = errors.New("invalid lifecycle action")
+var ErrConflict = errors.New("a NoX Yard maintenance helper is already running")
+
+// Failure preserves the domain cause for machine clients without changing the
+// existing browser response's counters or human-readable errors.
+type Failure struct {
+	Target string
+	Cause  error
+}
 
 type Result struct {
-	Action    Action   `json:"action"`
-	Succeeded int      `json:"succeeded"`
-	Skipped   int      `json:"skipped"`
-	Failed    int      `json:"failed"`
-	Queued    int      `json:"queued"`
-	Errors    []string `json:"errors,omitempty"`
+	Action    Action    `json:"action"`
+	Succeeded int       `json:"succeeded"`
+	Skipped   int       `json:"skipped"`
+	Failed    int       `json:"failed"`
+	Queued    int       `json:"queued"`
+	Errors    []string  `json:"errors,omitempty"`
+	Failures  []Failure `json:"-"`
 }
 
 type Controller interface {
@@ -51,7 +59,7 @@ type Controller interface {
 // operation submitted through this application. Docker remains the source of truth.
 type Manager struct {
 	client *client.Client
-	mu     sync.Mutex
+	mu     contextMutex
 }
 
 func New() (*Manager, error) {
@@ -70,7 +78,9 @@ func (m *Manager) Container(ctx context.Context, id string, action Action) (Resu
 	if !validAction(action) {
 		return Result{}, ErrInvalidAction
 	}
-	m.mu.Lock()
+	if err := m.mu.Lock(ctx); err != nil {
+		return Result{}, err
+	}
 	defer m.mu.Unlock()
 	return m.container(ctx, id, action)
 }
@@ -79,7 +89,9 @@ func (m *Manager) Project(ctx context.Context, id string, action Action) (Result
 	if !validAction(action) {
 		return Result{}, ErrInvalidAction
 	}
-	m.mu.Lock()
+	if err := m.mu.Lock(ctx); err != nil {
+		return Result{}, err
+	}
 	defer m.mu.Unlock()
 	if strings.HasPrefix(id, "container:") {
 		return m.container(ctx, strings.TrimPrefix(id, "container:"), action)
@@ -118,6 +130,7 @@ func (m *Manager) Project(ctx context.Context, id string, action Action) (Result
 		if err := m.apply(ctx, item.ID, action); err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", containerName(item), err))
+			result.Failures = append(result.Failures, Failure{Target: item.ID, Cause: err})
 		} else {
 			result.Succeeded++
 		}
@@ -126,6 +139,7 @@ func (m *Manager) Project(ctx context.Context, id string, action Action) (Result
 		if err := m.launchSelfRestart(ctx, selfID); err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, "NoX Yard: "+err.Error())
+			result.Failures = append(result.Failures, Failure{Target: selfID, Cause: err})
 		} else {
 			result.Queued++
 		}
@@ -175,6 +189,7 @@ func (m *Manager) container(ctx context.Context, id string, action Action) (Resu
 		if err := m.launchSelfRestart(ctx, id); err != nil {
 			result.Failed = 1
 			result.Errors = []string{err.Error()}
+			result.Failures = []Failure{{Target: id, Cause: err}}
 		} else {
 			result.Queued = 1
 		}
@@ -191,6 +206,7 @@ func (m *Manager) container(ctx context.Context, id string, action Action) (Resu
 	if err := m.apply(ctx, id, action); err != nil {
 		result.Failed = 1
 		result.Errors = []string{err.Error()}
+		result.Failures = []Failure{{Target: id, Cause: err}}
 	} else {
 		result.Succeeded = 1
 	}

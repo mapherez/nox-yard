@@ -56,14 +56,7 @@ func (s *Server) maintenanceOperation(w http.ResponseWriter, r *http.Request, co
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
-	var result lifecycle.MaintenanceResult
-	var err error
-	switch {
-	case container:
-		result, err = s.lifecycle.PullContainer(ctx, id)
-	default:
-		result, err = s.lifecycle.PullProject(ctx, id)
-	}
+	result, err := s.runPull(ctx, id, container)
 	switch {
 	case errors.Is(err, lifecycle.ErrNotFound):
 		writeError(w, http.StatusNotFound, "Target no longer exists. Refresh the project list.")

@@ -41,10 +41,19 @@ jobs:
   docker:
     name: Docker builds and ARM64 smoke test
     needs: validate
+    outputs:
+      build-version: ${{ steps.metadata.outputs.version }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Resolve application build version
+        id: metadata
+        run: |
+          version=$(sh scripts/build-version.sh "$GITHUB_SHA")
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
         with:
@@ -60,7 +69,9 @@ jobs:
           load: true
           push: false
           tags: nox-yard:ci-amd64
-          build-args: BUILD_SHA=${{ github.sha }}
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+            BUILD_VERSION=${{ steps.metadata.outputs.version }}
       - name: Build linux/arm64 image
         uses: docker/build-push-action@v7
         with:
@@ -69,7 +80,9 @@ jobs:
           load: true
           push: false
           tags: nox-yard:ci-arm64
-          build-args: BUILD_SHA=${{ github.sha }}
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+            BUILD_VERSION=${{ steps.metadata.outputs.version }}
       - name: Check ARM64 executable and runtime health
         run: sh scripts/smoke-arm64.sh nox-yard:ci-arm64
 
@@ -84,6 +97,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
         with:
@@ -103,7 +118,9 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: BUILD_SHA=${{ github.sha }}
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+            BUILD_VERSION=${{ needs.docker.outputs.build-version }}
           tags: |
             ghcr.io/mapherez/nox-yard:latest
             ghcr.io/mapherez/nox-yard:sha-${{ github.sha }}

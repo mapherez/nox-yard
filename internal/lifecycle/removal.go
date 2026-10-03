@@ -39,13 +39,17 @@ type RemovalReport struct {
 }
 
 func (m *Manager) PreviewRemoveContainer(ctx context.Context, id string) (RemovalPlan, error) {
-	m.mu.Lock()
+	if err := m.mu.Lock(ctx); err != nil {
+		return RemovalPlan{}, err
+	}
 	defer m.mu.Unlock()
 	return m.removalPlan(ctx, "container:"+id)
 }
 
 func (m *Manager) PreviewRemoveProject(ctx context.Context, id string) (RemovalPlan, error) {
-	m.mu.Lock()
+	if err := m.mu.Lock(ctx); err != nil {
+		return RemovalPlan{}, err
+	}
 	defer m.mu.Unlock()
 	return m.removalPlan(ctx, id)
 }
@@ -59,7 +63,9 @@ func (m *Manager) RemoveProject(ctx context.Context, id, fingerprint string) (Re
 }
 
 func (m *Manager) remove(ctx context.Context, id, fingerprint string) (RemovalReport, error) {
-	m.mu.Lock()
+	if err := m.mu.Lock(ctx); err != nil {
+		return RemovalReport{}, err
+	}
 	defer m.mu.Unlock()
 	plan, err := m.removalPlan(ctx, id)
 	if err != nil {

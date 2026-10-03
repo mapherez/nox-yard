@@ -16,6 +16,10 @@ Authentication state lives in `data/nox-yard.sqlite`. Keep `data/` persistent an
 
 The Go service serves the Vite production build and exposes `/healthz`, which checks SQLite access. The React UI has responsive setup/login screens, a compact dashboard sidebar, and sign-out. UI styles use the semantic tokens in `web/src/styles/tokens.css` and feature CSS Modules.
 
+## Machine Control API
+
+The opt-in [Control API v1](Control-API.md) exposes inventory, inspection, Engine lifecycle, and image pulls with independent Bearer authentication, stable DTOs/errors, and application version metadata. Health/info are public on the existing port. Browser sessions, streaming, terminal, managed Compose jobs, and `/healthz` remain independent. Generic managed-project operations require existing containers; machine deploy/editing and CLI onboarding are outside this initial scope.
+
 ## Docker inventory
 
 The dashboard header has **New Project** beside Refresh. It opens a right-side drawer for a public HTTPS URL, pasted YAML, or an uploaded YAML file. Source intake enforces a 1 MiB limit and public HTTPS destinations. The drawer collects interpolation variables and Compose `env_file` contents, then `POST /api/managed/preview` validates the Compose model and shows a confirmation modal with services, images, ports, mounts, networks, and changes. Builds and unresolved local file dependencies are rejected before deployment. Settings lets the administrator choose an existing base directory on the Docker host. Confirming writes the original Compose file to `BASE/PROJECT_NAME/compose.yml`, alongside supplied environment files, then pulls and deploys from that directory. Relative bind mounts keep their original meaning. The UI polls the persisted job status. New managed projects store source YAML, variables, source metadata, and their host directory in SQLite. The local development Compose stack runs Vite and the API as separate services, so frontend edits reload at `http://127.0.0.1:5173`.

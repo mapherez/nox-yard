@@ -20,7 +20,7 @@ The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go bu
 
 ## Backend boundaries
 
-- **API/auth:** same-origin HTTP endpoints, session and CSRF checks, input validation, and stream authorization. No browser request reaches the Docker socket directly.
+- **API/auth:** browser HTTP endpoints with session, Origin, and CSRF checks, plus an independent `/v1` machine boundary with Bearer authentication and stable DTOs/errors. Both use the existing server and shared operation helpers. No client request reaches the Docker socket directly.
 - **Inventory:** a read model built from all Docker containers, with Compose projects grouped by `com.docker.compose.project` and standalone containers represented individually. Docker events trigger refreshes; periodic reconciliation handles missed events. Stored metadata supplements the live inventory but never replaces runtime state.
 - **Docker adapter:** Engine API negotiation, inspect, stats, logs, exec, image pulls, and container lifecycle operations.
 - **Compose adapter:** validation and operations for projects whose source was created, imported, or voluntarily adopted in NoX Yard. The source YAML and interpolation variables are stored persistently.
@@ -42,6 +42,8 @@ NoX Yard appears in the normal inventory. Its restart or update runs through an 
 The implemented self-update flow, rollback snapshot, and operational preconditions are documented in [Self-Update](Self-Update.md).
 
 ## API and live data
+
+The stable [Control API v1](Control-API.md) provides machine inventory, inspection, lifecycle, and image pulls on the same port. Protected routes are opt-in through explicit configuration. Public health/info do not require Docker availability. `/healthz` retains its SQLite-only contract. Machine routes do not expose streaming, terminal, managed editing/deployment, or self-update mutations. Helpers in `internal/httpapi/operations.go` retain the same inventory overlay and lifecycle controller used by browser handlers; only adapters' auth, DTOs, and errors differ.
 
 - REST: bootstrap state, setup/login/logout, inventory and detail reads, import preview/commit/sync, actions, job status, and auto-update settings.
 - SSE: inventory/metrics invalidations through `/api/projects/events`, and live container logs. Managed job progress is read through its job endpoint.
@@ -73,7 +75,7 @@ Pull downloads images without replacing containers. Update uses the stored Compo
 
 ## Authentication and failure handling
 
-While no administrator exists, the first-run screen accepts a username and password. The database's single administrator row prevents two accounts from being created concurrently. After creation, only login is available. This intentionally leaves setup open until completed; initial access must be restricted to a trusted LAN/VPN. Passwords use Argon2id, sessions use opaque server-side tokens, and mutations require an exact Origin match; logout additionally requires a CSRF token. A local interactive command resets the administrator password and invalidates sessions. Future mutations must apply the same session and CSRF protections.
+While no administrator exists, the first-run screen accepts a username and password. The database's single administrator row prevents two accounts from being created concurrently. After creation, only login is available. This intentionally leaves setup open until completed; initial access must be restricted to a trusted LAN/VPN. Passwords use Argon2id, sessions use opaque server-side tokens, and browser mutations require an exact Origin match; logout additionally requires a CSRF token. A local interactive command resets the administrator password and invalidates sessions. Future browser mutations must apply the same session, Origin, and CSRF protections. Machine mutations authenticate exclusively by Bearer and do not accept session cookies.
 
 If Docker is unavailable, show the inventory as unavailable instead of stale success. Jobs must report partial failure, preserve enough state to retry or roll back, and never claim an update succeeded solely because the web request returned. SQLite and managed source files require persistent storage across restarts.
 

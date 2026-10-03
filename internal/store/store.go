@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -235,8 +236,9 @@ func migrate(db *sql.DB) error {
 	return tx.Commit()
 }
 
-func (s *Store) Close() error { return s.db.Close() }
-func (s *Store) Ping() error  { return s.db.Ping() }
+func (s *Store) Close() error                          { return s.db.Close() }
+func (s *Store) Ping() error                           { return s.db.Ping() }
+func (s *Store) PingContext(ctx context.Context) error { return s.db.PingContext(ctx) }
 
 func (s *Store) HasAdmin() (bool, error) {
 	var exists bool

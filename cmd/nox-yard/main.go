@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -24,6 +25,7 @@ import (
 )
 
 var buildSHA = ""
+var buildVersion = ""
 
 func main() {
 	if err := run(); err != nil {
@@ -55,8 +57,15 @@ func run() error {
 		return fmt.Errorf("unknown command: %s", strings.Join(os.Args[1:], " "))
 	}
 
+	control, err := controlConfiguration(os.Getenv)
+	if err != nil {
+		return err
+	}
 	api, err := httpapi.New(data, environment("NOX_WEB_DIR", "./web/dist"), os.Getenv("NOX_PUBLIC_URL"))
 	if err != nil {
+		return err
+	}
+	if err := api.ConfigureControlAPI(control); err != nil {
 		return err
 	}
 	dockerInventory, err := inventory.NewDockerReader()
@@ -141,4 +150,26 @@ func environment(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func resolvedVersion(runtime, built string) string {
+	if version := strings.TrimSpace(runtime); version != "" {
+		return version
+	}
+	if version := strings.TrimSpace(built); version != "" {
+		return version
+	}
+	return "dev"
+}
+
+func controlConfiguration(getenv func(string) string) (httpapi.ControlConfig, error) {
+	config := httpapi.ControlConfig{Key: getenv("NOX_YARD_API_KEY"), Version: resolvedVersion(getenv("NOX_YARD_VERSION"), buildVersion)}
+	if value := getenv("NOX_YARD_API_ENABLED"); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return httpapi.ControlConfig{}, errors.New("NOX_YARD_API_ENABLED must be a boolean")
+		}
+		config.Enabled = enabled
+	}
+	return config, nil
 }

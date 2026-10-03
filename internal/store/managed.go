@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"time"
@@ -28,7 +29,11 @@ type ManagedJob struct {
 }
 
 func (s *Store) ManagedProjects() ([]ManagedProject, error) {
-	rows, err := s.db.Query(`SELECT name, source_kind, source_url, filename, yaml, variables_json, env_files_json, project_dir FROM managed_projects ORDER BY name`)
+	return s.ManagedProjectsContext(context.Background())
+}
+
+func (s *Store) ManagedProjectsContext(ctx context.Context) ([]ManagedProject, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT name, source_kind, source_url, filename, yaml, variables_json, env_files_json, project_dir FROM managed_projects ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
