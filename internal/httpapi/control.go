@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode"
 
+	"github.com/mapherez/nox-yard/internal/application"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 )
@@ -61,7 +61,7 @@ func (s *Server) controlHealth(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	result := controlHealth{Service: "nox-yard", Version: s.controlVersion(), APIVersion: "v1", Ready: true, Storage: controlAvailability{Available: true}}
 	status := http.StatusOK
-	if err := s.store.PingContext(ctx); err != nil {
+	if err := s.application.Health(ctx); err != nil {
 		status = http.StatusServiceUnavailable
 		result.Ready, result.Storage.Available = false, false
 		result.Code, result.Message = "STORAGE_UNAVAILABLE", "Storage is unavailable."
@@ -76,28 +76,10 @@ func (s *Server) controlInfo(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) controlStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	snapshot, err := s.readProjects(ctx)
-	result := controlStatus{Service: "nox-yard", Version: s.controlVersion(), APIVersion: "v1"}
+	result, err := s.application.Status(ctx, s.controlVersion())
 	if err != nil {
-		var read inventoryReadError
-		status, problem := classifyControlError(err, false)
-		if !errors.As(err, &read) || (status != 502 && status != 503 && status != 504) || errors.Is(err, context.Canceled) {
-			writeJSON(w, status, problem)
-			return
-		}
-		result.Docker.Error = &problem
-	} else {
-		result.Docker.Available = true
-		counts := controlCounts{CollectedAt: snapshot.CollectedAt.UTC(), Projects: len(snapshot.Projects)}
-		for _, project := range snapshot.Projects {
-			counts.Containers += len(project.Containers)
-			for _, container := range project.Containers {
-				if container.State == "running" {
-					counts.RunningContainers++
-				}
-			}
-		}
-		result.Inventory = &counts
+		writeControlCause(w, err)
+		return
 	}
 	writeJSON(w, 200, result)
 }
@@ -112,14 +94,7 @@ func (s *Server) controlProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func validControlTarget(id string, container bool) bool {
-	if container {
-		return containerIDPattern.MatchString(id)
-	}
-	if suffix, ok := strings.CutPrefix(id, "container:"); ok {
-		return containerIDPattern.MatchString(suffix)
-	}
-	name, ok := strings.CutPrefix(id, "compose:")
-	return ok && name != "" && !strings.ContainsAny(name, "/\\") && !strings.ContainsFunc(name, unicode.IsControl)
+	return application.ValidTarget(id, container)
 }
 
 func checkControlTarget(w http.ResponseWriter, r *http.Request, container bool) bool {
@@ -134,11 +109,11 @@ func (s *Server) controlInspection(w http.ResponseWriter, r *http.Request) {
 	if !checkControlTarget(w, r, true) {
 		return
 	}
-	if s.inventory == nil {
+	if s.application.Inventory == nil {
 		writeControlCause(w, errDockerUnavailable)
 		return
 	}
-	detail, err := s.inventory.InspectContainer(r.Context(), r.PathValue("id"), false)
+	detail, err := s.application.Inspect(r.Context(), r.PathValue("id"), false)
 	if err != nil {
 		writeControlCause(w, err)
 		return

@@ -12,21 +12,19 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSession(w, r, false) {
 		return
 	}
-	reader, ok := s.inventory.(interface {
-		CachedMetrics() map[string]inventory.Metrics
-	})
-	if !ok {
+	metrics, err := s.application.Metrics(r.Context())
+	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "Docker metrics are unavailable.")
 		return
 	}
-	writeJSON(w, http.StatusOK, reader.CachedMetrics())
+	writeJSON(w, http.StatusOK, metrics)
 }
 
 func (s *Server) projectEvents(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSession(w, r, false) {
 		return
 	}
-	if s.inventory == nil {
+	if s.application.Inventory == nil {
 		writeError(w, http.StatusServiceUnavailable, "Docker inventory is unavailable.")
 		return
 	}

@@ -8,11 +8,11 @@ func (s *Server) managedSettingsGet(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSession(w, r, false) {
 		return
 	}
-	if s.managed == nil {
+	if s.application.Managed == nil {
 		writeError(w, http.StatusServiceUnavailable, "Managed projects are unavailable.")
 		return
 	}
-	base, err := s.managed.ProjectsBase()
+	base, err := s.application.ProjectsBase(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Unable to read projects directory.")
 		return
@@ -26,7 +26,7 @@ func (s *Server) managedSettingsPut(w http.ResponseWriter, r *http.Request) {
 	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
 		return
 	}
-	if s.managed == nil {
+	if s.application.Managed == nil {
 		writeError(w, http.StatusServiceUnavailable, "Managed projects are unavailable.")
 		return
 	}
@@ -36,7 +36,7 @@ func (s *Server) managedSettingsPut(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	base, err := s.managed.SetProjectsBase(r.Context(), input.ProjectsBase)
+	base, err := s.application.SetProjectsBase(r.Context(), input.ProjectsBase)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

@@ -29,6 +29,10 @@ Open `http://<host>:8095` and create the administrator account. The default host
 
 The Compose file mounts `/var/run/docker.sock` so NoX Yard can discover local projects. Access to this socket effectively grants control of the Docker host; keep the app limited to a trusted LAN or VPN and protect the administrator account. Only a passing `master` CI run publishes or replaces the `latest` image.
 
+## MCP connection
+
+Connect an HTTP MCP client on the private homelab LAN to `http://<host>:8095/mcp`, without credentials. The always-on embedded endpoint shares the existing process and port. Its tools reuse Yard operations; browser login and the Bearer Control API remain independent. See [MCP documentation](Documentation/Developer/MCP.md) for tools, timeouts, explicit environment reads and self-update behavior.
+
 ## Local development
 
 To use Vite with live containers from Docker Desktop, start Docker Desktop in Linux container mode, then run from the repository root:

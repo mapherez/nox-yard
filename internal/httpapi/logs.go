@@ -7,19 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
-	"github.com/moby/moby/api/pkg/stdcopy"
 )
 
-const maxLogLineBytes = 16 * 1024
-
-type logLine struct {
-	Stream string `json:"stream"`
-	Text   string `json:"text"`
-}
+type logLine = inventory.LogLine
 
 func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSession(w, r, false) {
@@ -30,13 +23,13 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid container ID.")
 		return
 	}
-	if s.logs == nil {
+	if s.application.Logs == nil {
 		writeError(w, http.StatusServiceUnavailable, "Docker logs are unavailable.")
 		return
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	stream, err := s.logs.OpenLogs(ctx, id)
+	stream, err := s.application.OpenLogs(ctx, id)
 	if errors.Is(err, inventory.ErrContainerNotFound) {
 		writeError(w, http.StatusNotFound, "Container no longer exists. Refresh the project list.")
 		return
@@ -62,16 +55,14 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 	lines := make(chan logLine, 64)
 	completed := make(chan error, 1)
 	go func() {
-		stdout := &logLineWriter{ctx: ctx, stream: "stdout", lines: lines}
-		stderr := &logLineWriter{ctx: ctx, stream: "stderr", lines: lines}
-		var readErr error
-		if stream.TTY {
-			_, readErr = io.Copy(stdout, stream.Reader)
-		} else {
-			_, readErr = stdcopy.StdCopy(stdout, stderr, stream.Reader)
-		}
-		_ = stdout.Flush()
-		_ = stderr.Flush()
+		readErr := inventory.DecodeLogs(ctx, stream, func(line inventory.LogLine) error {
+			select {
+			case lines <- line:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
 		close(lines)
 		completed <- readErr
 	}()
@@ -115,43 +106,4 @@ func writeLogEvent(w io.Writer, controller *http.ResponseController, name string
 		return err
 	}
 	return controller.Flush()
-}
-
-type logLineWriter struct {
-	ctx    context.Context
-	stream string
-	lines  chan<- logLine
-	buffer []byte
-}
-
-func (w *logLineWriter) Write(p []byte) (int, error) {
-	for i, char := range p {
-		if char == '\n' {
-			if err := w.Flush(); err != nil {
-				return i, err
-			}
-			continue
-		}
-		w.buffer = append(w.buffer, char)
-		if len(w.buffer) >= maxLogLineBytes {
-			if err := w.Flush(); err != nil {
-				return i + 1, err
-			}
-		}
-	}
-	return len(p), nil
-}
-
-func (w *logLineWriter) Flush() error {
-	if len(w.buffer) == 0 {
-		return nil
-	}
-	line := logLine{Stream: w.stream, Text: strings.TrimSuffix(string(w.buffer), "\r")}
-	w.buffer = w.buffer[:0]
-	select {
-	case w.lines <- line:
-		return nil
-	case <-w.ctx.Done():
-		return w.ctx.Err()
-	}
 }

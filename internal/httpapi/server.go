@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mapherez/nox-yard/internal/application"
 	"github.com/mapherez/nox-yard/internal/auth"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
@@ -33,17 +34,14 @@ var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{3,32}$`)
 var containerIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type Server struct {
+	application  *application.Service
+	mcp          http.Handler
 	store        *store.Store
 	webDir       string
 	publicOrigin string
 	secureCookie bool
 	limiter      loginLimiter
-	inventory    inventory.Reader
-	logs         inventory.LogReader
 	terminal     inventory.TerminalManager
-	lifecycle    lifecycle.Controller
-	managed      *managed.Manager
-	updates      *selfupdate.Manager
 	changes      *inventory.Notifier
 	control      controlSettings
 }
@@ -64,8 +62,14 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func New(data *store.Store, webDir, publicURL string) (*Server, error) {
-	s := &Server{store: data, webDir: webDir, limiter: loginLimiter{entries: make(map[string]loginAttempt)}, changes: inventory.NewNotifier()}
+func New(data *store.Store, webDir, publicURL string, shared ...*application.Service) (*Server, error) {
+	var app *application.Service
+	if len(shared) > 0 {
+		app = shared[0]
+	} else {
+		app = application.New(data, inventory.NewNotifier())
+	}
+	s := &Server{store: data, webDir: webDir, limiter: loginLimiter{entries: make(map[string]loginAttempt)}, changes: app.Changes, application: app}
 	if publicURL == "" {
 		return s, nil
 	}
@@ -79,11 +83,11 @@ func New(data *store.Store, webDir, publicURL string) (*Server, error) {
 }
 
 func (s *Server) SetInventory(reader inventory.Reader) {
-	s.inventory = reader
+	s.application.Inventory = reader
 }
 
 func (s *Server) SetLogs(reader inventory.LogReader) {
-	s.logs = reader
+	s.application.Logs = reader
 }
 
 func (s *Server) SetTerminal(manager inventory.TerminalManager) {
@@ -91,20 +95,30 @@ func (s *Server) SetTerminal(manager inventory.TerminalManager) {
 }
 
 func (s *Server) SetLifecycle(controller lifecycle.Controller) {
-	s.lifecycle = controller
+	s.application.Lifecycle = controller
 }
 
 func (s *Server) SetManaged(manager *managed.Manager) {
-	s.managed = manager
+	if manager == nil {
+		s.application.Managed = nil
+		return
+	}
+	s.application.Managed = manager
 	manager.SetNotifier(s.changes)
 }
 
 func (s *Server) Notify(change inventory.Change) { s.changes.Notify(change) }
 
 func (s *Server) SetSelfUpdate(manager *selfupdate.Manager) {
-	s.updates = manager
+	if manager == nil {
+		s.application.Updates = nil
+		return
+	}
+	s.application.Updates = manager
 }
 
+// SetMCPHandler installs the always-on MCP adapter before serving requests.
+func (s *Server) SetMCPHandler(handler http.Handler) { s.mcp = handler }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
@@ -140,6 +154,22 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /", s.staticHandler())
 	control := s.controlHandler()
 	return s.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/") {
+			if r.URL.Path != "/mcp" {
+				writeError(w, 404, "Not found.")
+				return
+			}
+			if origin := r.Header.Get("Origin"); origin != "" && !s.checkOrigin(w, r) {
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			if s.mcp == nil {
+				writeError(w, 503, "MCP is unavailable.")
+				return
+			}
+			s.mcp.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/") {
 			control.ServeHTTP(w, r)
 			return
@@ -152,11 +182,11 @@ func (s *Server) selfUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSession(w, r, false) {
 		return
 	}
-	if s.updates == nil {
+	if s.application.Updates == nil {
 		writeError(w, http.StatusServiceUnavailable, "Self-update is unavailable.")
 		return
 	}
-	status, err := s.updates.Status()
+	status, err := s.application.UpdateStatus(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Unable to read self-update status.")
 		return
@@ -168,7 +198,7 @@ func (s *Server) selfUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
 		return
 	}
-	if s.updates == nil {
+	if s.application.Updates == nil {
 		writeError(w, http.StatusServiceUnavailable, "Self-update is unavailable.")
 		return
 	}
@@ -183,19 +213,20 @@ func (s *Server) selfUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Automatic and intervalMinutes are required.")
 		return
 	}
-	if err := s.updates.SetSettings(*input.Automatic, *input.IntervalMinutes); errors.Is(err, selfupdate.ErrUpdateInProgress) {
-		writeError(w, http.StatusConflict, "Wait for the current update to finish.")
+	status, err := s.application.SetUpdateSettings(r.Context(), *input.Automatic, *input.IntervalMinutes)
+	var read application.UpdateStatusError
+	switch {
+	case errors.As(err, &read):
+		writeError(w, 500, "Unable to read self-update status.")
 		return
-	} else if errors.Is(err, selfupdate.ErrInvalidInterval) {
-		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, selfupdate.ErrUpdateInProgress):
+		writeError(w, 409, "Wait for the current update to finish.")
 		return
-	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to save automatic update setting.")
+	case errors.Is(err, selfupdate.ErrInvalidInterval):
+		writeError(w, 400, err.Error())
 		return
-	}
-	status, err := s.updates.Status()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to read self-update status.")
+	case err != nil:
+		writeError(w, 500, "Unable to save automatic update setting.")
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
@@ -205,20 +236,21 @@ func (s *Server) selfUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
 		return
 	}
-	if s.updates == nil {
+	if s.application.Updates == nil {
 		writeError(w, http.StatusServiceUnavailable, "Self-update is unavailable.")
 		return
 	}
-	if err := s.updates.CheckNow(); errors.Is(err, selfupdate.ErrUpdateInProgress) || errors.Is(err, selfupdate.ErrCheckInProgress) {
-		writeError(w, http.StatusConflict, "An update check or installation is already in progress.")
+	status, err := s.application.CheckAndUpdate(r.Context())
+	var read application.UpdateStatusError
+	switch {
+	case errors.As(err, &read):
+		writeError(w, 500, "Unable to read self-update status.")
 		return
-	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to start update check.")
+	case errors.Is(err, selfupdate.ErrUpdateInProgress) || errors.Is(err, selfupdate.ErrCheckInProgress):
+		writeError(w, 409, "An update check or installation is already in progress.")
 		return
-	}
-	status, err := s.updates.Status()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to read self-update status.")
+	case err != nil:
+		writeError(w, 500, "Unable to start update check.")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, status)
@@ -252,7 +284,7 @@ func (s *Server) projects(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	if s.inventory == nil {
+	if s.application.Inventory == nil {
 		writeError(w, http.StatusServiceUnavailable, "Docker inventory is unavailable.")
 		return
 	}
@@ -285,21 +317,12 @@ func (s *Server) managedSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid source request.")
 		return
 	}
-	source, err := managed.LoadSource(r.Context(), input)
+	prepared, err := s.application.PrepareSource(r.Context(), input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	info, err := managed.InspectSource(source.YAML)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, struct {
-		managed.Source
-		Variables []managed.Variable `json:"variables"`
-		managed.SourceInfo
-	}{source, managed.Variables(source.YAML), info})
+	writeJSON(w, http.StatusOK, prepared)
 }
 
 func (s *Server) containerInspection(w http.ResponseWriter, r *http.Request) {
@@ -347,7 +370,7 @@ func (s *Server) lifecycleAction(w http.ResponseWriter, r *http.Request, contain
 		writeError(w, http.StatusBadRequest, "Action must be start, stop, or restart.")
 		return
 	}
-	if s.lifecycle == nil {
+	if s.application.Lifecycle == nil {
 		writeError(w, http.StatusServiceUnavailable, "Docker management is unavailable.")
 		return
 	}
@@ -372,11 +395,11 @@ func (s *Server) writeContainerInspection(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "Invalid container ID.")
 		return
 	}
-	if s.inventory == nil {
+	if s.application.Inventory == nil {
 		writeError(w, http.StatusServiceUnavailable, "Docker inventory is unavailable.")
 		return
 	}
-	inspection, err := s.inventory.InspectContainer(r.Context(), id, revealEnvironment)
+	inspection, err := s.application.Inspect(r.Context(), id, revealEnvironment)
 	if errors.Is(err, inventory.ErrContainerNotFound) {
 		writeError(w, http.StatusNotFound, "Container no longer exists. Refresh the project list.")
 		return

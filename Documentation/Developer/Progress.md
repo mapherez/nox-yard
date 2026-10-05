@@ -1,8 +1,10 @@
 # Current checkpoint
 
-**Updated:** 2026-09-29
+**Updated:** 2026-10-05
 
 **Phase:** 3 — Managed Compose projects (implementation, host checkpoint pending)
+
+The embedded MCP endpoint is implemented on the existing port at `/mcp`, with 25 tools and a 60-second runtime timeout. Browser and Control API operations use the same lightweight application facade and manager instances; pending states and SSE share one notifier. Existing authentication, server deadlines, UI and SQLite schema remain unchanged. Go unit/integration tests cover anonymous MCP, schemas/annotations, adapter compatibility, cancellation, timeout, pending states and asynchronous job lifetimes. Local checks passed: formatting, vet, Go tests, frontend typecheck/build and Compose configuration. Linux amd64/arm64 images built successfully; isolated Docker tests passed real MCP operations, SSE, Compose jobs/removal, fingerprint protection, Yard self-restart with persisted session/settings, and ARM64 health/discovery under emulation. See [Embedded MCP](MCP.md) for the catalog, connection and dependency-update instructions. Deployment validation on the Pi remains a separate checkpoint.
 
 Docker inventory now uses only `ContainerList` plus grouping and cached data. Stats run independently in the background; container inspection and shell probing are lazy. Docker events reach React through authenticated SSE, with pending action states, immediate action reconciliation, 15-second disconnected fallback, and slower 60-second connected reconciliation. Architecture and feature notes describe cache expiry, reconnect behavior, and the uptime limitation for containers already running at backend startup.
 

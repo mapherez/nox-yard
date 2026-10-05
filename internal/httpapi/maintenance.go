@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mapherez/nox-yard/internal/application"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 )
 
@@ -47,7 +48,7 @@ func (s *Server) maintenanceOperation(w http.ResponseWriter, r *http.Request, co
 		writeError(w, http.StatusBadRequest, "Invalid project ID.")
 		return
 	}
-	if s.lifecycle == nil {
+	if s.application.Lifecycle == nil {
 		writeError(w, http.StatusServiceUnavailable, "Docker management is unavailable.")
 		return
 	}
@@ -82,7 +83,7 @@ func (s *Server) removeOperation(w http.ResponseWriter, r *http.Request, isConta
 		writeError(w, http.StatusBadRequest, "Invalid target ID.")
 		return
 	}
-	if s.lifecycle == nil {
+	if s.application.Lifecycle == nil {
 		writeError(w, http.StatusServiceUnavailable, "Docker management is unavailable.")
 		return
 	}
@@ -94,32 +95,20 @@ func (s *Server) removeOperation(w http.ResponseWriter, r *http.Request, isConta
 		if !decodeJSON(w, r, &input) {
 			return
 		}
-		if !input.Confirm || len(input.Fingerprint) != 64 {
+		if !application.ValidRemoval(input.Confirm, input.Fingerprint) {
 			writeError(w, http.StatusBadRequest, "Review and confirm a current removal preview first.")
 			return
 		}
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
-		target := id
-		if isContainer {
-			target = "container:" + id
-		}
-		finish := s.changes.Begin(target, "remove")
-		defer finish()
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
 	var result any
 	var err error
 	if preview {
-		if isContainer {
-			result, err = s.lifecycle.PreviewRemoveContainer(ctx, id)
-		} else {
-			result, err = s.lifecycle.PreviewRemoveProject(ctx, id)
-		}
-	} else if isContainer {
-		result, err = s.lifecycle.RemoveContainer(ctx, id, input.Fingerprint)
+		result, err = s.application.PreviewRemove(ctx, id, isContainer)
 	} else {
-		result, err = s.lifecycle.RemoveProject(ctx, id, input.Fingerprint)
+		result, err = s.application.Remove(ctx, id, isContainer, input.Confirm, input.Fingerprint)
 	}
 	switch {
 	case errors.Is(err, lifecycle.ErrNotFound):

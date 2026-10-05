@@ -14,11 +14,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mapherez/nox-yard/internal/application"
 	"github.com/mapherez/nox-yard/internal/auth"
 	"github.com/mapherez/nox-yard/internal/httpapi"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/managed"
+	"github.com/mapherez/nox-yard/internal/mcpapi"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"golang.org/x/term"
@@ -61,7 +63,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	api, err := httpapi.New(data, environment("NOX_WEB_DIR", "./web/dist"), os.Getenv("NOX_PUBLIC_URL"))
+	changes := inventory.NewNotifier()
+	app := application.New(data, changes)
+	api, err := httpapi.New(data, environment("NOX_WEB_DIR", "./web/dist"), os.Getenv("NOX_PUBLIC_URL"), app)
 	if err != nil {
 		return err
 	}
@@ -91,7 +95,12 @@ func run() error {
 	api.SetSelfUpdate(updates)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	dockerInventory.Start(ctx, api.Notify)
+	dockerInventory.Start(ctx, changes.Notify)
+	mcpRuntime, err := mcpapi.New(app, control.Version)
+	if err != nil {
+		return err
+	}
+	api.SetMCPHandler(mcpRuntime.HTTPHandler())
 	server := &http.Server{
 		Addr:              environment("NOX_LISTEN_ADDR", ":8080"),
 		Handler:           api.Handler(),

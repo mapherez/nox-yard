@@ -28,7 +28,7 @@ func (s *Server) managedPreview(w http.ResponseWriter, r *http.Request) {
 	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
 		return
 	}
-	if s.managed == nil {
+	if s.application.Managed == nil {
 		writeError(w, http.StatusServiceUnavailable, "Managed projects are unavailable.")
 		return
 	}
@@ -36,7 +36,7 @@ func (s *Server) managedPreview(w http.ResponseWriter, r *http.Request) {
 	if !decodeManaged(w, r, &input) {
 		return
 	}
-	preview, _, err := s.managed.Preview(r.Context(), input)
+	preview, err := s.application.ComposePreview(r.Context(), input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -48,7 +48,7 @@ func (s *Server) managedDeploy(w http.ResponseWriter, r *http.Request) {
 	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
 		return
 	}
-	if s.managed == nil {
+	if s.application.Managed == nil {
 		writeError(w, http.StatusServiceUnavailable, "Managed projects are unavailable.")
 		return
 	}
@@ -56,7 +56,7 @@ func (s *Server) managedDeploy(w http.ResponseWriter, r *http.Request) {
 	if !decodeManaged(w, r, &input) {
 		return
 	}
-	job, err := s.managed.Submit(r.Context(), input)
+	job, err := s.application.ComposeSubmit(r.Context(), input)
 	if errors.Is(err, managed.ErrConflict) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -72,11 +72,11 @@ func (s *Server) managedJob(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSession(w, r, false) {
 		return
 	}
-	if s.managed == nil {
+	if s.application.Managed == nil {
 		writeError(w, http.StatusServiceUnavailable, "Managed projects are unavailable.")
 		return
 	}
-	job, found, err := s.managed.Job(r.PathValue("id"))
+	job, found, err := s.application.ComposeJob(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Unable to read operation status.")
 		return
@@ -92,7 +92,7 @@ func (s *Server) managedOperation(w http.ResponseWriter, r *http.Request) {
 	if !s.checkOrigin(w, r) || !s.requireSession(w, r, true) {
 		return
 	}
-	if s.managed == nil {
+	if s.application.Managed == nil {
 		writeError(w, http.StatusServiceUnavailable, "Managed projects are unavailable.")
 		return
 	}
@@ -103,7 +103,7 @@ func (s *Server) managedOperation(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	job, err := s.managed.Operation(r.PathValue("name"), input.Operation, input.RemoveVolumes)
+	job, err := s.application.ComposeOperation(r.Context(), r.PathValue("name"), input.Operation, input.RemoveVolumes)
 	if errors.Is(err, managed.ErrConflict) {
 		writeError(w, http.StatusConflict, err.Error())
 		return

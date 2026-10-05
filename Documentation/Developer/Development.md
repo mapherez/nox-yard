@@ -98,3 +98,7 @@ For a local run, stop the server and run `go run ./cmd/nox-yard reset-admin-pass
 4. Update [Features](Features.md) when product behavior changes. Update the single [checkpoint](Progress.md) when a phase milestone or its remaining work changes.
 
 Do not mark a phase complete based on scaffolding or a successful build alone. Use the acceptance checkpoint in [Implementation Plan](Implementation-Plan.md).
+
+## Updating NoX MCP
+
+The embedded MCP adapter consumes the latest available NoX MCP through normal Go module resolution. Update with `go get github.com/mapherez/nox-mcp@latest`, then `go mod tidy`, and commit the generated `go.mod`/`go.sum` changes. Run the repository checks, MCP integration tests and both architecture builds. Do not manage dependency SHAs manually or use a local checkout replacement. See [MCP](MCP.md) for the transport and shared-facade contracts.

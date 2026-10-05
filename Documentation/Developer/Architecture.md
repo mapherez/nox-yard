@@ -20,7 +20,8 @@ The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go bu
 
 ## Backend boundaries
 
-- **API/auth:** browser HTTP endpoints with session, Origin, and CSRF checks, plus an independent `/v1` machine boundary with Bearer authentication and stable DTOs/errors. Both use the existing server and shared operation helpers. No client request reaches the Docker socket directly.
+- **Application facade:** shared transport-independent orchestration over the existing managers. A single inventory notifier connects HTTP/MCP operations, pending states and browser SSE. Adapter contexts are propagated without facade deadlines; existing asynchronous jobs retain their own lifetimes.
+- **API/auth:** browser HTTP endpoints with session, Origin, and CSRF checks, plus an independent `/v1` machine boundary with Bearer authentication and stable DTOs/errors. An always-on unauthenticated LAN `/mcp` adapter shares that server/port. All management adapters use the application facade and existing managers. No client request reaches the Docker socket directly.
 - **Inventory:** a read model built from all Docker containers, with Compose projects grouped by `com.docker.compose.project` and standalone containers represented individually. Docker events trigger refreshes; periodic reconciliation handles missed events. Stored metadata supplements the live inventory but never replaces runtime state.
 - **Docker adapter:** Engine API negotiation, inspect, stats, logs, exec, image pulls, and container lifecycle operations.
 - **Compose adapter:** validation and operations for projects whose source was created, imported, or voluntarily adopted in NoX Yard. The source YAML and interpolation variables are stored persistently.
@@ -43,7 +44,9 @@ The implemented self-update flow, rollback snapshot, and operational preconditio
 
 ## API and live data
 
-The stable [Control API v1](Control-API.md) provides machine inventory, inspection, lifecycle, and image pulls on the same port. Protected routes are opt-in through explicit configuration. Public health/info do not require Docker availability. `/healthz` retains its SQLite-only contract. Machine routes do not expose streaming, terminal, managed editing/deployment, or self-update mutations. Helpers in `internal/httpapi/operations.go` retain the same inventory overlay and lifecycle controller used by browser handlers; only adapters' auth, DTOs, and errors differ.
+The [embedded MCP endpoint](MCP.md) exposes discrete inventory, lifecycle, Compose, removal, settings and self-update operations plus finite log snapshots on `/mcp`. It uses the NoX MCP Go library with a 60-second global runtime timeout. Interactive terminal and continuous browser streams keep their existing interfaces.
+
+The stable [Control API v1](Control-API.md) provides machine inventory, inspection, lifecycle, and image pulls on the same port. Protected routes are opt-in through explicit configuration. Public health/info do not require Docker availability. `/healthz` retains its SQLite-only contract. Machine routes do not expose streaming, terminal, managed editing/deployment, or self-update mutations. The `internal/application` facade retains the inventory overlay and operation orchestration used by all management adapters; their authentication, DTOs and error presentation remain independent.
 
 - REST: bootstrap state, setup/login/logout, inventory and detail reads, import preview/commit/sync, actions, job status, and auto-update settings.
 - SSE: inventory/metrics invalidations through `/api/projects/events`, and live container logs. Managed job progress is read through its job endpoint.
