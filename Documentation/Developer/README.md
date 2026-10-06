@@ -11,6 +11,7 @@ This directory is the **canonical technical documentation** for NoX Yard. The ro
 | [Design System](Design-System.md) | UI structure, style tokens, component rules, and responsive behavior. |
 | [Decisions](Decisions.md) | Decisions that constrain later work and their reasons. |
 | [Development Guide](Development.md) | Repository conventions, workflow, and maintenance instructions. |
+| [Releases](Releases.md) | One-command formal releases, stable/prerelease channels, and recovery. |
 | [Progress](Progress.md) | Single current phase checkpoint and remaining work. |
 | [Features](Features.md) | Notes on implemented features and their operational behavior. |
 

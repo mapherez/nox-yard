@@ -2,6 +2,8 @@
 
 ## Scope and data flow
 
+The `latest` channel is published only by formal stable [releases](Releases.md). Prereleases publish their own version tag without changing `latest`, so they are not automatic self-update targets. Normal pushes to `master` do not change the channel.
+
 Self-update is off by default. When enabled, the service checks `ghcr.io/mapherez/nox-yard:latest` immediately and then on the saved interval. The default is 15 minutes; Settings offers 5, 15, 30, 60, and 360 minutes. The scheduler wakes every minute, so a scheduled check can run up to about one minute after the selected interval. Saving an enabled setting triggers an immediate check. The Settings drawer also offers **Check now**, which checks and installs an available image immediately even when automatic updates are off. It requests the public GHCR OCI index and the manifest for the running Linux architecture. The manifest's config digest is the Docker image ID. If that ID matches the running container, no image is pulled or container changed.
 
 When the IDs differ, the service persists an `updating` job in SQLite, pulls `latest` through the Docker Engine API, and verifies the pulled image ID against the manifest. It then creates a temporary worker container from the **exact current image ID**. The worker has only the persistent `/data` mount and Docker socket; it has no published ports or network. Docker automatically removes the worker when it exits.

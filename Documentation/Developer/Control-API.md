@@ -166,7 +166,7 @@ Existing protections apply: Yard stop/pull and protected maintenance workers are
 
 Resolve once at HTTP startup: nonempty trimmed `NOX_YARD_VERSION`, then incorporated `buildVersion`, then `dev`. `buildSHA` remains independent for self-update.
 
-The Dockerfile accepts `BUILD_VERSION` and `BUILD_SHA` separately. CI uses `scripts/build-version.sh` for the exact compiled commit: an exact lightweight/annotated tag, otherwise `git-<full SHA>`. Multiple tags use the first in C-locale lexical order. An ancestor tag is never used. Publication reuses the verified build's version output. Image tags such as `latest` or `sha-*` do not define the application version. Existing publication triggers, gates, architectures, and image tags remain unchanged.
+The Dockerfile accepts `BUILD_VERSION` and `BUILD_SHA` separately. Normal CI uses `scripts/build-version.sh` for the exact compiled commit: an exact lightweight/annotated tag, otherwise `git-<full SHA>`. Multiple tags use the first in C-locale lexical order. An ancestor tag is never used. Formal [releases](Releases.md) pass the validated release tag directly as `BUILD_VERSION` and the full release commit SHA as `BUILD_SHA`. The `latest` image tag does not define the application version; it follows stable releases only.
 
 ## Examples
 

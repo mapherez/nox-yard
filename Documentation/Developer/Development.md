@@ -19,8 +19,10 @@
 - `scripts/check.sh`, `scripts/test.sh`, `scripts/ci-local.sh`: shared local and CI validation.
 - `scripts/install-hooks.sh`: installs the local pre-push hook in a clone.
 - `scripts/smoke-arm64.sh`: CI-only ARM64 executable and runtime health validation.
-- `scripts/build-version.sh`: exact-commit Git tag/full-SHA version metadata for verified and published builds.
-- `.github/workflows/ci.yml`: source checks, Docker builds, ARM64 smoke test, and gated GHCR publication.
+- `scripts/build-version.sh`: exact-commit Git tag/full-SHA version metadata for normal builds.
+- `VERSION`, `scripts/release*.mjs`: formal release version, command, shared validation, metadata, and tests.
+- `.github/workflows/ci.yml`: source checks, Docker builds, and ARM64 smoke test, without publication.
+- `.github/workflows/release.yml`: tagged-source validation, multi-architecture GHCR publication, and GitHub Releases.
 - `Documentation/Developer/`: canonical architecture, implementation, style, decision, progress, and feature documentation.
 
 Keep Go packages and frontend modules small and named for their responsibilities. Prefer typed application models at HTTP boundaries. Do not send Docker SDK structs, credentials, or host-only details to the browser unless a user decision requires them.
@@ -68,11 +70,13 @@ The same checks can be run at any time with `sh scripts/ci-local.sh`. Each check
 
 Pull requests into `master` run the shared source checks, explicit `linux/amd64` and `linux/arm64` Docker builds, and an ARM64 runtime smoke test. They do not publish images or change the host. QEMU runs the ARM64 container on the GitHub runner. The smoke script checks the executable's ELF architecture, then starts the image and requires `/healthz` to return `{"status":"ok"}`. It removes the test container on exit.
 
-Pushes to `master` run the same gates. Only after all pass does the publish job build and push a multi-architecture image to GHCR with `latest` and `sha-<full commit SHA>` tags. Publication uses `GITHUB_TOKEN` with `packages: write` only in that job. There is no manual publication workflow or automatic release/version tag. Workflow concurrency cancels older runs for the same branch or pull request.
+Pushes to `master` run the same gates without publishing images. CI concurrency cancels older runs for the same branch or pull request. Release tooling tests run through `scripts/test.sh` in both local checks and CI.
 
-For branch protection, require **Source validation** and **Docker builds and ARM64 smoke test** before merging. Direct pushes to `master` are checked after the push; branch protection is needed if direct pushes must be disallowed. A failing check prevents the publish job from running.
+Formal releases use `npm run release -- X.Y.Z` from the clean repository root. The tag-only [release workflow](Releases.md) validates the tagged commit and publishes the multi-architecture image before creating its GitHub Release. Stable releases publish the version tag and `latest`; prereleases publish only their version tag. Release runs are not automatically canceled while executing.
 
-The image package may be private. Set its visibility to public in GitHub package settings for an unauthenticated host pull. For a private package, authenticate the host to `ghcr.io` with a token that has `read:packages` access. The Compose file references the published image and has no local `build:` context, so the host needs only `compose.yaml` and optional `.env` configuration. Run `docker compose pull` followed by `docker compose up -d` to deploy the latest passing `master` image.
+For branch protection, require **Source validation** and **Docker builds and ARM64 smoke test** before merging. Direct pushes to `master` are checked after the push; branch protection is needed if direct pushes must be disallowed. A failing release check prevents image publication.
+
+The image package may be private. Set its visibility to public in GitHub package settings for an unauthenticated host pull. For a private package, authenticate the host to `ghcr.io` with a token that has `read:packages` access. The Compose file references the published image and has no local `build:` context, so the host needs only `compose.yaml` and optional `.env` configuration. Run `docker compose pull` followed by `docker compose up -d` to deploy the latest stable release.
 
 ## Configuration, data, and recovery
 
