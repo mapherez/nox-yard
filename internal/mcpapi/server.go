@@ -27,6 +27,34 @@ var read = flags{true, false, true}
 var write = flags{false, true, false}
 var setting = flags{false, true, true}
 
+var cliPaths = map[string]string{
+	"yard_health":                       "health",
+	"yard_status":                       "status",
+	"yard_projects":                     "project list",
+	"yard_metrics":                      "metrics",
+	"yard_container_inspect":            "container inspect",
+	"yard_container_environment":        "container env",
+	"yard_container_logs":               "container logs",
+	"yard_container_action":             "container action",
+	"yard_project_action":               "project action",
+	"yard_container_pull":               "container pull",
+	"yard_project_pull":                 "project pull",
+	"yard_container_remove_preview":     "container remove preview",
+	"yard_project_remove_preview":       "project remove preview",
+	"yard_container_remove":             "container remove",
+	"yard_project_remove":               "project remove",
+	"yard_compose_source":               "compose source",
+	"yard_compose_preview":              "compose preview",
+	"yard_compose_submit":               "compose submit",
+	"yard_compose_operation":            "compose operation",
+	"yard_compose_job":                  "compose job",
+	"yard_projects_settings_get":        "settings projects get",
+	"yard_projects_settings_set":        "settings projects set",
+	"yard_self_update_status":           "update status",
+	"yard_self_update_settings":         "update settings",
+	"yard_self_update_check_and_update": "update now",
+}
+
 type builder struct {
 	tools []noxmcp.Tool
 	err   error
@@ -35,6 +63,11 @@ type builder struct {
 // The application remains unaware of MCP schemas and protocol error envelopes.
 func register[I, O any](b *builder, name, title, description string, f flags, execute func(context.Context, I) (O, error)) {
 	if b.err != nil {
+		return
+	}
+	cli, ok := cliPaths[name]
+	if !ok || cli == "" {
+		b.err = fmt.Errorf("%s: missing CLI path metadata", name)
 		return
 	}
 	input, err := jsonschema.For[I](nil)
@@ -48,6 +81,9 @@ func register[I, O any](b *builder, name, title, description string, f flags, ex
 		return
 	}
 	b.tools = append(b.tools, noxmcp.Tool{Name: name, Title: title, Description: description, InputSchema: input, OutputSchema: output, ReadOnly: f.readOnly, Destructive: f.destructive, Idempotent: f.idempotent,
+		Meta: map[string]any{
+			"cli": cli,
+		},
 		Execute: func(ctx noxmcp.ExecutionContext, args map[string]any) (map[string]any, error) {
 			data, err := json.Marshal(args)
 			if err != nil {

@@ -180,6 +180,34 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 	if len(list.Tools) != 25 {
 		t.Fatalf("tools=%d", len(list.Tools))
 	}
+	expectedCLIPaths := map[string]string{
+		"yard_health":                       "health",
+		"yard_status":                       "status",
+		"yard_projects":                     "project list",
+		"yard_metrics":                      "metrics",
+		"yard_container_inspect":            "container inspect",
+		"yard_container_environment":        "container env",
+		"yard_container_logs":               "container logs",
+		"yard_container_action":             "container action",
+		"yard_project_action":               "project action",
+		"yard_container_pull":               "container pull",
+		"yard_project_pull":                 "project pull",
+		"yard_container_remove_preview":     "container remove preview",
+		"yard_project_remove_preview":       "project remove preview",
+		"yard_container_remove":             "container remove",
+		"yard_project_remove":               "project remove",
+		"yard_compose_source":               "compose source",
+		"yard_compose_preview":              "compose preview",
+		"yard_compose_submit":               "compose submit",
+		"yard_compose_operation":            "compose operation",
+		"yard_compose_job":                  "compose job",
+		"yard_projects_settings_get":        "settings projects get",
+		"yard_projects_settings_set":        "settings projects set",
+		"yard_self_update_status":           "update status",
+		"yard_self_update_settings":         "update settings",
+		"yard_self_update_check_and_update": "update now",
+	}
+	seenCLIPaths := map[string]string{}
 	writes := map[string]bool{}
 	for _, kind := range []string{"container", "project"} {
 		for _, op := range []string{"action", "pull", "remove"} {
@@ -190,6 +218,24 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 		writes[name] = true
 	}
 	for _, tool := range list.Tools {
+		if tool.Meta == nil {
+			t.Fatalf("missing _meta for %s", tool.Name)
+		}
+		cli, ok := tool.Meta["cli"].(string)
+		if !ok || strings.TrimSpace(cli) == "" {
+			t.Fatalf("missing or invalid _meta.cli for %s: %#v", tool.Name, tool.Meta["cli"])
+		}
+		expected, ok := expectedCLIPaths[tool.Name]
+		if !ok || cli != expected {
+			t.Fatalf("wrong _meta.cli for %s: got %q, want %q", tool.Name, cli, expected)
+		}
+		if strings.HasPrefix(cli, "yard ") {
+			t.Fatalf("_meta.cli includes app prefix for %s: %q", tool.Name, cli)
+		}
+		if previous, ok := seenCLIPaths[cli]; ok {
+			t.Fatalf("duplicate _meta.cli %q for %s and %s", cli, previous, tool.Name)
+		}
+		seenCLIPaths[cli] = tool.Name
 		a := tool.Annotations
 		if a == nil || a.DestructiveHint == nil || tool.InputSchema == nil || tool.OutputSchema == nil {
 			t.Fatalf("missing metadata for %s", tool.Name)

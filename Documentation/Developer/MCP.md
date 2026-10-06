@@ -16,27 +16,37 @@ Facade operations accept the adapter's context, introduce no deadlines and do no
 
 ## Tools
 
+The `yard_*` names remain the canonical MCP identifiers. Each tool also exposes `_meta.cli` through `tools/list` as additional metadata for human-facing clients; generic MCP clients may ignore it. The CLI paths below are local to the application. The future CLI is responsible for adding the `yard` prefix (for example, `container logs` becomes `yard container logs`); that prefix is not part of the metadata.
+
 IDs must be copied from inventory: containers use full 64-character lowercase hexadecimal IDs; Engine projects use `container:<id>` or `compose:<name>`. Managed Compose operations take the saved project name instead. Engine and stored Compose operations remain distinct, matching existing Yard behavior.
 
-| Tools | Inputs and behavior |
-| --- | --- |
-| `yard_health`, `yard_status` | No inputs. Storage readiness/version; Docker availability and inventory counts. |
-| `yard_projects`, `yard_metrics` | No inputs. Projects with nested containers and pending states; cached metrics. |
-| `yard_container_inspect` | `id`. Ports, mounts, networks and environment names, without values. |
-| `yard_container_environment` | `id`. Explicitly returns potentially sensitive environment values. |
-| `yard_container_logs` | `id`. Last 20 decoded records, without following the stream. |
-| `yard_container_action`, `yard_project_action` | `id`, `action`: `start`, `stop`, `restart`. Shared Engine lifecycle. |
-| `yard_container_pull`, `yard_project_pull` | `id`. Pull configured images without recreating containers. |
-| `yard_container_remove_preview`, `yard_project_remove_preview` | `id`. Current removal plan and fingerprint. |
-| `yard_container_remove`, `yard_project_remove` | `id`, `confirm:true`, `fingerprint`. Revalidate and execute existing removal rules. |
-| `yard_compose_source` | Existing source fields: `kind`, optional `url`, `filename`, `yaml`. Inspect source and required variables/env files. |
-| `yard_compose_preview`, `yard_compose_submit` | Existing managed request: `name`, `source`, `variables`, `envFiles`, `mode`, optional `fingerprint`. Modes: `new`, `copy`, `sync`, `adopt`. Submission requires the current preview fingerprint and returns a job. |
-| `yard_compose_operation` | `name`, `operation`, `removeVolumes`. Operations: `start`, `stop`, `restart`, `pull`, `update`, `remove`. Returns a job. |
-| `yard_compose_job` | `id`. Persisted job status. |
-| `yard_projects_settings_get`, `yard_projects_settings_set` | No inputs for get; `projectsBase` for set. Existing host-directory checks apply. |
-| `yard_self_update_status` | No inputs. Current update settings/state. |
-| `yard_self_update_settings` | `automatic`, `intervalMinutes`. Enabling automatic updates can trigger a check/update/restart. |
-| `yard_self_update_check_and_update` | No inputs. Queue a manual check which can install an update and restart Yard **even when automatic updates are disabled**. Observe progress with `yard_self_update_status`. |
+| MCP tool | CLI (`_meta.cli`) | Inputs and behavior |
+| --- | --- | --- |
+| `yard_health` | `health` | No inputs. Storage readiness and version. |
+| `yard_status` | `status` | No inputs. Docker availability and inventory counts. |
+| `yard_projects` | `project list` | No inputs. Projects with nested containers and pending states. |
+| `yard_metrics` | `metrics` | No inputs. Cached metrics. |
+| `yard_container_inspect` | `container inspect` | `id`. Ports, mounts, networks and environment names, without values. |
+| `yard_container_environment` | `container env` | `id`. Explicitly returns potentially sensitive environment values. |
+| `yard_container_logs` | `container logs` | `id`. Last 20 decoded records, without following the stream. |
+| `yard_container_action` | `container action` | `id`, `action`: `start`, `stop`, `restart`. Shared Engine lifecycle. |
+| `yard_project_action` | `project action` | `id`, `action`: `start`, `stop`, `restart`. Shared Engine lifecycle. |
+| `yard_container_pull` | `container pull` | `id`. Pull configured images without recreating containers. |
+| `yard_project_pull` | `project pull` | `id`. Pull configured images without recreating containers. |
+| `yard_container_remove_preview` | `container remove preview` | `id`. Current removal plan and fingerprint. |
+| `yard_project_remove_preview` | `project remove preview` | `id`. Current removal plan and fingerprint. |
+| `yard_container_remove` | `container remove` | `id`, `confirm:true`, `fingerprint`. Revalidate and execute existing removal rules. |
+| `yard_project_remove` | `project remove` | `id`, `confirm:true`, `fingerprint`. Revalidate and execute existing removal rules. |
+| `yard_compose_source` | `compose source` | Existing source fields: `kind`, optional `url`, `filename`, `yaml`. Inspect source and required variables/env files. |
+| `yard_compose_preview` | `compose preview` | Existing managed request: `name`, `source`, `variables`, `envFiles`, `mode`, optional `fingerprint`. Modes: `new`, `copy`, `sync`, `adopt`. Return the preview/fingerprint. |
+| `yard_compose_submit` | `compose submit` | Existing managed request: `name`, `source`, `variables`, `envFiles`, `mode`, optional `fingerprint`. Modes: `new`, `copy`, `sync`, `adopt`. Submission requires the current preview fingerprint and returns a job. |
+| `yard_compose_operation` | `compose operation` | `name`, `operation`, `removeVolumes`. Operations: `start`, `stop`, `restart`, `pull`, `update`, `remove`. Returns a job. |
+| `yard_compose_job` | `compose job` | `id`. Persisted job status. |
+| `yard_projects_settings_get` | `settings projects get` | No inputs. Read the configured host projects base directory. |
+| `yard_projects_settings_set` | `settings projects set` | `projectsBase`. Existing host-directory checks apply. |
+| `yard_self_update_status` | `update status` | No inputs. Current update settings/state. |
+| `yard_self_update_settings` | `update settings` | `automatic`, `intervalMinutes`. Enabling automatic updates can trigger a check/update/restart. |
+| `yard_self_update_check_and_update` | `update now` | No inputs. Queue a manual check which can install an update and restart Yard **even when automatic updates are disabled**. Observe progress with `yard_self_update_status`. |
 
 Required fields and output shapes are available through `tools/list`. Normal results use structured content plus a JSON text representation. Errors use `IsError` and a code/message envelope; operation errors retain counters and partial results under `details.result`. Accepted jobs and queued restart helpers are not reported as completed operations.
 
