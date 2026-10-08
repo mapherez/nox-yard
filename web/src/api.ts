@@ -81,7 +81,7 @@ export type ManagedPreview = {
   mode: ManagedRequest["mode"];
   fingerprint: string;
 };
-export type ImageIdentity = { service?: string; containerID?: string; imageID: string; startedAt?: string };
+export type ImageIdentity = { service?: string; containerID?: string; imageID: string; platform?: string; startedAt?: string };
 export type ManagedJob = { id: string; projectName: string; targetID: string; domain: string; operation: string; status: "running" | "succeeded" | "failed"; stage: string; outcome?: string; error?: string; cleanupError?: string; rollback?: string; createdAt: number; startedAt?: number; completedAt?: number; updatedAt: number; deadlineAt?: number; workerID?: string; sourceImages?: ImageIdentity[]; targetImages?: ImageIdentity[] };
 
 export type LifecycleAction = "start" | "stop" | "restart";

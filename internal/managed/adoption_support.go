@@ -60,8 +60,23 @@ func assessAdoption(service modelService, item container.InspectResponse) error 
 			}
 			for _, options := range volumes {
 				for field := range options {
-					if field != "type" && field != "source" && field != "target" && field != "read_only" && field != "bind" {
+					if field != "type" && field != "source" && field != "target" && field != "read_only" && field != "bind" && field != "volume" {
 						return fmt.Errorf("%w: adoption cannot compare mount %s", ErrInvalidSource, field)
+					}
+				}
+				if raw := options["volume"]; raw != nil {
+					var volume map[string]json.RawMessage
+					if json.Unmarshal(raw, &volume) != nil {
+						return fmt.Errorf("%w: invalid volume settings", ErrInvalidSource)
+					}
+					for field, value := range volume {
+						if field == "nocopy" && string(value) == "false" {
+							continue
+						}
+						if field == "subpath" && string(value) == `""` {
+							continue
+						}
+						return fmt.Errorf("%w: adoption cannot compare volume %s", ErrInvalidSource, field)
 					}
 				}
 				if raw := options["bind"]; raw != nil {

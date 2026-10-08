@@ -10,9 +10,10 @@ import (
 )
 
 type Observer struct {
-	Data    *store.Store
-	Changes *inventory.Notifier
-	Verify  func(context.Context, store.Job) error
+	Data         *store.Store
+	Changes      *inventory.Notifier
+	Verify       func(context.Context, store.Job) error
+	CleanupFinal func(context.Context, store.Job) error
 }
 
 func (o *Observer) Start(ctx context.Context) func() {
@@ -79,6 +80,12 @@ func (o *Observer) Reconcile(ctx context.Context) {
 			if time.Now().Unix()-job.CompletedAt > 30 {
 				_ = o.Data.JobCleanupError(job.ID, "Operation result was saved, but worker cleanup is pending; inspect the worker on the host.")
 			}
+		} else if o.CleanupFinal != nil {
+			if err := o.CleanupFinal(cleanup, job); err != nil {
+				_ = o.Data.JobCleanupError(job.ID, "Operation result was saved, but retained snapshot/image cleanup is pending; inspect the job's rollback image references on the host.")
+			} else {
+				_ = o.Data.WorkerCleaned(job.ID)
+			}
 		} else {
 			_ = o.Data.WorkerCleaned(job.ID)
 		}
@@ -101,7 +108,16 @@ func (o *Observer) Acknowledge(ctx context.Context, id string, updated int64) er
 	if state.Running || state.HelpersRunning {
 		return store.ErrOperationConflict
 	}
-	return o.Data.AcknowledgeRecovery(id, updated)
+	if err := o.Data.AcknowledgeRecovery(id, updated); err != nil {
+		return err
+	}
+	if o.CleanupFinal != nil {
+		job.Outcome = "recovery_acknowledged"
+		if err := o.CleanupFinal(ctx, job); err != nil {
+			_ = o.Data.JobCleanupError(job.ID, "Recovery acknowledged; retained snapshot/image cleanup is pending on the host.")
+		}
+	}
+	return nil
 }
 
 func TargetResources(ctx context.Context, target string) ([]string, error) {

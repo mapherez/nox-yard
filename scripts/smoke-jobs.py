@@ -22,6 +22,9 @@ directory = base / "projects" / project
 directory.mkdir(parents=True)
 volume = name + "-data"
 image = name + ":fixture"
+app_reference = name + ":app"
+app_images = [name + ":app-a", name + ":app-b"]
+revision = 0
 yard = None
 workers = set()
 job_ids = set()
@@ -76,6 +79,10 @@ def job(identifier):
     return value
 
 def submit(operation):
+    global revision
+    if operation == "update":
+        revision = 1 - revision
+        (directory / ".fixture-image").write_text(app_images[revision] + " " + app_reference)
     accepted = tool("yard_compose_operation", {"name": project, "operation": operation, "removeVolumes": False})
     job_ids.add(accepted["id"])
     return accepted
@@ -103,21 +110,49 @@ def interrupt_web(identifier):
 try:
     # Gate Compose only in a derived fixture image; production has no test hooks.
     (base / "docker-wrapper").write_text("""#!/bin/sh
-operation=''
-for argument do case "$argument" in pull|up) operation="$argument";; esac; done
-gate="$PWD/.hold-$operation"
+operation=''; gate_directory="$PWD"; previous=''
+for argument do
+  case "$argument" in pull|up) operation="$argument";; esac
+  if [ "$previous" = --project-directory ]; then gate_directory="$argument"; fi
+  previous="$argument"
+done
+# Only fixture helpers allow marker writes; production mounts source read-only.
+if [ -n "$operation" ]; then
+  original_count="$#"
+  for argument do
+    case "$argument" in type=bind*,readonly) argument="${argument%,readonly}";; esac
+    set -- "$@" "$argument"
+  done
+  shift "$original_count"
+fi
+gate="$gate_directory/.hold-$operation"
 if [ "$operation" = pull ] && [ -f "$gate" ]; then
-  touch "$PWD/.entered-pull"
+  touch "$gate_directory/.entered-pull"
   while [ -f "$gate" ]; do sleep 0.1; done
 fi
 /usr/bin/docker "$@"
 result=$?
 if [ "$operation" = up ] && [ -f "$gate" ]; then
-  touch "$PWD/.entered-up"
+  touch "$gate_directory/.entered-up"
   while [ -f "$gate" ]; do sleep 0.1; done
 fi
 exit "$result"
 """, newline="")
+    # Interruption tests require changed IDs now that unchanged updates skip up.
+    # Only this derived fixture intercepts pull; real registry semantics are
+    # covered separately by smoke-managed.py.
+    wrapper = (base / "docker-wrapper").read_text()
+    wrapper = wrapper.replace('/usr/bin/docker "$@"', '''if [ "$operation" = pull ] && [ -f "$gate_directory/.fixture-image" ]; then
+  read source target < "$gate_directory/.fixture-image"
+  /usr/bin/docker tag "$source" "$target"
+else
+  /usr/bin/docker "$@"
+fi''')
+    (base / "docker-wrapper").write_text(wrapper, newline="")
+    for index, app_image in enumerate(app_images):
+        (base / "Dockerfile").write_text("FROM alpine:3.23\nLABEL nox-yard.jobs-smoke=" + suffix + " fixture.revision=" + str(index) + "\n", newline="")
+        docker("build", "-t", app_image, str(base))
+    (directory / ".fixture-image").write_text(app_images[revision] + " " + app_reference)
     (base / "Dockerfile").write_text("FROM " + args.image + "\nCOPY docker-wrapper /usr/local/bin/docker\nRUN chmod 755 /usr/local/bin/docker\n", newline="")
     docker("build", "-t", image, str(base))
     docker("volume", "create", "--label", "nox-yard.jobs-smoke=" + suffix, volume)
@@ -142,6 +177,7 @@ exit "$result"
       timeout: 1s
       retries: 120
 """
+    yaml = yaml.replace("image: alpine:3.23", "image: " + app_reference)
     initial = {"name": project, "mode": "new", "source": {"kind": "paste", "yaml": yaml}, "variables": {}, "envFiles": {}}
     initial["fingerprint"] = tool("yard_compose_preview", initial)["fingerprint"]
     (directory / ".hold-pull").touch()
@@ -239,5 +275,11 @@ finally:
         subprocess.run(["docker", "rm", "-f", yard], capture_output=True)
     subprocess.run(["docker", "volume", "rm", volume], capture_output=True)
     subprocess.run(["docker", "image", "rm", image], capture_output=True)
+    retained = docker("image", "ls", "--filter", "label=nox-yard.jobs-smoke=" + suffix, "--format", "{{.Repository}}:{{.Tag}}").splitlines()
+    for tag in retained:
+        if tag.startswith("nox-yard-rollback/"):
+            subprocess.run(["docker", "image", "rm", tag], capture_output=True)
+    for tag in [app_reference, *app_images]:
+        subprocess.run(["docker", "image", "rm", tag], capture_output=True)
     assert base.resolve().is_relative_to((root / ".tmp").resolve()) and base.name == name
     shutil.rmtree(base)

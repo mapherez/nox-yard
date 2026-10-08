@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mapherez/nox-yard/internal/imageidentity"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,6 +45,7 @@ type Preview struct {
 	EnvFiles    []string  `json:"envFiles"`
 	Fingerprint string    `json:"fingerprint"`
 	model       composeModel
+	resolved    json.RawMessage
 }
 
 // Resolved Compose configuration is internal: environment and command values
@@ -188,19 +190,17 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 	if err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
-			if len(envFiles) > 0 || len(variables) > 0 {
-				return Preview{}, fmt.Errorf("%w: Compose validation failed; check the YAML and environment file syntax", ErrInvalidSource)
-			}
-			message := strings.TrimSpace(string(exit.Stderr))
-			if len(message) > 500 {
-				message = message[:500]
-			}
-			return Preview{}, fmt.Errorf("%w: Compose validation failed: %s", ErrInvalidSource, message)
+			// Stderr can contain inline YAML secrets as well as supplied env values.
+			return Preview{}, fmt.Errorf("%w: Compose validation failed; check the YAML and environment file syntax", ErrInvalidSource)
 		}
 		return Preview{}, fmt.Errorf("Compose validation is unavailable: %w", err)
 	}
 	var model composeModel
-	if err := json.Unmarshal(output, &model); err != nil {
+	decoded, err := decodedComposeModel(output)
+	if err != nil {
+		return Preview{}, fmt.Errorf("cannot read Compose validation result")
+	}
+	if err := json.Unmarshal(decoded, &model); err != nil {
 		return Preview{}, fmt.Errorf("cannot read Compose validation result: %w", err)
 	}
 	if len(model.Services) == 0 {
@@ -208,11 +208,15 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 	}
 	preview := Preview{Name: name, Services: []Service{}, Volumes: []string{}, Networks: []string{}, EnvFiles: []string{}}
 	preview.model = model
+	preview.resolved = append(json.RawMessage(nil), output...)
 	info, _ := InspectSource(source.YAML)
 	for _, file := range info.EnvFiles {
 		preview.EnvFiles = append(preview.EnvFiles, file.Path)
 	}
 	for name, service := range model.Services {
+		if _, reserved := service.Labels[imageidentity.ReferenceLabel]; reserved {
+			return Preview{}, fmt.Errorf("%w: service %s uses a reserved NoX Yard image-reference label", ErrInvalidSource, name)
+		}
 		if service.Image == "" {
 			return Preview{}, fmt.Errorf("%w: service %s needs a prebuilt image", ErrInvalidSource, name)
 		}
@@ -223,6 +227,9 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 		for _, volume := range service.Volumes {
 			if volume.Type != "bind" && volume.Type != "volume" {
 				return Preview{}, fmt.Errorf("%w: service %s uses an unsupported mount", ErrInvalidSource, name)
+			}
+			if volume.Type == "bind" && strings.HasPrefix(volume.Source, "~") {
+				return Preview{}, fmt.Errorf("%w: service %s needs an absolute host bind path or a path relative to its project directory; tilde bind paths are unsupported", ErrInvalidSource, name)
 			}
 			item.Volumes = append(item.Volumes, volume.Source+":"+volume.Target)
 		}
@@ -255,10 +262,36 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 	return preview, nil
 }
 
+// Compose config escapes dollars when serializing. Runtime comparisons need
+// their literal value, while the execution document retains those escapes.
+func decodedComposeModel(data []byte) ([]byte, error) {
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		return nil, err
+	}
+	var decode func(any) any
+	decode = func(value any) any {
+		switch item := value.(type) {
+		case string:
+			return strings.ReplaceAll(item, "$$", "$")
+		case []any:
+			for i, entry := range item {
+				item[i] = decode(entry)
+			}
+		case map[string]any:
+			for key, entry := range item {
+				item[key] = decode(entry)
+			}
+		}
+		return value
+	}
+	return json.Marshal(decode(value))
+}
+
 func validateSourceStructure(content string) error {
 	var model map[string]any
 	if err := yaml.Unmarshal([]byte(content), &model); err != nil {
-		return fmt.Errorf("%w: invalid YAML: %v", ErrInvalidSource, err)
+		return fmt.Errorf("%w: invalid YAML; check the Compose syntax", ErrInvalidSource)
 	}
 	if model == nil || model["services"] == nil {
 		return fmt.Errorf("%w: Compose file has no services", ErrInvalidSource)

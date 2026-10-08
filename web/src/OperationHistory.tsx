@@ -5,9 +5,12 @@ import styles from "./App.module.css";
 export function operationStage(job: ManagedJob) {
   if (job.outcome === "recovery_required") return "Recovery required";
   if (job.outcome === "recovery_acknowledged") return "Recovery acknowledged";
+  if (job.outcome === "unchanged") return "No image changes · containers preserved";
+  if (job.outcome === "cached") return "Images pulled · containers preserved";
+  if (job.outcome === "rolled_back") return "Failed · previous version restored";
   if (job.status === "succeeded") return job.outcome === "reconciled" ? "Completed · verified after interruption" : "Completed";
   if (job.status === "failed") return "Failed";
-  return ({ queued: "Queued", launching: "Starting worker", preparing: "Checking configuration", writing_files: "Writing project files", pulling: "Pulling images", replacing: "Applying containers", executing: "Applying operation", restarting: "Restarting Yard", verifying: "Verifying services", committing: "Saving result", legacy_reconciliation: "Reviewing interrupted operation" } as Record<string, string>)[job.stage] || "Operation in progress";
+  return ({ queued: "Queued", launching: "Starting worker", preparing: "Checking configuration", writing_files: "Writing project files", pulling: "Pulling images", replacing: "Applying containers", executing: "Applying operation", restarting: "Restarting Yard", verifying: "Verifying services", committing_files: "Saving verified project files", committing: "Saving result", rolling_back: "Restoring previous version", legacy_reconciliation: "Reviewing interrupted operation" } as Record<string, string>)[job.stage] || "Operation in progress";
 }
 
 export function OperationHistory({ history, error, loading, csrfToken, onRefresh }: { history: ManagedJob[]; error: string; loading: boolean; csrfToken: string; onRefresh: () => void }) {

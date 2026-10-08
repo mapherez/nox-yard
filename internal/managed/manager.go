@@ -54,12 +54,13 @@ type Manager struct {
 	imageDefaults func(context.Context, string) (imageDefaults, error)
 	adoptionFiles func(context.Context, string, string, map[string]string, string, bool) (string, error)
 	launch        func(context.Context, *store.Store, store.Job, string) error
+	loadSource    func(context.Context, SourceInput) (Source, error)
 }
 
 func (m *Manager) SetNotifier(changes *inventory.Notifier) { m.changes = changes }
 
 func NewManager(data *store.Store, reader inventory.Reader) (*Manager, error) {
-	return &Manager{data: data, inventory: reader, runtime: readProjectRuntime, imageDefaults: readImageDefaults, adoptionFiles: adoptionFiles, launch: jobs.Launch}, nil
+	return &Manager{data: data, inventory: reader, runtime: readProjectRuntime, imageDefaults: readImageDefaults, adoptionFiles: adoptionFiles, launch: jobs.Launch, loadSource: LoadSource}, nil
 }
 
 func (m *Manager) ProjectsBase() (string, error) { return m.data.ProjectsBase() }
@@ -145,7 +146,11 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 		}
 		runtimeSignature = adoptionRuntimeFingerprint(runtime)
 	}
-	source, err := LoadSource(ctx, input.Source)
+	loader := m.loadSource
+	if loader == nil {
+		loader = LoadSource
+	}
+	source, err := loader(ctx, input.Source)
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
 	}
@@ -154,6 +159,14 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 		return ProjectPreview{}, Source{}, err
 	}
 	result := ProjectPreview{Preview: preview, ProjectDir: projectDir, SourceKind: source.Kind, SourceURL: source.URL, Duplicates: []string{}, Changes: []string{}, Mode: input.Mode, ExternalMatch: external, AdoptionDir: adoptDir, runtimeFingerprint: runtimeSignature}
+	if input.Mode == "sync" && isManaged {
+		encodedEnv, _ := json.Marshal(input.EnvFiles)
+		next := store.ManagedProject{YAML: source.YAML, EnvFilesJSON: string(encodedEnv), VariablesJSON: "{}"}
+		if err := hostProjectFiles(ctx, projectDir, &storedProject, next, "check"); err != nil {
+			return ProjectPreview{}, Source{}, fmt.Errorf("%w: host source/environment files differ from the saved project; restore matching files before sync", ErrConflict)
+		}
+		result.filesFingerprint = fingerprint([]byte(storedProject.YAML + storedProject.EnvFilesJSON))
+	}
 	if source.URL != "" {
 		matches, err := m.data.ManagedByURL(source.URL)
 		if err != nil {

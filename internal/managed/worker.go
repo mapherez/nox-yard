@@ -16,6 +16,7 @@ type workerPayload struct {
 	RuntimeFingerprint string
 	FilesFingerprint   string
 	RemoveVolumes      bool
+	Deployment         *deploymentSnapshot
 }
 
 func (m *Manager) enqueue(ctx context.Context, project store.ManagedProject, operation string, payload workerPayload) (store.ManagedJob, error) {
@@ -40,6 +41,13 @@ func (m *Manager) enqueue(ctx context.Context, project store.ManagedProject, ope
 		for _, item := range runtime {
 			job.Resources = append(job.Resources, "container:"+item.ID)
 			identity := store.ImageIdentity{ContainerID: item.ID, ImageID: item.Image}
+			if item.ImageManifestDescriptor != nil && item.ImageManifestDescriptor.Platform != nil {
+				platform := item.ImageManifestDescriptor.Platform
+				identity.Platform = platform.OS + "/" + platform.Architecture
+				if platform.Variant != "" {
+					identity.Platform += "/" + platform.Variant
+				}
+			}
 			if item.Config != nil {
 				identity.Service = item.Config.Labels["com.docker.compose.service"]
 				if identity.Service == "nox-yard" {
@@ -149,36 +157,38 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 		}
 		return nil
 	}
-	needsVerification := job.Operation == "new" || job.Operation == "copy" || job.Operation == "sync" || job.Operation == "start" || job.Operation == "restart" || job.Operation == "update"
+	if job.Operation == "new" || job.Operation == "copy" || job.Operation == "sync" || job.Operation == "update" || job.Operation == "pull" {
+		return m.deploy(ctx, job, payload)
+	}
+	needsVerification := job.Operation == "start" || job.Operation == "restart"
 	var preview Preview
-	if needsVerification || job.Operation == "pull" {
+	startExisting := false
+	if needsVerification {
 		var err error
 		preview, err = Validate(ctx, project.Name, Source{YAML: project.YAML}, variables, envFiles, project.ProjectDir)
 		if err != nil {
 			return fail("Saved Compose configuration could not be validated.")
 		}
-	}
-	if job.Operation == "new" || job.Operation == "copy" || job.Operation == "sync" {
-		if err := progress("writing_files"); err != nil {
-			return err
+		if err := hostProjectFiles(ctx, project.ProjectDir, &project, project, "check"); err != nil {
+			return fail("Host source/environment files differ from the saved project; review before starting or restarting.")
 		}
-		if err := writeHostCompose(ctx, project.ProjectDir, project.YAML, envFiles, job.Operation != "sync"); err != nil {
-			return fail("Host project files could not be written. Inspect the source directory before retrying.")
-		}
-	}
-	if job.Operation == "new" || job.Operation == "copy" || job.Operation == "sync" || job.Operation == "update" || job.Operation == "pull" {
-		if err := progress("pulling"); err != nil {
-			return err
-		}
-		if err := composeCommand(ctx, project.Name, project.YAML, variables, envFiles, project.ProjectDir, "pull"); err != nil {
-			return fail("Image pull failed.")
+		if job.Operation == "start" {
+			current, err := m.runtime(ctx, project.Name)
+			if err != nil || !matchesSourceImages(current, job.SourceImages) {
+				return fail("Existing containers changed before start; review again.")
+			}
+			images := map[string]string{}
+			for _, image := range job.SourceImages {
+				images[image.Service] = image.ImageID
+			}
+			startExisting = unchangedImages(preview.model, current, images)
 		}
 	}
-	if needsVerification || job.Operation == "pull" {
+	if needsVerification {
 		images := []store.ImageIdentity{}
 		for name := range expectedServices(preview.model) {
 			service := preview.model.Services[name]
-			if job.Operation == "restart" {
+			if job.Operation == "restart" || startExisting {
 				for _, prior := range job.SourceImages {
 					if prior.Service == name {
 						images = append(images, prior)
@@ -195,14 +205,15 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 		if err := m.data.JobProgress(job.ID, job.Owner, "replacing", nil, images); err != nil {
 			return err
 		}
-		if job.Operation == "pull" {
-			return m.data.FinishJob(job.ID, job.Owner, "succeeded", "verified", "", "")
-		}
 	} else if err := progress("executing"); err != nil {
 		return err
 	}
 	args := []string{"up", "-d", "--no-build"}
 	switch job.Operation {
+	case "start":
+		if startExisting {
+			args = []string{"start"}
+		}
 	case "restart":
 		args = []string{"restart"}
 	case "stop":
@@ -212,8 +223,6 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 		if payload.RemoveVolumes {
 			args = append(args, "--volumes")
 		}
-	case "update":
-		args = append(args, "--force-recreate")
 	}
 	if err := composeCommand(ctx, project.Name, project.YAML, variables, envFiles, project.ProjectDir, args...); err != nil {
 		return fail("Docker Compose could not complete the operation.")
@@ -244,23 +253,21 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 			return fail("Containers were removed, but project metadata could not be deleted.")
 		}
 		return nil
-	} else if job.Operation == "new" || job.Operation == "copy" || job.Operation == "sync" {
-		if err := m.data.CommitManagedJob(job, &project, false, "verified"); err != nil {
-			return fail("Containers were verified, but project metadata could not be saved.")
-		}
-		return nil
 	}
 	return m.data.FinishJob(job.ID, job.Owner, "succeeded", "verified", "", "")
 }
 
 // Reconcile verifies a completed command without replaying it. Metadata writes
-// are idempotent; source/host-file transactionality and rollback remain C3.
+// are guarded by ownership; interrupted replacements are never replayed.
 func (m *Manager) Reconcile(ctx context.Context, job store.Job) error {
 	var payload workerPayload
 	if json.Unmarshal([]byte(job.Payload), &payload) != nil {
 		return store.ErrJobChanged
 	}
 	project := payload.Project
+	if payload.Deployment != nil {
+		return m.reconcileDeployment(ctx, job, payload)
+	}
 	if job.Operation == "adopt" {
 		return store.ErrJobChanged
 	} // Never repeat create-only file work after uncertain interruption.

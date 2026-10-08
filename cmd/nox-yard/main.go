@@ -110,6 +110,11 @@ func run() error {
 			return managedProjects.Reconcile(ctx, job)
 		}
 		return store.ErrJobChanged
+	}, CleanupFinal: func(ctx context.Context, job store.Job) error {
+		if job.Domain == "managed" {
+			return managedProjects.CleanupDeployment(ctx, job)
+		}
+		return nil
 	}}
 	app.JobObserver = observer
 	if err := app.ReconcileDirectJobs(ctx); err != nil {

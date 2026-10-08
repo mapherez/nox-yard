@@ -209,7 +209,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
   }} onCancel={(event) => { if (busy) event.preventDefault(); }}>
     {preview && <div className={styles.previewBody}>
       <h2 id="managed-preview-title">Review {preview.name}</h2>
-      <p>{mode === "adopt" ? "Review the original directory and configuration. Adoption saves the source without restarting the existing containers. Existing files must match; they will not be overwritten." : "Docker Compose validated this project. Confirm to pull its images and deploy it."}</p>
+      <p>{mode === "adopt" ? "Review the original directory and configuration. Adoption saves the source without restarting the existing containers. Existing files must match; they will not be overwritten." : mode === "sync" ? "Confirm these source changes to replace the existing project. Files are saved after verification. A failed replacement restores the previous version; application data writes and migrations cannot be undone. Back up application data before proceeding." : "Docker Compose validated this project. Confirm to pull its images and deploy it."}</p>
 	  {preview.projectDir && <p>Compose file: <code>{preview.projectDir}/compose.yml</code></p>}
       {(preview.duplicates.length > 0 || preview.externalMatch) && <fieldset className={styles.sourceChoices} disabled={busy}><legend>Existing project</legend>
         {preview.duplicates.length > 0 && <p>Source URL already used by: {preview.duplicates.join(", ")}.</p>}

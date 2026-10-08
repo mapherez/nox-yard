@@ -638,6 +638,20 @@ function ManagedProjectControls({ project, csrfToken, onChanged, busy: historyBu
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState<"stop" | "restart" | "update" | "remove" | null>(null);
   const [removeVolumes, setRemoveVolumes] = useState(false);
+  const menuRef = useRef<HTMLDetailsElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const confirmInvoker = useRef<HTMLElement | null>(null);
+  useEffect(() => { if (confirm) cancelRef.current?.focus(); }, [confirm]);
+  function ask(operation: NonNullable<typeof confirm>) {
+    confirmInvoker.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (menuRef.current) menuRef.current.open = false;
+    setConfirm(operation);
+  }
+  function cancelConfirmation() {
+    setConfirm(null);
+    if (confirmInvoker.current?.closest("details") === menuRef.current) menuRef.current?.querySelector("summary")?.focus();
+    else confirmInvoker.current?.focus();
+  }
   const busy = submitting || historyBusy || Boolean(project.operation);
   async function run(operation: "start" | "stop" | "restart" | "pull" | "update" | "remove") {
     setError(""); setConfirm(null); setSubmitting(true);
@@ -648,17 +662,18 @@ function ManagedProjectControls({ project, csrfToken, onChanged, busy: historyBu
   return <div className={styles.lifecycleControls}>
     <div className={styles.actionRow} aria-label={`${project.name} actions`}>
       <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Start ${project.name}`} title="Start" disabled={busy || project.state === "running"} onClick={() => { void run("start"); }}><i className="ph-fill ph-play" aria-hidden="true" /></button>
-      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Stop ${project.name}`} title="Stop" disabled={busy || project.state === "stopped"} onClick={() => setConfirm("stop")}><i className="ph-fill ph-stop" aria-hidden="true" /></button>
-      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Restart ${project.name}`} title="Restart" disabled={busy || project.state === "stopped"} onClick={() => setConfirm("restart")}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
-      <details className={styles.maintenanceMenu}><summary className={styles.inspectButton} aria-label="More actions">···</summary><div className={styles.maintenanceOptions}>
-        <button type="button" disabled={busy} onClick={() => { void run("pull"); }}>Pull images</button>
-        <button type="button" disabled={busy} onClick={() => setConfirm("update")}>Update and recreate</button>
-        <button type="button" className={styles.maintenanceRemove} disabled={busy} onClick={() => { setRemoveVolumes(false); setConfirm("remove"); }}>Remove project</button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Stop ${project.name}`} title="Stop" disabled={busy || project.state === "stopped"} onClick={() => ask("stop")}><i className="ph-fill ph-stop" aria-hidden="true" /></button>
+      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Restart ${project.name}`} title="Restart" disabled={busy || project.state === "stopped"} onClick={() => ask("restart")}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
+      <details ref={menuRef} className={styles.maintenanceMenu}><summary className={styles.inspectButton} aria-label="More actions">···</summary><div className={styles.maintenanceOptions}>
+        <button type="button" disabled={busy} onClick={() => { if (menuRef.current) menuRef.current.open = false; void run("pull"); }}>Pull images</button>
+        <button type="button" disabled={busy} onClick={() => ask("update")}>Update images</button>
+        <button type="button" className={styles.maintenanceRemove} disabled={busy} onClick={() => { setRemoveVolumes(false); ask("remove"); }}>Remove project</button>
       </div></details>
     </div>
-    {confirm && <div className={styles.actionConfirm} role="group" aria-label={`Confirm ${confirm}`}><p>{confirm === "remove" ? "Remove" : confirm === "update" ? "Update and recreate" : confirm === "restart" ? "Restart" : "Stop"} <strong>{project.name}</strong>?</p>
+    {confirm && <div className={styles.actionConfirm} role="group" aria-label={`Confirm ${confirm}`}><p>{confirm === "remove" ? "Remove" : confirm === "update" ? "Update images for" : confirm === "restart" ? "Restart" : "Stop"} <strong>{project.name}</strong>?</p>
+      {confirm === "update" && <p>Uses the saved source. Unchanged images preserve containers. Failed replacements restore the previous version; application data writes and migrations cannot be undone. Back up application data first.</p>}
       {confirm === "remove" && <label><input type="checkbox" checked={removeVolumes} onChange={(event) => setRemoveVolumes(event.target.checked)} /> Delete project volumes</label>}
-      <div className={styles.actionRow}><button type="button" className={styles.inspectButton} onClick={() => setConfirm(null)}>Cancel</button><button type="button" className={`${styles.inspectButton} ${confirm === "remove" ? styles.dangerAction : ""}`} disabled={busy} onClick={() => { void run(confirm); }}>Confirm {confirm}</button></div>
+      <div className={styles.actionRow}><button ref={cancelRef} type="button" className={styles.inspectButton} onClick={cancelConfirmation}>Cancel</button><button type="button" className={`${styles.inspectButton} ${confirm === "remove" ? styles.dangerAction : ""}`} disabled={busy} onClick={() => { void run(confirm); }}>Confirm {confirm}</button></div>
     </div>}
     {error && <p className={styles.inventoryError} role="alert">{error}</p>}
   </div>;

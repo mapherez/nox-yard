@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/containerd/errdefs"
+	"github.com/mapherez/nox-yard/internal/imageidentity"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
@@ -91,7 +92,7 @@ func (m *Manager) containerImage(ctx context.Context, id string) (string, error)
 	if isHelper(item.Config.Labels) || isSelf(item.ID, item.Config.Labels) {
 		return "", ErrProtected
 	}
-	return item.Config.Image, nil
+	return imageidentity.Reference(item.Config.Image, item.Config.Labels), nil
 }
 
 func (m *Manager) inspectContainer(ctx context.Context, id string) (container.InspectResponse, error) {

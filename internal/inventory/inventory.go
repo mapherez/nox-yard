@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/containerd/errdefs"
+	"github.com/mapherez/nox-yard/internal/imageidentity"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
@@ -314,7 +315,7 @@ func describe(summary container.Summary) Container {
 	}
 	item := Container{
 		ID: summary.ID, Name: name, Service: summary.Labels[composeServiceLabel],
-		Image: summary.Image, State: string(summary.State), Health: "none",
+		Image: imageidentity.Reference(summary.Image, summary.Labels), State: string(summary.State), Health: "none",
 	}
 	if summary.Health != nil {
 		item.Health = string(summary.Health.Status)

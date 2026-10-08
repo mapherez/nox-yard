@@ -71,9 +71,31 @@ async (page) => {
   await drawer.getByText('update: Recovery acknowledged',{exact:true}).waitFor();
   await page.waitForFunction(()=>Array.from(document.querySelectorAll('#project-drawer button')).some(el=>el.getAttribute('aria-label')==='Restart sample'&&!el.disabled));
   if(await restart().isDisabled()) throw Error('Retry did not recover history');
+  for(const [outcome,label] of [['unchanged','No image changes · containers preserved'],['cached','Images pulled · containers preserved'],['rolled_back','Failed · previous version restored']]) {
+    current={...current,status:outcome==='rolled_back'?'failed':'succeeded',outcome,stage:'completed',error:'',rollback:outcome==='rolled_back'?'restored':'',cleanupError:''};
+    await drawer.getByText(`update: ${label}`,{exact:true}).waitFor();
+    if(await restart().isDisabled()) throw Error('Terminal C3 outcome kept actions blocked');
+  }
+  current={...current,status:'running',outcome:'',stage:'rolling_back'};
+  await drawer.getByText('update: Restoring previous version',{exact:true}).waitFor();
+  if(!await restart().isDisabled()) throw Error('Rollback did not keep actions blocked');
+  current={...current,status:'failed',outcome:'rolled_back',stage:'completed',rollback:'restored'};
+  await drawer.getByText('update: Failed · previous version restored',{exact:true}).waitFor();
+  await drawer.getByLabel('More actions',{exact:true}).click();
+  await drawer.getByRole('button',{name:'Update images',exact:true}).click();
+  await drawer.getByText(/Uses the saved source\. Unchanged images preserve containers/).waitFor();
+  if(await drawer.getByRole('button',{name:'Update images',exact:true}).isVisible()) throw Error('Maintenance menu covers update confirmation');
+  if(!await drawer.getByRole('button',{name:'Cancel',exact:true}).evaluate(el=>document.activeElement===el)) throw Error('Confirmation did not receive keyboard focus');
+  for(const width of [1440,768,390,320]) {
+    await page.setViewportSize({width,height:1000});
+    if(await drawer.evaluate(el=>el.scrollWidth>el.clientWidth+1)) throw Error('Update confirmation overflows '+width);
+  }
+  await page.screenshot({path:'output/playwright/c3-update-320.png'});
+  await drawer.getByRole('button',{name:'Cancel',exact:true}).click();
+  if(!await drawer.getByLabel('More actions',{exact:true}).evaluate(el=>document.activeElement===el)) throw Error('Cancel did not return focus to the maintenance menu');
   await page.keyboard.press('Escape');
   await drawer.waitFor({state:'hidden'});
-  console.log('PASS: restored history after drawer/browser reload, operation blocking, keyboard review, acknowledgement conflict/retry/focus, cleanup/rollback detail and 1440/768/390/320px');
+  console.log('PASS: restored history/recovery, C3 unchanged/cache/rollback outcomes and action blocking, update confirmation and 1440/768/390/320px');
 }
 )(page);
 }

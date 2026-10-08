@@ -3,7 +3,10 @@ package managed
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -17,6 +20,49 @@ func TestLoadSourceAcceptsTextInputs(t *testing.T) {
 		if err != nil || source.Kind != input.Kind || source.YAML != input.YAML {
 			t.Fatalf("LoadSource(%+v) = %+v, %v", input, source, err)
 		}
+	}
+}
+
+func TestHTTPSIntakeResponseAndCancellation(t *testing.T) {
+	for _, scenario := range []struct {
+		name, body string
+		status     int
+		ok         bool
+	}{
+		{"valid", "services:\n  web:\n    image: alpine:3.23\n", http.StatusOK, true},
+		{"not-found", "", http.StatusNotFound, false},
+		{"redirect", "", http.StatusFound, false},
+		{"too-large", strings.Repeat("x", MaxSourceBytes+1), http.StatusOK, false},
+		{"invalid-utf8", string([]byte{0xff}), http.StatusOK, false},
+		{"empty", "", http.StatusOK, false},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if scenario.status == http.StatusFound {
+					w.Header().Set("Location", "/redirect-target")
+				}
+				w.WriteHeader(scenario.status)
+				_, _ = w.Write([]byte(scenario.body))
+			}))
+			defer server.Close()
+			u, _ := url.Parse(server.URL + "/compose.yaml")
+			source, err := fetchSourceURL(t.Context(), u, sourceURLClient(server.Client().Transport))
+			if scenario.ok {
+				if err != nil || source.Kind != "url" || source.URL != u.String() || source.Filename != "compose.yaml" || source.YAML != scenario.body {
+					t.Fatalf("invalid HTTPS intake: %v", err)
+				}
+			} else if !errors.Is(err, ErrInvalidSource) {
+				t.Fatalf("unsafe response accepted: %v", err)
+			}
+		})
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("services: {}")) }))
+	defer server.Close()
+	u, _ := url.Parse(server.URL + "/compose.yml")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := fetchSourceURL(ctx, u, sourceURLClient(server.Client().Transport)); !errors.Is(err, ErrInvalidSource) {
+		t.Fatal("cancelled fetch accepted")
 	}
 }
 

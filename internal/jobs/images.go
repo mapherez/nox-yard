@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/containerd/errdefs"
+	"github.com/mapherez/nox-yard/internal/imageidentity"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/client"
 )
@@ -37,7 +38,7 @@ func Images(ctx context.Context, resources []string, cached bool) ([]store.Image
 			image.StartedAt = item.State.StartedAt
 		}
 		if cached && item.Config != nil {
-			local, err := cli.ImageInspect(ctx, item.Config.Image)
+			local, err := cli.ImageInspect(ctx, imageidentity.Reference(item.Config.Image, item.Config.Labels))
 			if err != nil {
 				return nil, err
 			}

@@ -74,8 +74,9 @@ func adoptionRuntimeFingerprint(items []container.InspectResponse) string {
 }
 
 type imageDefaults struct {
-	ID     string
-	Config container.Config
+	ID       string
+	Platform string
+	Config   container.Config
 }
 
 func readImageDefaults(ctx context.Context, reference string) (imageDefaults, error) {
@@ -92,7 +93,11 @@ func readImageDefaults(ctx context.Context, reference string) (imageDefaults, er
 	if err != nil {
 		return imageDefaults{}, err
 	}
-	result := imageDefaults{ID: value.ID}
+	platform := value.Os + "/" + value.Architecture
+	if value.Variant != "" {
+		platform += "/" + value.Variant
+	}
+	result := imageDefaults{ID: value.ID, Platform: platform}
 	err = json.Unmarshal(encoded, &result.Config)
 	return result, err
 }

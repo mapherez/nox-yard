@@ -204,6 +204,10 @@ try:
     for operation in ("stop", "start", "restart", "pull", "update"):
         await_job(url, tool(url, "yard_compose_operation", {
             "name": project, "operation": operation, "removeVolumes": False}))
+    pinned_ids = docker("ps", "-aq", "--no-trunc", "--filter", "label=com.docker.compose.project=" + project)
+    assert tool(url, "yard_project_pull", {"id": "compose:" + project})["succeeded"] == 1
+    assert tool(url, "yard_container_pull", {"id": pinned_ids})["succeeded"] == 1
+    assert docker("ps", "-aq", "--no-trunc", "--filter", "label=com.docker.compose.project=" + project) == pinned_ids
     assert any(item["id"] == "compose:" + project and item["kind"] == "managed-compose"
                for item in tool(url, "yard_projects")["projects"])
     await_job(url, tool(url, "yard_compose_operation", {
@@ -242,10 +246,12 @@ try:
     managed_names.append(unhealthy_name)
     failed = await_job(url, tool(url, "yard_compose_submit", unhealthy), "failed")
     assert "unhealthy" in failed["error"], failed
-    failed = await_job(url, tool(url, "yard_compose_operation", {
-        "name": unhealthy_name, "operation": "update", "removeVolumes": False}), "failed")
-    assert "unhealthy" in failed["error"] and "rollback was not performed" in failed["error"], failed
-    print("PASS: healthy/one-shot deploy, unhealthy deploy/update failure and data preservation", flush=True)
+    original_ids = docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + unhealthy_name)
+    unchanged = await_job(url, tool(url, "yard_compose_operation", {
+        "name": unhealthy_name, "operation": "update", "removeVolumes": False}))
+    assert unchanged["outcome"] == "unchanged", unchanged
+    assert docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + unhealthy_name) == original_ids
+    print("PASS: healthy/one-shot deploy, unhealthy initial failure, unchanged image identity and data preservation", flush=True)
 
     # Adopt a fixture created by the host Compose CLI at its original directory.
     # The helper shares that exact path; no existing user stack is involved.

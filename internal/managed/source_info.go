@@ -25,7 +25,7 @@ var invalidProjectCharacter = regexp.MustCompile(`[^a-z0-9_-]+`)
 func InspectSource(content string) (SourceInfo, error) {
 	var model map[string]any
 	if err := yaml.Unmarshal([]byte(content), &model); err != nil {
-		return SourceInfo{}, fmt.Errorf("%w: invalid YAML: %v", ErrInvalidSource, err)
+		return SourceInfo{}, fmt.Errorf("%w: invalid YAML; check the Compose syntax", ErrInvalidSource)
 	}
 	services, ok := model["services"].(map[string]any)
 	if !ok || len(services) == 0 {

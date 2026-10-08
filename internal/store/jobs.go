@@ -19,6 +19,7 @@ type ImageIdentity struct {
 	Service     string `json:"service,omitempty"`
 	ContainerID string `json:"containerID,omitempty"`
 	ImageID     string `json:"imageID"`
+	Platform    string `json:"platform,omitempty"`
 	StartedAt   string `json:"startedAt,omitempty"`
 }
 
@@ -297,7 +298,7 @@ func (s *Store) AcknowledgeRecovery(id string, updatedAt int64) error {
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.Exec(`UPDATE operation_jobs SET outcome='recovery_acknowledged',stage='completed',updated_at=? WHERE id=? AND status='failed' AND outcome='recovery_required' AND updated_at=?`, time.Now().Unix(), id, updatedAt)
+	result, err := tx.Exec(`UPDATE operation_jobs SET outcome='recovery_acknowledged',stage='completed',worker_cleaned_at=0,updated_at=? WHERE id=? AND status='failed' AND outcome='recovery_required' AND updated_at=?`, time.Now().Unix(), id, updatedAt)
 	if err := changed(result, err); err != nil {
 		return err
 	}

@@ -7,10 +7,23 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mapherez/nox-yard/internal/imageidentity"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 )
+
+func TestInventoryPreservesManagedSourceReferenceAndExternalImage(t *testing.T) {
+	for _, image := range []string{"sha256:pinned", "nox-yard-rollback/operation:image-0"} {
+		item := describe(container.Summary{ID: "test", Image: image, Labels: map[string]string{imageidentity.ReferenceLabel: "app:latest"}})
+		if item.Image != "app:latest" {
+			t.Fatal("managed inventory exposed internal pinned/rollback reference")
+		}
+	}
+	if item := describe(container.Summary{ID: "test", Image: "external@sha256:digest"}); item.Image != "external@sha256:digest" {
+		t.Fatal("external image reference changed")
+	}
+}
 
 func TestContainerInspectionMasksEnvironmentByDefault(t *testing.T) {
 	port := network.MustParsePort("8080/tcp")

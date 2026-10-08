@@ -114,8 +114,11 @@ func TestPullDeduplicatesImagesAndPreservesTypedFailure(t *testing.T) {
 			if strings.Contains(r.URL.Path, b) {
 				id = b
 			}
-			return dockerResponse(200, fmt.Sprintf(`{"Id":%q,"Config":{"Image":"app:latest"}}`, id)), nil
+			return dockerResponse(200, fmt.Sprintf(`{"Id":%q,"Config":{"Image":"sha256:pinned","Labels":{"nox-yard.image-reference":"app:latest"}}}`, id)), nil
 		case strings.HasSuffix(r.URL.Path, "/images/create"):
+			if r.URL.Query().Get("fromImage") != "docker.io/library/app" || r.URL.Query().Get("tag") != "latest" {
+				t.Fatalf("pull lost mutable source reference: %s", r.URL.RawQuery)
+			}
 			pulls++
 			return dockerResponse(503, `{"message":"registry unavailable"}`), nil
 		default:

@@ -91,13 +91,18 @@ func loadURL(ctx context.Context, raw string) (Source, error) {
 		DialContext:            dialPublic,
 	}
 	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   10 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return errors.New("redirects are not allowed for Compose URLs")
-		},
-	}
+	return fetchSourceURL(ctx, u, sourceURLClient(transport))
+}
+
+func sourceURLClient(transport http.RoundTripper) *http.Client {
+	return &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return errors.New("redirects are not allowed for Compose URLs")
+	}}
+}
+
+// Intake response handling is testable with a local TLS fixture. Production
+// always enters through loadURL's strict URL checks and dialPublic transport.
+func fetchSourceURL(ctx context.Context, u *url.URL, client *http.Client) (Source, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return Source{}, fmt.Errorf("%w: invalid URL", ErrInvalidSource)
