@@ -67,12 +67,12 @@ def until(check, description, seconds=60):
         time.sleep(0.2)
     raise AssertionError("Timed out: " + description)
 
-def request(url, path, body=None, opener=None, headers=None):
+def request(url, path, body=None, opener=None, headers=None, method=None):
     data = None if body is None else json.dumps(body).encode()
     headers = dict(headers or {})
     if body is not None:
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url + path, data=data, headers=headers)
+    req = urllib.request.Request(url + path, data=data, headers=headers, method=method)
     try:
         response = (opener.open if opener else urllib.request.urlopen)(req, timeout=65)
     except urllib.error.HTTPError as error:
@@ -114,7 +114,7 @@ def serve(image, platform="linux/amd64", socket=False):
     volumes.append(volume)
     options = ["--platform", platform, "--publish", "127.0.0.1::8080",
                "--mount", "type=volume,source=" + volume + ",target=/data",
-               "--env", "NOX_DATA_DIR=/data", "--env", "NOX_YARD_API_ENABLED=true",
+               "--env", "NOX_DATA_DIR=/data", "--env", "TZ=Europe/Lisbon", "--env", "NOX_YARD_API_ENABLED=true",
                "--env", "NOX_YARD_API_KEY=" + key,
                "--health-cmd", "wget -q -O /dev/null http://127.0.0.1:8080/healthz",
                "--health-interval", "2s", "--health-timeout", "2s",
@@ -127,7 +127,7 @@ def serve(image, platform="linux/amd64", socket=False):
     until(lambda: ready(url), platform + " health")
     rpc(url, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                            "clientInfo": {"name": "yard-smoke", "version": "1"}})
-    assert len(rpc(url, "tools/list", {})["tools"]) == 30
+    assert len(rpc(url, "tools/list", {})["tools"]) == 32
     assert tool(url, "yard_health")["ready"]
     return identifier, url
 
@@ -156,6 +156,12 @@ try:
                      "alpine:3.23", "sh", "-c",
                      "i=1; while [ $i -le 25 ]; do echo log-$i; i=$((i+1)); done; exec sleep 600")
     assert tool(url, "yard_container_action", {"id": fixture, "action": "start"})["succeeded"] == 1
+    schedule = tool(url, "yard_project_schedule_get", {"id": "container:" + fixture})
+    assert schedule["enabled"] is False and schedule["time"] == "03:00" and schedule["timezone"] == "Europe/Lisbon", schedule
+    schedule = tool(url, "yard_project_schedule_set", {"id": "container:" + fixture, "enabled": True})
+    assert schedule["enabled"] and schedule["nextAt"] > time.time(), schedule
+    assert tool(url, "yard_project_schedule_set", {"id": "container:" + fixture, "enabled": False})["enabled"] is False
+    print("PASS: C5 real MCP default-off, explicit server timezone, opt-in/disable and next future occurrence", flush=True)
     until(lambda: len(tool(url, "yard_container_logs", {"id": fixture})["lines"]) == 20,
           "log snapshot")
     lines = tool(url, "yard_container_logs", {"id": fixture})["lines"]
@@ -211,6 +217,13 @@ try:
     status, setup = request(url, "/api/setup", {"username": "smoke",
         "password": secrets.token_hex(24)}, opener=browser, headers={"Origin": url})
     assert status == 201, setup
+    schedule_path = "/api/projects/container:" + fixture + "/schedule"
+    status, browser_schedule = request(url, schedule_path, opener=browser)
+    assert status == 200 and browser_schedule["targetID"] == "container:" + fixture and browser_schedule["enabled"] is False and browser_schedule["timezone"] == "Europe/Lisbon", browser_schedule
+    status, browser_schedule = request(url, schedule_path, {"enabled": False}, opener=browser,
+        headers={"Origin": url, "X-CSRF-Token": setup["csrfToken"]}, method="PUT")
+    assert status == 200 and browser_schedule["enabled"] is False, browser_schedule
+    print("PASS: C5 retargeted schedule survives backend restart; browser settings match MCP", flush=True)
     events_response = browser.open(url + "/api/projects/events", timeout=10)
     events = queue.Queue()
     def receive_events():
@@ -438,7 +451,7 @@ try:
     until(lambda: ready(url), "Yard recovery")
     assert request(url, "/api/bootstrap", opener=browser)[1]["authenticated"]
     assert tool(url, "yard_projects_settings_get")["projectsBase"] == settings["projectsBase"]
-    assert len(rpc(url, "tools/list", {})["tools"]) == 30
+    assert len(rpc(url, "tools/list", {})["tools"]) == 32
     def restart_job():
         history = tool(url, "yard_job_history", {"target": "container:" + yard})["jobs"]
         return next((job for job in history if job["operation"] == "restart" and job["status"] != "running"), None)

@@ -9,6 +9,7 @@ services:
     ports:
       - "${NOX_BIND_ADDRESS:-0.0.0.0}:${NOX_PORT:-8095}:8080"
     environment:
+      TZ: ${NOX_TIMEZONE:-Etc/UTC}
       NOX_DATA_DIR: /data
       NOX_WEB_DIR: /srv/nox-yard/web
       NOX_LISTEN_ADDR: :8080

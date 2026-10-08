@@ -125,6 +125,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/projects", s.projects)
 	mux.HandleFunc("GET /api/projects/events", s.projectEvents)
+	mux.HandleFunc("GET /api/projects/{id}/schedule", s.projectSchedule)
+	mux.HandleFunc("PUT /api/projects/{id}/schedule", s.projectSchedule)
 	mux.HandleFunc("GET /api/metrics", s.metrics)
 	mux.HandleFunc("POST /api/managed/source", s.managedSource)
 	mux.HandleFunc("GET /api/managed/settings", s.managedSettingsGet)

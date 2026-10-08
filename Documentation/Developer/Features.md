@@ -22,7 +22,7 @@ The opt-in [Control API v1](Control-API.md) exposes inventory, inspection, Engin
 
 ## Embedded MCP
 
-An always-on, unauthenticated [MCP endpoint](MCP.md) at `/mcp` shares the existing process and port for private homelab LAN clients. Its 30 tools invoke the same application facade and managers as HTTP, including external update/recreate, job/history/recovery tools and the single notifier consumed by browser SSE. The runtime uses a 60-second global timeout; Compose/external-replacement/self-update jobs remain asynchronous. Finite log reads return the last 20 decoded records; interactive terminal and continuous streams retain their existing interfaces. Environment values require an explicit tool invocation. Tool annotations describe mutation, destructive effects and idempotency; the manual self-update tool explicitly advertises that it can update/restart Yard even with automatic updates disabled.
+An always-on, unauthenticated [MCP endpoint](MCP.md) at `/mcp` shares the existing process and port for private homelab LAN clients. Its 32 tools invoke the same application facade and managers as HTTP, including external update/recreate, job/history/recovery tools and the single notifier consumed by browser SSE. The runtime uses a 60-second global timeout; Compose/external-replacement/self-update jobs remain asynchronous. Finite log reads return the last 20 decoded records; interactive terminal and continuous streams retain their existing interfaces. Environment values require an explicit tool invocation. Tool annotations describe mutation, destructive effects and idempotency; the manual self-update tool explicitly advertises that it can update/restart Yard even with automatic updates disabled.
 
 ## Docker inventory
 
@@ -73,6 +73,12 @@ Removal opens a confirmation dialog backed by `GET /api/projects/{id}/remove/pre
 The existing Details drawer has an Operations section with persisted stage/outcome and the latest 30 contextual records, including rollback and cleanup information. Reloading the browser or reopening the drawer restores this state from `GET /api/jobs?target=...`; managed operations and Yard restart survive web-process interruption in independent workers. Shared resource reservations reject overlapping managed/Engine/Yard mutations across browser, MCP and Control API adapters.
 
 An exited worker is verified without replay when possible; otherwise its recovery-required failure keeps actions reserved for host inspection. The drawer requires explicit acknowledgement of that review before releasing the reservation. Acknowledgement changes no containers/files and does not report the failed operation as successful. Unavailable history blocks actions and offers Retry. See [Durable operations](Operation-Jobs.md) for the API, secret handling and recovery procedure.
+
+## Project automatic updates
+
+The project Details drawer provides **Automatic image updates**, disabled by default for managed Compose, external Compose and standalone projects. Enabling requires a supported healthy running target and explicit Save. The drawer shows 03:00, the server timezone, next check and last result. `NOX_TIMEZONE` in Compose configures the server's `TZ` (default `Etc/UTC`); browser timezone never defines the schedule.
+
+Daily checks use the same immutable image comparison, independent workers, configuration/data preservation, verification and bounded rollback as manual updates. Stopped, unhealthy, unsupported, absent and Yard/helper targets are skipped. Missed days become one latest-slot catch-up, with persisted occurrences preventing duplicate execution. Automatic work is serialized; busy/recovery targets have a recorded skip or deferral reason. A known failed image set is suppressed until new images or an explicit manual retry. Scheduled history distinguishes unchanged, skipped, verified, rollback and recovery outcomes. See [Project schedules](Project-Schedules.md) for adapters and recovery.
 
 ## NoX Yard self-update
 

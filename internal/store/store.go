@@ -73,14 +73,20 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	if version > 7 {
+	if version > 8 {
 		return fmt.Errorf("database schema version %d is newer than this application", version)
 	}
-	if version == 7 {
+	if version == 8 {
 		return nil
 	}
+	if version == 7 {
+		return migrateSchedules(db)
+	}
 	if version == 6 {
-		return migrateOperations(db)
+		if err := migrateOperations(db); err != nil {
+			return err
+		}
+		return migrateSchedules(db)
 	}
 	if version == 0 {
 		tx, err := db.Begin()
@@ -240,7 +246,10 @@ func migrate(db *sql.DB) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	return migrateOperations(db)
+	if err := migrateOperations(db); err != nil {
+		return err
+	}
+	return migrateSchedules(db)
 }
 
 func (s *Store) Directory() string { return s.directory }

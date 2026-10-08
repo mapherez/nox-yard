@@ -4,6 +4,7 @@ async (page) => {
   await page.unrouteAll({behavior:'wait'});
   await page.route('**/api/**', route => {
     const path=new URL(route.request().url()).pathname;
+    if(path.endsWith('/schedule')) return route.fulfill({json:{enabled:false,targetID:'compose:sample',timezone:'Etc/UTC',time:'03:00',eligible:true}});
     if(path==='/api/bootstrap') return route.fulfill({json:{authenticated:true,needsSetup:false,username:'admin',csrfToken:'fixture'}});
     if(path==='/api/projects/events') return route.fulfill({contentType:'text/event-stream',body:'data: {"inventory":false,"metrics":false}\n\n'});
     if(path==='/api/projects') return route.fulfill({json:{collectedAt:'2026-10-08T00:00:00Z',projects:[{id:'compose:sample',name:'sample',kind:'managed-compose',state:'running',health:'healthy',cpuPercent:null,memoryBytes:null,uptimeSeconds:null,networkRxBytes:null,networkTxBytes:null,containers:[]}]}});

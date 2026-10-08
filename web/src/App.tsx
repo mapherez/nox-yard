@@ -38,6 +38,7 @@ import { NewProjectDrawer } from "./NewProjectDrawer";
 import { useProjects } from "./useProjects";
 import { useOperationHistory } from "./useOperationHistory";
 import { OperationHistory } from "./OperationHistory";
+import { ProjectSchedule } from "./ProjectSchedule";
 import { RecreateConfirmation, type RecreateTarget } from "./RecreateConfirmation";
 
 type View =
@@ -599,6 +600,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
         </>}
         {actionMessage && <p className={styles.actionMessage} role="status">{actionMessage}</p>}
         {actionError && <p className={styles.inventoryError} role="alert">{actionError}</p>}
+        <ProjectSchedule key={`schedule:${project.id}`} target={project.id} revision={operations.history.map(job => `${job.id}:${job.updatedAt}:${job.outcome}`).join("|")} csrfToken={csrfToken} onChanged={onChanged} />
         <OperationHistory key={`history:${project.id}`} history={operations.history} error={operations.error} loading={operations.loading} csrfToken={csrfToken} onRefresh={operations.refresh} />
         {activeContainer
           ? <ContainerDetails

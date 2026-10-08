@@ -23,6 +23,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/mcpapi"
 	"github.com/mapherez/nox-yard/internal/recreate"
+	"github.com/mapherez/nox-yard/internal/schedule"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"golang.org/x/term"
@@ -138,6 +139,14 @@ func run() error {
 	}
 	stopObserver := observer.Start(ctx)
 	defer stopObserver()
+	location, err := schedule.Location(environment("TZ", "Etc/UTC"))
+	if err != nil {
+		return fmt.Errorf("invalid server timezone TZ: %w", err)
+	}
+	projectScheduler := &schedule.Manager{Data: data, Location: location, Run: app.RunScheduledUpdate, Notify: func() { changes.Notify(inventory.Change{Inventory: true}) }, Reconcile: observer.Reconcile}
+	app.Scheduler = projectScheduler
+	stopScheduler := projectScheduler.Start(ctx)
+	defer stopScheduler()
 	dockerInventory.Start(ctx, changes.Notify)
 	mcpRuntime, err := mcpapi.New(app, control.Version)
 	if err != nil {

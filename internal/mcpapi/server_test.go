@@ -20,6 +20,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/mcpapi"
+	"github.com/mapherez/nox-yard/internal/schedule"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -177,9 +178,11 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Tools) != 30 {
+	if len(list.Tools) != 32 {
 		t.Fatalf("tools=%d", len(list.Tools))
 	}
+	app.Scheduler = &schedule.Manager{Data: app.Store, Location: time.UTC}
+
 	expectedCLIPaths := map[string]string{
 		"yard_health":                       "health",
 		"yard_status":                       "status",
@@ -192,6 +195,8 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 		"yard_project_action":               "project action",
 		"yard_container_pull":               "container pull",
 		"yard_project_pull":                 "project pull",
+		"yard_project_schedule_get":         "project schedule get",
+		"yard_project_schedule_set":         "project schedule set",
 		"yard_container_remove_preview":     "container remove preview",
 		"yard_project_remove_preview":       "project remove preview",
 		"yard_container_remove":             "container remove",
@@ -212,6 +217,21 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 		"yard_self_update_settings":         "update settings",
 		"yard_self_update_check_and_update": "update now",
 	}
+
+	for _, name := range []string{"yard_project_schedule_get", "yard_project_schedule_set"} {
+		args := map[string]any{"id": "container:" + id}
+		if name == "yard_project_schedule_set" {
+			args["enabled"] = false
+		}
+		result := call(t, session, name, args)
+		if result.IsError || !strings.Contains(text(result), `"enabled":false`) || !strings.Contains(text(result), `"timezone":"UTC"`) {
+			t.Fatal("schedule adapter", name, text(result))
+		}
+	}
+	resultMissing := call(t, session, "yard_project_schedule_set", map[string]any{"id": "container:" + id})
+	if !resultMissing.IsError {
+		t.Fatal("missing schedule enable flag accepted")
+	}
 	seenCLIPaths := map[string]string{}
 	writes := map[string]bool{}
 	for _, kind := range []string{"container", "project"} {
@@ -219,7 +239,7 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 			writes["yard_"+kind+"_"+op] = true
 		}
 	}
-	for _, name := range []string{"yard_recreate_submit", "yard_compose_submit", "yard_compose_operation", "yard_job_recovery_acknowledge", "yard_projects_settings_set", "yard_self_update_settings", "yard_self_update_check_and_update"} {
+	for _, name := range []string{"yard_project_schedule_set", "yard_recreate_submit", "yard_compose_submit", "yard_compose_operation", "yard_job_recovery_acknowledge", "yard_projects_settings_set", "yard_self_update_settings", "yard_self_update_check_and_update"} {
 		writes[name] = true
 	}
 	for _, tool := range list.Tools {
@@ -246,7 +266,7 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 			t.Fatalf("missing metadata for %s", tool.Name)
 		}
 		mutation := writes[tool.Name]
-		if a.ReadOnlyHint == mutation || *a.DestructiveHint != mutation || a.IdempotentHint != (!mutation || tool.Name == "yard_projects_settings_set") {
+		if a.ReadOnlyHint == mutation || *a.DestructiveHint != mutation || a.IdempotentHint != (!mutation || tool.Name == "yard_projects_settings_set" || tool.Name == "yard_project_schedule_set") {
 			t.Fatalf("wrong annotations %s: %+v", tool.Name, a)
 		}
 		if tool.Name == "yard_self_update_check_and_update" && (!strings.Contains(tool.Description, "even when automatic updates are disabled") || tool.Title != "Check and update NoX Yard") {

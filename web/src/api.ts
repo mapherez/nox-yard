@@ -90,7 +90,7 @@ export function previewRecreate(id: string, operation: "update" | "recreate", cs
 export function submitRecreate(id: string, operation: "update" | "recreate", fingerprint: string, csrfToken: string): Promise<ManagedJob> {
   return trackInventoryAction(id, operation, () => request<ManagedJob>("/api/recreate/submit", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ id, operation, fingerprint, confirm: true }) }));
 }
-export type ManagedJob = { id: string; projectName: string; targetID: string; domain: string; operation: string; status: "running" | "succeeded" | "failed"; stage: string; outcome?: string; error?: string; cleanupError?: string; rollback?: string; createdAt: number; startedAt?: number; completedAt?: number; updatedAt: number; deadlineAt?: number; workerID?: string; sourceImages?: ImageIdentity[]; targetImages?: ImageIdentity[] };
+export type ManagedJob = { id: string; projectName: string; targetID: string; domain: string; operation: string; status: "running" | "succeeded" | "failed"; stage: string; outcome?: string; scheduledFor?: number; error?: string; cleanupError?: string; rollback?: string; createdAt: number; startedAt?: number; completedAt?: number; updatedAt: number; deadlineAt?: number; workerID?: string; sourceImages?: ImageIdentity[]; targetImages?: ImageIdentity[] };
 
 export type LifecycleAction = "start" | "stop" | "restart";
 
@@ -346,4 +346,12 @@ export function signOut(csrfToken: string): Promise<void> {
     method: "POST",
     headers: { "X-CSRF-Token": csrfToken },
   });
+}
+
+export type ProjectScheduleStatus = { targetID: string; enabled: boolean; timezone: string; time: string; eligible: boolean; reason?: string; nextAt?: number; lastAt?: number; lastOutcome?: string; lastReason?: string; lastJobID?: string };
+export function getProjectSchedule(target: string): Promise<ProjectScheduleStatus> {
+  return request<ProjectScheduleStatus>(`/api/projects/${encodeURIComponent(target)}/schedule`);
+}
+export function setProjectSchedule(target: string, enabled: boolean, csrfToken: string): Promise<ProjectScheduleStatus> {
+  return request<ProjectScheduleStatus>(`/api/projects/${encodeURIComponent(target)}/schedule`, { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ enabled }) });
 }

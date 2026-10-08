@@ -142,3 +142,15 @@ Do not mark a phase complete based on scaffolding or a successful build alone. U
 ## Updating NoX MCP
 
 The embedded MCP adapter consumes the latest available NoX MCP through normal Go module resolution. Update with `go get github.com/mapherez/nox-mcp@latest`, then `go mod tidy`, and commit the generated `go.mod`/`go.sum` changes. Run the repository checks, MCP integration tests and both architecture builds. Do not manage dependency SHAs manually or use a local checkout replacement. See [MCP](MCP.md) for the transport and shared-facade contracts.
+
+## Project schedule validation
+
+Compose passes `NOX_TIMEZONE` (IANA name, default `Etc/UTC`) as `TZ`; the backend rejects an invalid timezone. A direct local server uses `TZ` itself, defaulting to UTC. Opt-in remains per project, independent of the Yard self-update settings.
+
+```sh
+python scripts/smoke-schedules.py --image nox-yard:local
+# With local Vite and a Playwright CLI browser session:
+playwright-cli run-code --filename scripts/smoke-schedules.cjs
+```
+
+The scheduling fixture uses a disposable registry, application images, named state volume and Linux runner containing the built Yard binary. Updates run through real independent workers with only state/socket mounts. Test code supplies the daily clock to `Tick`; production provides no clock override. Assertions cover default-off, unchanged/changed images, reopening storage during a running worker, standalone target lineage, failed-image suppression/manual retry, extra image-volume rejection, stopped/manual-busy targets, external Compose and managed comparison/rollback/source preservation. Store/time tests cover two SQLite connections, atomic admission, coalesced misses, civil-date duplication, DST and schema 7 migration. Browser checks cover opt-in/save/retry/reload, effective timezone, skipped history, unavailable-target disable and 320px/keyboard behavior. Cleanup uses only generated fixture identities and recorded anonymous volumes. Docker Desktop and ARM64 emulation do not replace C6 real-host acceptance.

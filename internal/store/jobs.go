@@ -67,34 +67,42 @@ func (s *Store) RetargetJob(id, owner, target string, resources []string) error 
 	if err := changed(result, err); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`UPDATE project_schedules SET target_id=? WHERE target_id=?`, target, job.TargetID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
 // Job is the additive public operation contract. Payload and execution ownership
 // are private: they may contain source files, interpolation values and tokens.
 type Job struct {
-	ID           string          `json:"id"`
-	ProjectName  string          `json:"projectName"`
-	TargetID     string          `json:"targetID"`
-	Domain       string          `json:"domain"`
-	Operation    string          `json:"operation"`
-	Status       string          `json:"status"`
-	Stage        string          `json:"stage"`
-	Outcome      string          `json:"outcome,omitempty"`
-	WorkerID     string          `json:"workerID,omitempty"`
-	SourceImages []ImageIdentity `json:"sourceImages,omitempty"`
-	TargetImages []ImageIdentity `json:"targetImages,omitempty"`
-	Rollback     string          `json:"rollback,omitempty"`
-	Error        string          `json:"error,omitempty"`
-	CleanupError string          `json:"cleanupError,omitempty"`
-	CreatedAt    int64           `json:"createdAt"`
-	StartedAt    int64           `json:"startedAt,omitempty"`
-	UpdatedAt    int64           `json:"updatedAt"`
-	CompletedAt  int64           `json:"completedAt,omitempty"`
-	DeadlineAt   int64           `json:"deadlineAt,omitempty"`
-	Resources    []string        `json:"-"`
-	Owner        string          `json:"-"`
-	Payload      string          `json:"-"`
+	ID                   string          `json:"id"`
+	ProjectName          string          `json:"projectName"`
+	TargetID             string          `json:"targetID"`
+	Domain               string          `json:"domain"`
+	Operation            string          `json:"operation"`
+	Status               string          `json:"status"`
+	Stage                string          `json:"stage"`
+	Outcome              string          `json:"outcome,omitempty"`
+	WorkerID             string          `json:"workerID,omitempty"`
+	SourceImages         []ImageIdentity `json:"sourceImages,omitempty"`
+	TargetImages         []ImageIdentity `json:"targetImages,omitempty"`
+	Rollback             string          `json:"rollback,omitempty"`
+	Error                string          `json:"error,omitempty"`
+	CleanupError         string          `json:"cleanupError,omitempty"`
+	CreatedAt            int64           `json:"createdAt"`
+	StartedAt            int64           `json:"startedAt,omitempty"`
+	UpdatedAt            int64           `json:"updatedAt"`
+	CompletedAt          int64           `json:"completedAt,omitempty"`
+	DeadlineAt           int64           `json:"deadlineAt,omitempty"`
+	ScheduledFor         int64           `json:"scheduledFor,omitempty"`
+	ScheduleKey          string          `json:"-"`
+	CandidateFingerprint string          `json:"-"`
+	scheduleDate         string
+	scheduleNext         int64
+	Resources            []string `json:"-"`
+	Owner                string   `json:"-"`
+	Payload              string   `json:"-"`
 }
 
 func migrateOperations(db *sql.DB) error {
@@ -161,11 +169,17 @@ func insertJob(tx *sql.Tx, job Job) error {
 	}
 	encode := func(value any) string { data, _ := json.Marshal(value); return string(data) }
 	_, err := tx.Exec(`INSERT INTO operation_jobs (id, project_name, target_id, domain, operation, status, stage, worker_id, owner, payload,
- resources_json, source_images_json, target_images_json, created_at, updated_at, deadline_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+ resources_json, source_images_json, target_images_json, created_at, updated_at, deadline_at, schedule_key, scheduled_for, outcome, error, started_at, completed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		job.ID, job.ProjectName, job.TargetID, job.Domain, job.Operation, job.Status, job.Stage, job.WorkerID, job.Owner, job.Payload,
-		encode(unique), encode(job.SourceImages), encode(job.TargetImages), job.CreatedAt, job.UpdatedAt, job.DeadlineAt)
+		encode(unique), encode(job.SourceImages), encode(job.TargetImages), job.CreatedAt, job.UpdatedAt, job.DeadlineAt, job.ScheduleKey, job.ScheduledFor, job.Outcome, job.Error, job.StartedAt, job.CompletedAt)
 	if err != nil {
 		return err
+	}
+	if err := claimSchedule(tx, job); err != nil {
+		return err
+	}
+	if job.Status != "running" {
+		return finishSchedule(tx, job.ID, job.Status, job.Outcome, job.Error)
 	}
 	for _, key := range unique {
 		result, err := tx.Exec(`INSERT INTO operation_locks(resource,job_id) VALUES (?,?) ON CONFLICT(resource) DO NOTHING`, key, job.ID)
@@ -196,13 +210,13 @@ func (s *Store) CreateJob(job Job) error {
 }
 
 const jobColumns = `id, project_name, target_id, domain, operation, status, stage, outcome, worker_id, owner, payload,
- resources_json, source_images_json, target_images_json, rollback, error, cleanup_error, created_at, started_at, updated_at, completed_at, deadline_at`
+ resources_json, source_images_json, target_images_json, rollback, error, cleanup_error, created_at, started_at, updated_at, completed_at, deadline_at,schedule_key,scheduled_for,candidate_fingerprint`
 
 func scanJob(row interface{ Scan(...any) error }) (Job, error) {
 	var job Job
 	var resources, source, target string
 	err := row.Scan(&job.ID, &job.ProjectName, &job.TargetID, &job.Domain, &job.Operation, &job.Status, &job.Stage, &job.Outcome, &job.WorkerID, &job.Owner, &job.Payload,
-		&resources, &source, &target, &job.Rollback, &job.Error, &job.CleanupError, &job.CreatedAt, &job.StartedAt, &job.UpdatedAt, &job.CompletedAt, &job.DeadlineAt)
+		&resources, &source, &target, &job.Rollback, &job.Error, &job.CleanupError, &job.CreatedAt, &job.StartedAt, &job.UpdatedAt, &job.CompletedAt, &job.DeadlineAt, &job.ScheduleKey, &job.ScheduledFor, &job.CandidateFingerprint)
 	if err != nil {
 		return job, err
 	}
@@ -316,6 +330,9 @@ func finishJobTx(tx *sql.Tx, id, owner, status, outcome, message, rollback strin
 	if err := changed(result, err); err != nil {
 		return err
 	}
+	if err := finishSchedule(tx, id, status, outcome, message); err != nil {
+		return err
+	}
 	if outcome != "recovery_required" {
 		if _, err := tx.Exec("DELETE FROM operation_locks WHERE job_id=?", id); err != nil {
 			return err
@@ -357,6 +374,9 @@ func (s *Store) AcknowledgeRecovery(id string, updatedAt int64) error {
 	defer tx.Rollback()
 	result, err := tx.Exec(`UPDATE operation_jobs SET outcome='recovery_acknowledged',stage='completed',worker_cleaned_at=0,updated_at=? WHERE id=? AND status='failed' AND outcome='recovery_required' AND updated_at=?`, time.Now().Unix(), id, updatedAt)
 	if err := changed(result, err); err != nil {
+		return err
+	}
+	if err := finishSchedule(tx, id, "failed", "recovery_acknowledged", "Recovery was reviewed; a manual retry is available."); err != nil {
 		return err
 	}
 	if _, err := tx.Exec("DELETE FROM operation_locks WHERE job_id=?", id); err != nil {

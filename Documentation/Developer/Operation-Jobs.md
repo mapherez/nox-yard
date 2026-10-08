@@ -4,13 +4,15 @@ Managed Compose, Engine lifecycle/pull/removal/update/recreate, Yard restart and
 
 ## Persisted contract
 
-Schema version 7 preserves earlier managed and self-update records without assuming that running work failed. Jobs keep `running`, `succeeded` and `failed` status, with additive target/domain, stage, outcome, worker identity, source/target image identities/platforms, execution timestamps, deadline, rollback and cleanup fields. Legacy records can have incomplete identities/timestamps. A successfully restored rollback still has failed status. Managed pull/update/sync expose `cached`, `unchanged`, `verified`, `rolled_back` or `recovery_required` outcomes; see [Managed updates](Managed-Updates.md).
+Schema version 8 preserves earlier managed and self-update records without assuming that running work failed. Jobs keep `running`, `succeeded` and `failed` status, with additive target/domain, stage, outcome, worker identity, source/target image identities/platforms, execution timestamps, deadline, rollback and cleanup fields. Legacy records can have incomplete identities/timestamps. A successfully restored rollback still has failed status. Managed pull/update/sync expose `cached`, `unchanged`, `verified`, `rolled_back` or `recovery_required` outcomes; see [Managed updates](Managed-Updates.md).
 
 Source definitions, environment files, variables, resource keys and ownership tokens remain private. Public history excludes the execution payload and token; migrated managed errors and new operation errors use safe messages. SQLite contains sensitive inputs and must remain private. The dedicated self-update status retains its existing diagnostic contract.
 
 C4 adds per-container `previousContainerID`, `outcome` and `state` to image results without another schema migration. Verified/restored results expose running/stopped/completed state; unverified or uncertain results expose `unknown`. Standalone target IDs change with successful recreation, while persisted lineage reservations preserve old/new history and locks. External full inspect journals stay private.
 
 Browser routes require a session: `GET /api/jobs?target=compose:NAME` (or `container:FULL_ID`) returns the latest 30 operations, and `GET /api/jobs/{id}` returns one record. Project history includes container operations that reserved that project. The existing `/api/managed/jobs/{id}` and `yard_compose_job` remain compatible lookups. MCP also exposes `yard_job`, `yard_job_history` and `yard_job_recovery_acknowledge`. Control API v1 keeps its synchronous response shapes and discovers no new routes; its actions are recorded in contextual history.
+
+C5 adds project schedule settings, unique civil-date occurrences and private candidate-image fingerprints. Public jobs add `scheduledFor` (Unix seconds); schedule keys and failed-image fingerprints remain private. Occurrence, job and reservations are admitted in one transaction. Skipped checks produce terminal `schedule`-domain jobs without acquiring mutation locks. Automatic workers also reserve `scheduler:projects`; other due schedules remain deferred until execution/cleanup/recovery permits progress. Standalone schedules follow guarded target retargeting. Successful removal disables matching schedules. See [Project schedules](Project-Schedules.md).
 
 ## Worker lifetime and observation
 

@@ -1,6 +1,6 @@
 # External updates, recreation and removal
 
-`internal/recreate` replaces supported standalone containers or complete external Compose projects through the Linux Docker Engine. It does not read or rewrite their Compose source. Managed projects use their stored definition and the [managed update protocol](Managed-Updates.md); Yard uses its dedicated self-update path. Project scheduling remains C5 work.
+`internal/recreate` replaces supported standalone containers or complete external Compose projects through the Linux Docker Engine. It does not read or rewrite their Compose source. Managed projects use their stored definition and the [managed update protocol](Managed-Updates.md); Yard uses its dedicated self-update path. Opt-in project scheduling uses this same assessed update path; see [Project schedules](Project-Schedules.md).
 
 ## Review and supported configuration
 

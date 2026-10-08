@@ -33,6 +33,8 @@ IDs must be copied from inventory: containers use full 64-character lowercase he
 | `yard_project_action` | `project action` | `id`, `action`: `start`, `stop`, `restart`. Shared Engine lifecycle. |
 | `yard_container_pull` | `container pull` | `id`. Pull configured images without recreating containers. |
 | `yard_project_pull` | `project pull` | `id`. Pull configured images without recreating containers. |
+| `yard_project_schedule_get` | `project schedule get` | `id`. Default-off project setting, 03:00 server timezone, eligibility and last/next result. |
+| `yard_project_schedule_set` | `project schedule set` | `id`, required `enabled` boolean. Explicitly opt in/out of daily image updates for a supported running target. Independent of Yard self-update. |
 | `yard_recreate_preview` | `recreate preview` | `id`, `operation`: `update` or `recreate`. Assess standalone/complete external Compose, returning secret-safe configuration/order and fingerprint. Read-only. |
 | `yard_recreate_submit` | `recreate submit` | Same fields plus `confirm:true`, `fingerprint`. Independent replacement job, unchanged detection, per-container results and rollback. |
 | `yard_container_remove_preview` | `container remove preview` | `id`, optional `removeVolumes` (default false). Current removal plan and choice fingerprint. |
@@ -55,13 +57,13 @@ IDs must be copied from inventory: containers use full 64-character lowercase he
 
 Required fields and output shapes are available through `tools/list`. Normal results use structured content plus a JSON text representation. Errors use `IsError` and a code/message envelope; operation errors retain counters and partial results under `details.result`. Accepted jobs and queued restart helpers are not reported as completed operations.
 
-All tools explicitly declare ReadOnly, Destructive and Idempotent through NoX MCP. Reads/previews, including explicit environment reads, are `(true,false,true)`. Engine actions, pulls, removals, Compose submissions/operations and self-update mutations are conservatively `(false,true,false)`. Setting the projects directory is `(false,true,true)`. Multi-mode tool annotations cover all accepted modes.
+All tools explicitly declare ReadOnly, Destructive and Idempotent through NoX MCP. Reads/previews, including explicit environment reads, are `(true,false,true)`. Engine actions, pulls, removals, Compose submissions/operations and self-update mutations are conservatively `(false,true,false)`. Setting the projects directory or a project schedule is `(false,true,true)`. Multi-mode tool annotations cover all accepted modes.
 
 ## Limits and continuous features
 
 The Yard configures the NoX MCP runtime with a global **60-second timeout**, 32 concurrent requests and an 8 MiB payload limit. Existing Compose source limits still apply. Neither the server's 130-second WriteTimeout nor the NoX MCP library's default timeout is changed.
 
-The catalog contains 30 tools. Managed Compose, external update/recreate and Yard restart use independent durable workers; self-update retains its dedicated worker. Query job/history/status tools rather than treating an accepted response as completion. Engine pulls remain synchronous and can exceed the MCP timeout. Interrupted Engine responses persist recovery-required outcomes and hold resource reservations until reviewed. There are no automatic mutation retries. See [Durable operations](Operation-Jobs.md) for the additive fields and recovery procedure, and [External updates](External-Updates.md) for configuration limits and removal compatibility. Omitted volume choice now retains volumes, correcting the former Engine default.
+The catalog contains 32 tools. Managed Compose, external update/recreate and Yard restart use independent durable workers; self-update retains its dedicated worker. Query job/history/status tools rather than treating an accepted response as completion. Engine pulls remain synchronous and can exceed the MCP timeout. Interrupted Engine responses persist recovery-required outcomes and hold resource reservations until reviewed. There are no automatic mutation retries. See [Durable operations](Operation-Jobs.md) for the additive fields and recovery procedure, and [External updates](External-Updates.md) for configuration limits and removal compatibility. Omitted volume choice now retains volumes, correcting the former Engine default.
 
 Container log snapshots share Docker opening and stdout/stderr/TTY decoding with browser SSE. The browser retains its 200-record initial tail and continuous stream. Long lines retain the existing 16 KiB segmentation, and snapshots keep at most 20 decoded records.
 

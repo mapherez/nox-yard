@@ -158,6 +158,7 @@ func TestOperationMigrationPreservesManagedAndSelfUpdateRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		`DROP TABLE schedule_occurrences`, `DROP TABLE project_schedules`,
 		`DROP TABLE operation_locks`, `DROP TABLE operation_jobs`,
 		`INSERT INTO managed_jobs VALUES ('legacy','sample','update','running','',10,0)`,
 		`INSERT INTO managed_jobs VALUES ('legacy-failed','sample','update','failed','private-legacy-secret',9,10)`,

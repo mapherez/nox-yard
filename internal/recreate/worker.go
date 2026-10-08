@@ -44,6 +44,7 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.Job, error) 
 	if err != nil {
 		return job, err
 	}
+	job = store.ScheduledJob(ctx, job)
 	for _, target := range state.Entries {
 		target.Backup = "nox-yard-retained-" + job.ID + "-" + target.Old.ID[:12]
 		job.SourceImages = append(job.SourceImages, store.ImageIdentity{ContainerID: target.Old.ID, ImageID: target.Old.Image, Service: target.Old.Config.Labels["com.docker.compose.service"], Platform: target.Platform, StartedAt: target.Old.State.StartedAt})
@@ -235,6 +236,16 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 	if err != nil || fresh.Fingerprint != state.Request.Fingerprint {
 		return fail("Target configuration changed before execution; review a fresh preview.", err)
 	}
+	if job.ScheduleKey != "" {
+		enabled, err := m.data.ScheduleEnabled(job)
+		if err != nil {
+			return err
+		}
+		if !enabled || !automaticRuntime(&state) {
+			return m.data.FinishJob(job.ID, job.Owner, "succeeded", "skipped", "Automatic update skipped because the project is disabled, stopped or protected.", "")
+		}
+	}
+	additionalVolumes := false
 	if state.Request.Operation == "update" {
 		if err := m.save(job, &state, "pulling", nil); err != nil {
 			return err
@@ -270,7 +281,7 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 			if image.Config != nil {
 				for destination := range image.Config.Volumes {
 					if _, present := target.Old.Config.Volumes[destination]; !present {
-						return fail("The new image declares additional volumes; review the deployment source before replacement.", nil)
+						additionalVolumes = true
 					}
 				}
 			}
@@ -285,6 +296,23 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 	if err != nil || fresh.Fingerprint != state.Request.Fingerprint {
 		return fail("Target configuration changed during pull; review again.", err)
 	}
+	images := []store.ImageIdentity{}
+	for _, target := range state.Entries {
+		images = append(images, store.ImageIdentity{Service: target.Old.Config.Labels["com.docker.compose.service"], ImageID: target.TargetImage, Platform: target.Platform})
+	}
+	reason, err := m.data.UpdateCandidate(job, images)
+	if err != nil {
+		return err
+	}
+	if reason != "" {
+		if err := m.save(job, &state, "committing", results(&state, "skipped")); err != nil {
+			return err
+		}
+		return m.data.FinishJob(job.ID, job.Owner, "succeeded", "skipped", reason, "")
+	}
+	if additionalVolumes {
+		return fail("The new image declares additional volumes; review the deployment source before replacement.", nil)
+	}
 	unchanged := state.Request.Operation == "update"
 	for _, target := range state.Entries {
 		if target.TargetImage != target.Old.Image {
@@ -296,6 +324,15 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 			return err
 		}
 		return m.data.FinishJob(job.ID, job.Owner, "succeeded", "unchanged", "", "")
+	}
+	if job.ScheduleKey != "" {
+		reason, err := m.data.UpdateCandidate(job, images)
+		if err != nil {
+			return err
+		}
+		if reason != "" {
+			return m.data.FinishJob(job.ID, job.Owner, "succeeded", "skipped", reason, "")
+		}
 	}
 	state.Mutated = true
 	if err := m.save(job, &state, "replacing", results(&state, "pending")); err != nil {

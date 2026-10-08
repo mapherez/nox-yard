@@ -28,6 +28,7 @@ func (m *Manager) enqueue(ctx context.Context, project store.ManagedProject, ope
 		return job, err
 	}
 	job.ProjectName = project.Name
+	job = store.ScheduledJob(ctx, job)
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return job, err

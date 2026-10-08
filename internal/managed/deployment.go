@@ -307,6 +307,15 @@ func (m *Manager) deploy(ctx context.Context, job store.Job, payload workerPaylo
 	if err := m.saveDeployment(job, payload, "preparing"); err != nil {
 		return err
 	}
+	if job.ScheduleKey != "" {
+		enabled, err := m.data.ScheduleEnabled(job)
+		if err != nil {
+			return err
+		}
+		if !enabled {
+			return m.data.FinishJob(job.ID, job.Owner, "succeeded", "skipped", "Automatic updates were disabled before execution.", "")
+		}
+	}
 	variables, envFiles, err := projectEnvironment(project)
 	if err != nil {
 		return finishFailure("Saved project environment could not be read.")
@@ -337,6 +346,9 @@ func (m *Manager) deploy(ctx context.Context, job store.Job, payload workerPaylo
 				return finishFailure("Cannot safely replace this project: " + err.Error() + ".")
 			}
 			snapshot = prepared
+			if job.ScheduleKey != "" && !automaticRuntime(preview, runtime) {
+				return m.data.FinishJob(job.ID, job.Owner, "succeeded", "skipped", "Automatic update skipped because services are stopped, unstable or protected.", "")
+			}
 			payload.Deployment = snapshot
 			if err := m.saveDeployment(job, payload, "preparing"); err != nil {
 				return err
@@ -381,10 +393,28 @@ func (m *Manager) deploy(ctx context.Context, job store.Job, payload workerPaylo
 	if job.Operation == "pull" {
 		return m.data.FinishJob(job.ID, job.Owner, "succeeded", "cached", "", "")
 	}
+	reason, err := m.data.UpdateCandidate(job, images)
+	if err != nil {
+		return err
+	}
+	if reason != "" {
+		if err := m.data.FinishJob(job.ID, job.Owner, "succeeded", "skipped", reason, ""); err != nil {
+			return err
+		}
+		m.cleanupDeployment(job, snapshot)
+		return nil
+	}
 	if !initial {
 		current, err := m.runtime(ctx, project.Name)
 		if err != nil || adoptionRuntimeFingerprint(current) != adoptionRuntimeFingerprint(snapshot.Runtime) || !sameRunningState(current, snapshot.Runtime) {
 			return finishFailure("Existing containers changed during pull; review again.")
+		}
+		if job.ScheduleKey != "" && !automaticRuntime(preview, current) {
+			if err := m.data.FinishJob(job.ID, job.Owner, "succeeded", "skipped", "Automatic update skipped because services stopped or became unstable during pull.", ""); err != nil {
+				return err
+			}
+			m.cleanupDeployment(job, snapshot)
+			return nil
 		}
 		if err := hostProjectFiles(ctx, project.ProjectDir, snapshot.Previous, project, "check"); err != nil {
 			return finishFailure("Host project files changed during pull; review again.")
@@ -417,6 +447,19 @@ func (m *Manager) deploy(ctx context.Context, job store.Job, payload workerPaylo
 			// No previous application exists, but a partial file write must retain
 			// ownership rather than pretending it is a clean deployment failure.
 			return m.data.FinishJob(job.ID, job.Owner, "failed", "recovery_required", "Initial project file commit was interrupted; inspect the saved journal and host source before retrying.", "not_performed")
+		}
+	}
+	if job.ScheduleKey != "" {
+		reason, err := m.data.UpdateCandidate(job, images)
+		if err != nil {
+			return err
+		}
+		if reason != "" {
+			if err := m.data.FinishJob(job.ID, job.Owner, "succeeded", "skipped", reason, ""); err != nil {
+				return err
+			}
+			m.cleanupDeployment(job, snapshot)
+			return nil
 		}
 	}
 	snapshot.Mutation = true

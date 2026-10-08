@@ -5,6 +5,7 @@ import styles from "./App.module.css";
 export function operationStage(job: ManagedJob) {
   if (job.outcome === "recovery_required") return "Recovery required";
   if (job.outcome === "recovery_acknowledged") return "Recovery acknowledged";
+  if (job.outcome === "skipped") return "Automatic check skipped";
   if (job.outcome === "unchanged") return "No image changes · containers preserved";
   if (job.outcome === "cached") return "Images pulled · containers preserved";
   if (job.outcome === "rolled_back") return "Failed · previous version restored";
@@ -29,7 +30,7 @@ export function OperationHistory({ history, error, loading, csrfToken, onRefresh
   }
   return <section className={styles.operationHistory} aria-labelledby={heading}>
     <h3 id={heading} ref={headingRef} tabIndex={-1}>Operations</h3>
-    <p className={styles.operationStatus} data-status={latest?.status} role="status">{loading ? "Reading operation history…" : latest ? `${latest.operation}: ${operationStage(latest)}` : "No recorded operations."}</p>
+    <p className={styles.operationStatus} data-status={latest?.status} role="status">{loading ? "Reading operation history…" : latest ? `${latest.scheduledFor ? "Automatic " : ""}${latest.operation}: ${operationStage(latest)}` : "No recorded operations."}</p>
     {error && <p className={styles.inventoryError} role="alert">{error} <button type="button" className={styles.inspectButton} onClick={onRefresh}>Retry</button></p>}
     {recovery && <div className={styles.actionConfirm}>
       <p>{recovery.error}</p>
@@ -40,7 +41,7 @@ export function OperationHistory({ history, error, loading, csrfToken, onRefresh
     {actionError && <p className={styles.inventoryError} role="alert">{actionError}</p>}
     {history.length > 0 && <details><summary>Recent operations ({history.length})</summary><ol className={styles.operationList}>
       {history.map(job => <li key={job.id}>
-        <strong>{job.operation} · {operationStage(job)}</strong>
+        <strong>{job.scheduledFor ? "Automatic " : ""}{job.operation} · {operationStage(job)}</strong>
         <time dateTime={new Date(job.createdAt * 1000).toISOString()}>{new Date(job.createdAt * 1000).toLocaleString()}</time>
         {job.error && <p>{job.error}</p>}
         {job.rollback && <p>Rollback: {job.rollback.replaceAll("_", " ")}</p>}

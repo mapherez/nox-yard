@@ -24,6 +24,8 @@ func ClassifyError(err error, execution bool) (int, Problem) {
 	var storage ManagedReadError
 	var network net.Error
 	switch {
+	case errors.Is(err, ErrScheduleUnsupported):
+		return 400, Problem{Code: "UNSUPPORTED_CONFIGURATION", Message: err.Error()}
 	case errors.Is(err, recreate.ErrUnsupported):
 		return 400, Problem{Code: "UNSUPPORTED_CONFIGURATION", Message: err.Error()}
 	case errors.Is(err, recreate.ErrInvalid):

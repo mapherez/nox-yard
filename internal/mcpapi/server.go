@@ -40,6 +40,8 @@ var cliPaths = map[string]string{
 	"yard_project_action":               "project action",
 	"yard_container_pull":               "container pull",
 	"yard_project_pull":                 "project pull",
+	"yard_project_schedule_get":         "project schedule get",
+	"yard_project_schedule_set":         "project schedule set",
 	"yard_container_remove_preview":     "container remove preview",
 	"yard_project_remove_preview":       "project remove preview",
 	"yard_container_remove":             "container remove",
@@ -138,6 +140,10 @@ type empty struct{}
 type targetInput struct {
 	ID string `json:"id"`
 }
+type scheduleInput struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
 type actionInput struct {
 	ID     string           `json:"id"`
 	Action lifecycle.Action `json:"action"`
@@ -208,6 +214,18 @@ func failures(items []lifecycle.Failure) []failure {
 }
 func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 	b := &builder{}
+	register(b, "yard_project_schedule_get", "Project automatic updates", "Read the opt-in daily image update setting, explicit server timezone, next occurrence and last result. Independent of Yard self-update.", read, func(ctx context.Context, in targetInput) (application.ScheduleStatus, error) {
+		if err := target(in.ID, false); err != nil {
+			return application.ScheduleStatus{}, err
+		}
+		return app.ProjectSchedule(ctx, in.ID)
+	})
+	register(b, "yard_project_schedule_set", "Set project automatic updates", "Explicitly enable or disable daily updates at 03:00 in the server timezone. Enabling requires a supported running project and may replace its containers on future occurrences. Never starts stopped projects. Disabled by default.", setting, func(ctx context.Context, in scheduleInput) (application.ScheduleStatus, error) {
+		if err := target(in.ID, false); err != nil {
+			return application.ScheduleStatus{}, err
+		}
+		return app.SetProjectSchedule(ctx, in.ID, in.Enabled)
+	})
 	register(b, "yard_health", "Yard health", "Read storage readiness and application version.", read, func(ctx context.Context, _ empty) (healthOutput, error) {
 		result := healthOutput{Service: "nox-yard", Version: version, Ready: true, Storage: application.Availability{Available: true}}
 		if err := app.Health(ctx); err != nil {

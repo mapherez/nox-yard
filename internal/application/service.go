@@ -15,6 +15,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/recreate"
+	"github.com/mapherez/nox-yard/internal/schedule"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 )
@@ -51,6 +52,7 @@ type Service struct {
 	Updates        Updater
 	Changes        *inventory.Notifier
 	JobObserver    *jobs.Observer
+	Scheduler      *schedule.Manager
 	ResourceKeys   func(context.Context, string) ([]string, error)
 	ResourceImages func(context.Context, []string, bool) ([]store.ImageIdentity, error)
 	instance       string
