@@ -17,9 +17,10 @@ export function parseVersion(input) {
 }
 
 export function readVersion(contents) {
-  const version = contents.toString('utf8').replace(/\r?\n$/, '');
+  const { version } = JSON.parse(contents.toString('utf8'));
+  if (typeof version !== 'string') throw new Error('package.json must contain a version string.');
   const parsed = parseVersion(version);
-  if (parsed.version !== version) throw new Error('VERSION must contain SemVer without a v prefix.');
+  if (parsed.version !== version) throw new Error('package.json version must contain SemVer without a v prefix.');
   return parsed.version;
 }
 
@@ -28,7 +29,7 @@ export function checkReleaseVersion(tag, contents) {
   if (tag !== release.tag) throw new Error('Release tags must start with v.');
   const version = readVersion(contents);
   if (release.version !== version) {
-    throw new Error(`Release tag ${tag} does not match VERSION (${version}).`);
+    throw new Error(`Release tag ${tag} does not match package.json version (${version}).`);
   }
   return release;
 }

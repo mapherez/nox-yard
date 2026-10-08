@@ -6,7 +6,7 @@ Run from the repository root with a completely clean working tree:
 npm run release -- 1.0.0
 ```
 
-Prereleases use the same command, for example `npm run release -- 1.1.0-rc.1`. An optional initial `v` is normalized. The version must be valid SemVer; build metadata (`+...`) is not supported. `VERSION` stores the version without `v`, and Git uses an annotated `v<version>` tag. The initial `0.0.0` is a baseline, not a published release.
+Prereleases use the same command, for example `npm run release -- 1.1.0-rc.1`. An optional initial `v` is normalized. The version must be valid SemVer; build metadata (`+...`) is not supported. The root `package.json` stores the version in its `version` field without `v`, and Git uses an annotated `v<version>` tag. The initial `0.0.0` is a baseline, not a published release.
 
 ## Prerequisites
 
@@ -16,11 +16,11 @@ Commit the implementation and any other pending work before running the release 
 
 ## What the command does
 
-The command updates only `VERSION`, runs `sh scripts/ci-local.sh`, and builds `nox-yard:release-check` locally for `linux/amd64`. That validation build receives the full current commit SHA and the requested `v<version>` through the existing Docker build arguments; it is never pushed.
+The command updates only the root `package.json` version, runs `sh scripts/ci-local.sh`, and builds `nox-yard:release-check` locally for `linux/amd64`. That validation build receives the full current commit SHA and the requested `v<version>` through the existing Docker build arguments; it is never pushed.
 
-After validation, the command refuses unexpected file changes, commits only `VERSION` as `chore: release v<version>`, creates the annotated tag with message `Release v<version>`, and atomically pushes the current branch and tag to `origin`. It detects the branch dynamically.
+After validation, the command refuses unexpected file changes, commits only `package.json` as `chore: release v<version>`, creates the annotated tag with message `Release v<version>`, and atomically pushes the current branch and tag to `origin`. It detects the branch dynamically.
 
-The tag push starts `.github/workflows/release.yml`. On a clean runner it checks tag/VERSION agreement, refuses an existing GitHub Release, installs the project toolchains and frontend dependencies, and repeats the shared checks. It then builds and publishes `linux/amd64` and `linux/arm64`, followed by a GitHub Release with generated notes. The release binary receives the release tag and full release commit SHA. OCI labels record version, revision, source, and creation time.
+The tag push starts `.github/workflows/release.yml`. On a clean runner it checks tag/package.json version agreement, refuses an existing GitHub Release, installs the project toolchains and frontend dependencies, and repeats the shared checks. It then builds and publishes `linux/amd64` and `linux/arm64`, followed by a GitHub Release with generated notes. The release binary receives the release tag and full release commit SHA. OCI labels record version, revision, source, and creation time.
 
 | Version | GHCR tags | GitHub Release |
 | --- | --- | --- |
@@ -31,7 +31,7 @@ Only stable releases update `latest`. Publication is serialized, and an older st
 
 ## Failure recovery
 
-Before a release commit exists, any validation, build, or commit failure restores `VERSION` byte-for-byte and unstages the command's VERSION change. No release tag or push is made. Unexpected files changed by checks are reported and retained for inspection.
+Before a release commit exists, any validation, build, or commit failure restores `package.json` byte-for-byte and unstages the command's `package.json` change. No release tag or push is made. Unexpected files changed by checks are reported and retained for inspection.
 
 If tag creation fails after the release commit, the commit is preserved locally. If the atomic push fails, both the release commit and annotated tag are preserved locally. There is no automatic reset or deletion. The error prints the exact commands to recover in a POSIX shell, including the branch/tag push. Resolve the reported problem, inspect the local state, and use those commands rather than rerunning the release command with an existing tag.
 

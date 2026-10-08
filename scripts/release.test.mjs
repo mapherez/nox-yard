@@ -27,8 +27,8 @@ function fixture(t, original = '0.0.0\n') {
     'commit.gpgSign': 'false', 'tag.gpgSign': 'false', 'core.autocrlf': 'false',
     'core.hooksPath': join(directory, 'no-hooks'),
   })) git('config', key, value);
-  writeFileSync(join(root, 'VERSION'), original);
-  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'nox-yard', private: true, scripts: { release: 'node scripts/release.mjs' } }));
+  const newline = original.includes('\r\n') ? '\r\n' : '\n';
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'nox-yard', private: true, version: original.trim(), scripts: { release: 'node scripts/release.mjs' } }, null, 2).replaceAll('\n', newline) + newline);
   writeFileSync(join(root, 'go.mod'), 'module github.com/mapherez/nox-yard\n');
   writeFileSync(join(root, 'Dockerfile'), 'FROM scratch\n');
   writeFileSync(join(root, 'other.txt'), 'unchanged\n');
@@ -58,7 +58,8 @@ function fixture(t, original = '0.0.0\n') {
     root, remote, directory, git, calls, controls, messages, options, originalHead,
     release: (version = '1.0.0') => release([version], options),
     remoteGit: (...args) => git('--git-dir', remote, ...args),
-    version: () => readFileSync(join(root, 'VERSION')),
+    version: () => JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version,
+    packageContents: () => readFileSync(join(root, 'package.json')),
     assertUnreleased() {
       assert.equal(git('rev-parse', 'HEAD'), originalHead);
       assert.equal(git('tag', '--list'), '');
@@ -78,7 +79,7 @@ for (const argv of [[], ['1.0.0', '2.0.0']]) {
 for (const version of ['1', '1.0', 'vfoo', '01.0.0', '1.02.0', '1.0.03', '1.0.0-01', '1.0.0-rc..1', '1.0.0-', '1.0.0\n', ' 1.0.0']) {
   test(`rejects invalid SemVer ${JSON.stringify(version)}`, () => {
     assert.throws(() => release([version]), /Invalid SemVer/);
-    assert.throws(() => checkReleaseVersion(`v${version}`, '1.0.0\n'), /Invalid SemVer/);
+    assert.throws(() => checkReleaseVersion(`v${version}`, JSON.stringify({ version: '1.0.0' })), /Invalid SemVer/);
   });
 }
 
@@ -93,11 +94,11 @@ for (const [kind, prepare] of [
   ['staged', (f) => { writeFileSync(join(f.root, 'other.txt'), 'dirty\n'); f.git('add', 'other.txt'); }],
   ['untracked', (f) => writeFileSync(join(f.root, 'untracked.txt'), 'dirty\n')],
 ]) {
-  test(`rejects a dirty ${kind} file before changing VERSION`, (t) => {
+  test(`rejects a dirty ${kind} file before changing package.json`, (t) => {
     const f = fixture(t);
     prepare(f);
     assert.throws(() => f.release(), /Working tree must be completely clean/);
-    assert.equal(f.version().toString(), '0.0.0\n');
+    assert.equal(f.version(), '0.0.0');
     assert.equal(f.git('rev-parse', 'HEAD'), f.originalHead);
     assert.equal(f.calls.some(({ command }) => command === 'sh' || command === 'docker'), false);
   });
@@ -106,7 +107,7 @@ for (const [kind, prepare] of [
 test('rejects the wrong repository root', (t) => {
   const f = fixture(t);
   assert.throws(() => release(['1.0.0'], { ...f.options, cwd: join(f.root, 'scripts') }), /repository root/);
-  assert.equal(f.version().toString(), '0.0.0\n');
+  assert.equal(f.version(), '0.0.0');
 });
 
 test('rejects a repository with a different module', (t) => {
@@ -136,13 +137,13 @@ test('inaccessible origin aborts instead of treating the tag as absent', (t) => 
   const f = fixture(t);
   f.git('remote', 'set-url', 'origin', join(f.directory, 'missing.git'));
   assert.throws(() => f.release(), /ls-remote.*failed/);
-  assert.equal(f.version().toString(), '0.0.0\n');
+  assert.equal(f.version(), '0.0.0');
   f.assertUnreleased();
 });
 
-test('rejects VERSION equal to the requested version', (t) => {
-  const f = fixture(t, '1.0.0\n');
-  assert.throws(() => f.release('v1.0.0'), /VERSION is already 1.0.0/);
+test('rejects package.json equal to the requested version', (t) => {
+  const f = fixture(t, '1.0.0');
+  assert.throws(() => f.release('v1.0.0'), /package.json version is already 1.0.0/);
   f.assertUnreleased();
 });
 
@@ -150,7 +151,7 @@ test('rejects an existing local tag', (t) => {
   const f = fixture(t);
   f.git('tag', 'v1.0.0');
   assert.throws(() => f.release(), /already exists locally/);
-  assert.equal(f.version().toString(), '0.0.0\n');
+  assert.equal(f.version(), '0.0.0');
   assert.equal(f.git('rev-parse', 'HEAD'), f.originalHead);
 });
 
@@ -159,17 +160,17 @@ test('rejects a tag that exists only on origin', (t) => {
   f.remoteGit('update-ref', 'refs/tags/v1.0.0', f.originalHead);
   assert.equal(f.git('tag', '--list'), '');
   assert.throws(() => f.release(), /already exists on origin/);
-  assert.equal(f.version().toString(), '0.0.0\n');
+  assert.equal(f.version(), '0.0.0');
   assert.equal(f.git('rev-parse', 'HEAD'), f.originalHead);
 });
 
 for (const failure of ['check', 'build', 'commit']) {
-  test(`${failure} failure restores VERSION byte-for-byte before any release`, (t) => {
+  test(`${failure} failure restores package.json byte-for-byte before any release`, (t) => {
     const f = fixture(t, '0.0.0\r\n');
-    const original = f.version();
+    const original = f.packageContents();
     f.controls[failure] = () => { throw new Error(`Simulated ${failure} failure`); };
-    assert.throws(() => f.release(), new RegExp(`Simulated ${failure} failure.*\\nVERSION restored`));
-    assert.deepEqual(f.version(), original);
+    assert.throws(() => f.release(), new RegExp(`Simulated ${failure} failure.*\\npackage.json restored`));
+    assert.deepEqual(f.packageContents(), original);
     f.assertUnreleased();
     assert.equal(f.git('status', '--porcelain'), '');
   });
@@ -183,7 +184,7 @@ for (const staged of [false, true]) {
       if (staged) f.git('add', 'other.txt');
     };
     assert.throws(() => f.release(), /Checks changed unexpected files: .*other.txt/);
-    assert.equal(f.version().toString(), '0.0.0\n');
+    assert.equal(f.version(), '0.0.0');
     assert.equal(readFileSync(join(f.root, 'other.txt'), 'utf8'), 'check changed this\n');
     assert.equal(f.git('rev-parse', 'HEAD'), f.originalHead);
     assert.equal(f.git('tag', '--list'), '');
@@ -192,25 +193,31 @@ for (const staged of [false, true]) {
   });
 }
 
-test('unexpected changes to VERSION during checks also abort', (t) => {
+test('unexpected changes to package.json during checks also abort', (t) => {
   const f = fixture(t);
-  f.controls.build = () => writeFileSync(join(f.root, 'VERSION'), '7.0.0\n');
-  assert.throws(() => f.release(), /Checks changed VERSION unexpectedly/);
-  assert.equal(f.version().toString(), '0.0.0\n');
+  f.controls.build = () => writeFileSync(join(f.root, 'package.json'), JSON.stringify({ name: 'nox-yard', version: '7.0.0' }));
+  assert.throws(() => f.release(), /Checks changed package.json unexpectedly/);
+  assert.equal(f.version(), '0.0.0');
   f.assertUnreleased();
 });
 
 for (const version of ['v1.0.0', '2.0.0-rc.1', '2.0.0-beta.2']) {
-  test(`success for ${version}: only VERSION, annotated tag and atomic branch/tag push`, (t) => {
+  test(`success for ${version}: only package.json, annotated tag and atomic branch/tag push`, (t) => {
     const f = fixture(t, '0.0.0\r\n');
     const result = f.release(version);
     const normalized = version.replace(/^v/, '');
     const tag = `v${normalized}`;
     assert.equal(result.version, normalized);
     assert.equal(result.branch, 'delivery/topic');
-    assert.equal(f.version().toString(), `${normalized}\r\n`);
+    assert.equal(f.version(), normalized);
+    assert(f.packageContents().toString().endsWith('\r\n'));
+    assert.equal(f.packageContents().toString().replaceAll('\r\n', '').includes('\n'), false);
+    const metadata = JSON.parse(f.packageContents());
+    assert.equal(metadata.name, 'nox-yard');
+    assert.equal(metadata.private, true);
+    assert.deepEqual(metadata.scripts, { release: 'node scripts/release.mjs' });
     assert.equal(f.git('show', '-s', '--format=%s', result.commit), `chore: release ${tag}`);
-    assert.equal(f.git('diff-tree', '--no-commit-id', '--name-only', '-r', result.commit), 'VERSION');
+    assert.equal(f.git('diff-tree', '--no-commit-id', '--name-only', '-r', result.commit), 'package.json');
     assert.equal(f.git('rev-parse', `${result.commit}^`), f.originalHead);
     assert.equal(f.git('cat-file', '-t', `refs/tags/${tag}`), 'tag');
     assert.equal(f.git('for-each-ref', '--format=%(contents)', `refs/tags/${tag}`), `Release ${tag}`);
@@ -242,7 +249,7 @@ test('tag creation failure preserves the release commit and prints recovery', (t
   });
   assert.notEqual(f.git('rev-parse', 'HEAD'), f.originalHead);
   assert.equal(f.git('tag', '--list'), '');
-  assert.equal(f.version().toString(), '1.0.0\n');
+  assert.equal(f.version(), '1.0.0');
   assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), f.originalHead);
 });
 
@@ -307,13 +314,13 @@ test('GitHub output serialization preserves tags, labels and prerelease classifi
   assert(text.endsWith(`org.opencontainers.image.created=${created}\n${delimiter}\n`));
 });
 
-test('workflow validator rejects invalid tags and VERSION mismatch using the same parser', () => {
-  assert.equal(checkReleaseVersion('v2.0.0-rc.1', '2.0.0-rc.1\r\n').prerelease, true);
-  assert.throws(() => checkReleaseVersion('v1.0.0', '1.0.1\n'), /does not match VERSION/);
+test('workflow validator rejects invalid tags and package.json mismatch using the same parser', () => {
+  assert.equal(checkReleaseVersion('v2.0.0-rc.1', JSON.stringify({ version: '2.0.0-rc.1' }) + '\r\n').prerelease, true);
+  assert.throws(() => checkReleaseVersion('v1.0.0', JSON.stringify({ version: '1.0.1' })), /does not match package.json/);
   for (const tag of ['1.0.0', 'vfoo', 'v1.0.0+build.1']) {
-    assert.throws(() => checkReleaseVersion(tag, '1.0.0\n'));
+    assert.throws(() => checkReleaseVersion(tag, JSON.stringify({ version: '1.0.0' })));
   }
-  for (const contents of ['v1.0.0\n', '1.0.0\n\n', '1.0.0 \n']) {
+  for (const contents of ['invalid JSON', '{}', '{"version":1}', '{"version":"v1.0.0"}', '{"version":"1.0.0\\n"}', '{"version":"1.0.0 "}']) {
     assert.throws(() => checkReleaseVersion('v1.0.0', contents));
   }
 });
@@ -330,7 +337,7 @@ test('real command entrypoints reject missing arguments and a mismatched tag wit
   const f = fixture(t);
   for (const [script, args, message] of [
     ['release.mjs', [], /exactly one argument/],
-    ['check-release-version.mjs', ['v1.0.0'], /does not match VERSION/],
+    ['check-release-version.mjs', ['v1.0.0'], /does not match package.json/],
     ['release-metadata.mjs', ['vfoo', sha], /Invalid SemVer/],
   ]) {
     const result = spawnSync(process.execPath, [join(f.root, 'scripts', script), ...args], { cwd: f.root, encoding: 'utf8' });

@@ -18,7 +18,7 @@ From a clean repository root, create a formal release with:
 npm run release -- 1.0.0
 ```
 
-This validates Git, updates `VERSION`, runs the local checks and a Docker build, commits only `VERSION`, creates the annotated `v1.0.0` tag, and pushes the current branch and tag atomically. GitHub Actions validates the tagged source again, publishes the image, then creates the GitHub Release with generated notes.
+This validates Git, updates `package.json`, runs the local checks and a Docker build, commits only `package.json`, creates the annotated `v1.0.0` tag, and pushes the current branch and tag atomically. GitHub Actions validates the tagged source again, publishes the image, then creates the GitHub Release with generated notes.
 
 | Release | Docker tags | GitHub |
 | --- | --- | --- |

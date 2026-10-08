@@ -21,7 +21,7 @@
 - `scripts/install-hooks.sh`: installs the local pre-push hook in a clone.
 - `scripts/smoke-arm64.sh`: CI-only ARM64 executable and runtime health validation.
 - `scripts/build-version.sh`: exact-commit Git tag/full-SHA version metadata for normal builds.
-- `VERSION`, `scripts/release*.mjs`: formal release version, command, shared validation, metadata, and tests.
+- `package.json`, `scripts/release*.mjs`: formal release version, command, shared validation, metadata, and tests.
 - `.github/workflows/ci.yml`: source checks, Docker builds, and ARM64 smoke test, without publication.
 - `.github/workflows/release.yml`: tagged-source validation, multi-architecture GHCR publication, and GitHub Releases.
 - `Documentation/Developer/`: canonical architecture, implementation, style, decision, progress, and feature documentation.

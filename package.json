@@ -1,6 +1,7 @@
 {
   "name": "nox-yard",
   "private": true,
+  "version": "1.0.1",
   "scripts": {
     "docker": "npm --prefix web run docker:up",
     "release": "node scripts/release.mjs"

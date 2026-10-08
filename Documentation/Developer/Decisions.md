@@ -80,7 +80,7 @@ HTTP and MCP share a lightweight `internal/application` facade and the existing 
 
 ## D-019 — Formal SemVer releases and a stable update channel (2026-10-06)
 
-This supersedes the publication policy in D-013. `npm run release -- X.Y.Z` validates a clean repository, updates only `VERSION`, runs shared checks and a local Docker build, creates a release commit and annotated tag, and atomically pushes the current branch and tag. Pre-commit failures restore VERSION exactly; legitimate local release commits and tags survive later failures with explicit recovery commands.
+This supersedes the publication policy in D-013. `npm run release -- X.Y.Z` validates a clean repository, updates only `package.json`, runs shared checks and a local Docker build, creates a release commit and annotated tag, and atomically pushes the current branch and tag. Pre-commit failures restore `package.json` exactly; legitimate local release commits and tags survive later failures with explicit recovery commands.
 
 Only the tag-triggered release workflow publishes official images and creates GitHub Releases. It repeats source checks on the tagged commit, refuses existing releases, and publishes both architectures with the explicit release tag, full commit SHA, and OCI metadata. Stable versions publish their version tag and `latest`; prereleases publish only their version tag. Publication is serialized and refuses to move latest behind a newer published stable release. Installation and self-update retain their existing latest channel and runtime implementation. Normal branch/PR CI retains validation builds and the ARM64 smoke test without registry publication. See [Releases](Releases.md).
 

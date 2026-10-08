@@ -57,10 +57,10 @@ export function release(argv, {
   git('-c', 'user.useConfigOnly=true', 'var', 'GIT_AUTHOR_IDENT');
   git('-c', 'user.useConfigOnly=true', 'var', 'GIT_COMMITTER_IDENT');
   const originalHead = git('rev-parse', '--verify', 'HEAD^{commit}');
-  git('ls-files', '--error-unmatch', '--', 'VERSION');
-  const versionPath = join(root, 'VERSION');
+  git('ls-files', '--error-unmatch', '--', 'package.json');
+  const versionPath = join(root, 'package.json');
   const original = readFileSync(versionPath);
-  if (readVersion(original) === version) throw new Error(`VERSION is already ${version}.`);
+  if (readVersion(original) === version) throw new Error(`package.json version is already ${version}.`);
   if (git('tag', '--list', tag)) throw new Error(`Tag ${tag} already exists locally.`);
   // A failed lookup throws. An inaccessible origin is never treated as an absent tag.
   const remoteTags = git('ls-remote', '--tags', 'origin', `refs/tags/${tag}`, `refs/tags/${tag}^{}`);
@@ -74,7 +74,11 @@ export function release(argv, {
   let commitAttempted = false;
   let staged = false;
   let tagCreated = false;
-  const updated = Buffer.from(`${version}${original.includes(Buffer.from('\r\n')) ? '\r\n' : '\n'}`);
+  const metadata = JSON.parse(original.toString('utf8'));
+  metadata.version = version;
+  const newline = original.includes(Buffer.from('\r\n')) ? '\r\n' : '\n';
+  const updated = Buffer.from(JSON.stringify(metadata, null, 2).replaceAll('\n', newline) +
+    (original.toString('utf8').endsWith('\n') ? newline : ''));
   try {
     writeFileSync(versionPath, updated);
     log(`Validating release ${tag}...`);
@@ -82,22 +86,22 @@ export function release(argv, {
     run('docker', ['buildx', 'build', '--platform', 'linux/amd64', '--load',
       '--build-arg', `BUILD_SHA=${originalHead}`, '--build-arg', `BUILD_VERSION=${tag}`,
       '-t', 'nox-yard:release-check', '.'], { inherit: true });
-    const unexpected = status().filter(({ code, path }) => path !== 'VERSION' || code !== ' M');
+    const unexpected = status().filter(({ code, path }) => path !== 'package.json' || code !== ' M');
     if (unexpected.length) {
       throw new Error(`Checks changed unexpected files: ${unexpected.map(({ code, path }) => `${code} ${path}`).join(', ')}`);
     }
-    if (!readFileSync(versionPath).equals(updated)) throw new Error('Checks changed VERSION unexpectedly.');
+    if (!readFileSync(versionPath).equals(updated)) throw new Error('Checks changed package.json unexpectedly.');
     if (git('rev-parse', 'HEAD') !== originalHead || git('symbolic-ref', '--short', 'HEAD') !== branch) {
       throw new Error('HEAD or the current branch changed during validation.');
     }
     staged = true;
-    git('add', '--', 'VERSION');
-    if (git('diff', '--cached', '--name-only') !== 'VERSION') throw new Error('Release index must contain only VERSION.');
+    git('add', '--', 'package.json');
+    if (git('diff', '--cached', '--name-only') !== 'package.json') throw new Error('Release index must contain only package.json.');
     commitAttempted = true;
     git('commit', '-m', `chore: release ${tag}`);
     commit = git('rev-parse', 'HEAD');
-    if (git('diff-tree', '--no-commit-id', '--name-only', '-r', commit) !== 'VERSION' ||
-        git('show', `${commit}:VERSION`) !== version || status().length) {
+    if (git('diff-tree', '--no-commit-id', '--name-only', '-r', commit) !== 'package.json' ||
+        readVersion(git('show', `${commit}:package.json`)) !== version || status().length) {
       throw new Error('Release commit or working tree changed unexpectedly. Inspect the local commit before continuing.');
     }
     git('tag', '-a', tag, '-m', `Release ${tag}`, commit);
@@ -111,8 +115,8 @@ export function release(argv, {
     if (!commit && commitAttempted && currentHead !== originalHead) commit = currentHead;
     if (!commit) {
       writeFileSync(versionPath, original);
-      if (staged) git('restore', '--staged', '--', 'VERSION');
-      throw new Error(`${error.message}\nVERSION restored byte-for-byte. No release commit, tag or push was created.`);
+      if (staged) git('restore', '--staged', '--', 'package.json');
+      throw new Error(`${error.message}\npackage.json restored byte-for-byte. No release commit, tag or push was created.`);
     }
     const recovery = tagCreated
       ? pushCommand

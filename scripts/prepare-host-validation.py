@@ -57,7 +57,7 @@ with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as packed:
         if source.suffix in {".key", ".pem", ".sqlite", ".db"}:
             continue
         content = source.read_bytes()
-        if source.suffix in text_extensions or source.name in {"Dockerfile", "VERSION", "LICENSE", ".gitignore", ".gitattributes", ".dockerignore", ".nvmrc"}:
+        if source.suffix in text_extensions or source.name in {"Dockerfile", "LICENSE", ".gitignore", ".gitattributes", ".dockerignore", ".nvmrc"}:
             content = content.replace(b"\r\n", b"\n")
         packed.writestr("nox-yard-c6-source/" + relative, content)
         count += 1
