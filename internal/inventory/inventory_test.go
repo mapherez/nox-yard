@@ -86,6 +86,14 @@ func TestGroupComposeAndStandalone(t *testing.T) {
 	}
 }
 
+func TestGroupHidesManagedHelpers(t *testing.T) {
+	items := []container.Summary{{Labels: map[string]string{"nox-yard.role": "managed-helper"}}, {Labels: nil}}
+	snapshot := group(items, []Container{{ID: "helper", Name: "helper"}, {ID: "visible", Name: "visible"}}, time.Now())
+	if len(snapshot.Projects) != 1 || snapshot.Projects[0].ID != "container:visible" {
+		t.Fatalf("helper appeared in inventory: %+v", snapshot.Projects)
+	}
+}
+
 func TestGroupDoesNotReportIncompleteMetricsAsTotals(t *testing.T) {
 	items := []container.Summary{
 		{Labels: map[string]string{composeProjectLabel: "apps"}},

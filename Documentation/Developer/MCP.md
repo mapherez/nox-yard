@@ -38,8 +38,8 @@ IDs must be copied from inventory: containers use full 64-character lowercase he
 | `yard_container_remove` | `container remove` | `id`, `confirm:true`, `fingerprint`. Revalidate and execute existing removal rules. |
 | `yard_project_remove` | `project remove` | `id`, `confirm:true`, `fingerprint`. Revalidate and execute existing removal rules. |
 | `yard_compose_source` | `compose source` | Existing source fields: `kind`, optional `url`, `filename`, `yaml`. Inspect source and required variables/env files. |
-| `yard_compose_preview` | `compose preview` | Existing managed request: `name`, `source`, `variables`, `envFiles`, `mode`, optional `fingerprint`. Modes: `new`, `copy`, `sync`, `adopt`. Return the preview/fingerprint. |
-| `yard_compose_submit` | `compose submit` | Existing managed request: `name`, `source`, `variables`, `envFiles`, `mode`, optional `fingerprint`. Modes: `new`, `copy`, `sync`, `adopt`. Submission requires the current preview fingerprint and returns a job. |
+| `yard_compose_preview` | `compose preview` | Managed request: `name`, `source`, `variables`, `envFiles`, `mode`, optional `fingerprint` and adoption-only `projectDir`. Modes: `new`, `copy`, `sync`, `adopt`. Returns preview/fingerprint and inferred `adoptionDir` when available. |
+| `yard_compose_submit` | `compose submit` | Same managed request. Submission requires the current preview fingerprint and returns a job. Adoption resolves/rechecks the original directory and runtime/files before saving ownership; it does not recreate containers. |
 | `yard_compose_operation` | `compose operation` | `name`, `operation`, `removeVolumes`. Operations: `start`, `stop`, `restart`, `pull`, `update`, `remove`. Returns a job. |
 | `yard_compose_job` | `compose job` | `id`. Persisted job status. |
 | `yard_projects_settings_get` | `settings projects get` | No inputs. Read the configured host projects base directory. |
@@ -77,7 +77,7 @@ Commit the resolved `go.mod`/`go.sum` updates and run the existing repository ch
 
 MCP tests use the official Go SDK over real HTTP with temporary SQLite and shared fake dependencies. They cover discovery, schemas/annotations, anonymous MCP versus existing HTTP authentication, origin validation, explicit environment reveal, partial failures, protected/stale removal, manual self-update, shared browser SSE/pending states and asynchronous Compose notification lifetimes. Facade tests cover context propagation, cancellation before dispatch and blocked log-reader cancellation. Existing manager tests continue to cover Docker transport, concurrency and operation rules.
 
-The isolated Docker smoke test creates disposable containers, Compose projects and data volumes, publishes temporary loopback ports, and cleans up its own fixtures. It exercises real lifecycle operations, inspection/environment/logs, pulls, removal fingerprints, browser SSE, Compose jobs, persisted settings/session and queued Yard self-restart. An optional ARM64 image also checks runtime readiness and MCP discovery under emulation:
+The isolated Docker smoke test creates disposable containers, Compose projects and data volumes, publishes temporary loopback ports, and cleans up its own fixtures. It exercises real lifecycle operations, inspection/environment/logs, pulls, removal fingerprints, browser SSE, Compose jobs, healthy/one-shot verification, unhealthy deploy/update failures, named-volume/bind preservation, original-directory adoption with nested env files and stale runtime/file previews, persisted settings/session and queued Yard self-restart. An optional ARM64 image also checks runtime readiness and MCP discovery under emulation:
 
 ```sh
 docker buildx build --platform linux/amd64 --load -t nox-yard:mcp-smoke-amd64 .

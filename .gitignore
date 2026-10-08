@@ -30,6 +30,8 @@ web/.vite/
 *.log
 .cache/
 .tmp/
+.playwright-cli/
+output/playwright/
 .DS_Store
 Thumbs.db
 .idea/

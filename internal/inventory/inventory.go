@@ -271,6 +271,9 @@ func (r *DockerReader) Snapshot(ctx context.Context) (Snapshot, error) {
 func group(items []container.Summary, containers []Container, collectedAt time.Time) Snapshot {
 	projects := make(map[string]*Project)
 	for index, summary := range items {
+		if summary.Labels["nox-yard.role"] == "managed-helper" {
+			continue
+		}
 		item := containers[index]
 		name := strings.TrimSpace(summary.Labels[composeProjectLabel])
 		key, kind := "container:"+item.ID, "standalone"

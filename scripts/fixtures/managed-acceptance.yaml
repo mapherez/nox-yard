@@ -1,0 +1,34 @@
+# Use a unique Compose project name; these fixtures never reference user data.
+services:
+  healthy:
+    image: alpine:3.23
+    command: [sleep, '600']
+    stop_grace_period: 1s
+    healthcheck:
+      test: [CMD, 'true']
+      interval: 1s
+      timeout: 1s
+      retries: 1
+    volumes:
+      - sample-data:/data
+      - ./bind-data:/bind
+  unhealthy:
+    image: alpine:3.23
+    profiles: [unhealthy]
+    command: [sleep, '600']
+    stop_grace_period: 1s
+    healthcheck:
+      test: [CMD, 'false']
+      interval: 1s
+      timeout: 1s
+      retries: 1
+  oneshot:
+    image: alpine:3.23
+    command: [sh, -c, 'exit 0']
+    labels:
+      nox-yard.lifecycle: oneshot
+  failed-pull:
+    image: docker.io/library/nox-yard-missing-acceptance-image:missing
+    profiles: [failed-pull]
+volumes:
+  sample-data:

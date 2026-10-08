@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
+
+var globalControlVariable = regexp.MustCompile(`(?m)^[\t ]*(?:export[\t ]+)?["']?(?:COMPOSE|DOCKER)_[A-Za-z0-9_]*["']?[\t ]*[=:]`)
 
 func envFileDefines(content, key string) bool {
 	for _, line := range strings.Split(content, "\n") {
@@ -33,6 +36,9 @@ func prepareCompose(content string, envFiles map[string]string) (string, func(),
 	provided := map[string]string{}
 	total := 0
 	for name, value := range envFiles {
+		if name == ".env" && globalControlVariable.MatchString(value) {
+			return "", nil, fmt.Errorf("%w: global .env cannot set COMPOSE_ or DOCKER_ controls; use a separate service env file for application values", ErrInvalidSource)
+		}
 		if !validEnvPath(name) {
 			return "", nil, fmt.Errorf("%w: invalid env_file path", ErrInvalidSource)
 		}

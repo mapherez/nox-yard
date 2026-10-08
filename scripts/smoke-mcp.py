@@ -130,9 +130,9 @@ def serve(image, platform="linux/amd64", socket=False):
     assert tool(url, "yard_health")["ready"]
     return identifier, url
 
-def await_job(url, job):
-    value = until(lambda: completed_job(url, job["id"]), "Compose job " + job["id"])
-    assert value["status"] == "succeeded", value
+def await_job(url, job, expected="succeeded"):
+    value = until(lambda: completed_job(url, job["id"]), "Compose job " + job["id"], seconds=150)
+    assert value["status"] == expected, value
     return value
 
 def completed_job(url, identifier):
@@ -182,7 +182,7 @@ try:
                     break
                 if line.startswith(b"data: "):
                     events.put(json.loads(line[6:]))
-        except (OSError, ValueError):
+        except (OSError, ValueError, AttributeError):
             pass
     threading.Thread(target=receive_events, daemon=True).start()
     assert events.get(timeout=5)["inventory"]
@@ -207,6 +207,150 @@ try:
         "name": project, "operation": "remove", "removeVolumes": False}))
     managed_names.remove(project)
     print("PASS: browser SSE receives MCP events; Compose preview, jobs, lifecycle, update and removal", flush=True)
+
+    # C1: Compose's exit code is not a readiness result. Test healthchecks,
+    # declared one-shot completion, named-volume and relative-bind preservation.
+    acceptance = (root / "scripts/fixtures/managed-acceptance.yaml").read_text(encoding="utf-8")
+    healthy_name = project + "-healthy"
+    healthy = {"name": healthy_name, "source": {"kind": "paste", "yaml": acceptance},
+               "variables": {}, "envFiles": {}, "mode": "new"}
+    preview = tool(url, "yard_compose_preview", healthy)
+    healthy["fingerprint"] = preview["fingerprint"]
+    managed_names.append(healthy_name)
+    volumes.append(healthy_name + "_sample-data")
+    await_job(url, tool(url, "yard_compose_submit", healthy))
+    health_id = docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + healthy_name,
+                       "--filter", "label=com.docker.compose.service=healthy")
+    docker("exec", health_id, "sh", "-c", "echo fixture > /data/keep; echo fixture > /bind/keep")
+    for operation in ("restart", "update"):
+        await_job(url, tool(url, "yard_compose_operation", {
+            "name": healthy_name, "operation": operation, "removeVolumes": False}))
+        health_id = docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + healthy_name,
+                           "--filter", "label=com.docker.compose.service=healthy")
+        assert docker("exec", health_id, "cat", "/data/keep", "/bind/keep") == "fixture\nfixture"
+
+    unhealthy_name = project + "-unhealthy"
+    unhealthy_yaml = ("services:\n  demo:\n    image: alpine:3.23\n    command: [sleep, '600']\n"
+                      "    stop_grace_period: 1s\n    healthcheck:\n      test: [CMD, 'false']\n"
+                      "      interval: 1s\n      timeout: 1s\n      retries: 1\n")
+    unhealthy = {"name": unhealthy_name, "source": {"kind": "paste", "yaml": unhealthy_yaml},
+                 "variables": {}, "envFiles": {}, "mode": "new"}
+    unhealthy["fingerprint"] = tool(url, "yard_compose_preview", unhealthy)["fingerprint"]
+    managed_names.append(unhealthy_name)
+    failed = await_job(url, tool(url, "yard_compose_submit", unhealthy), "failed")
+    assert "unhealthy" in failed["error"], failed
+    failed = await_job(url, tool(url, "yard_compose_operation", {
+        "name": unhealthy_name, "operation": "update", "removeVolumes": False}), "failed")
+    assert "unhealthy" in failed["error"] and "rollback was not performed" in failed["error"], failed
+    print("PASS: healthy/one-shot deploy, unhealthy deploy/update failure and data preservation", flush=True)
+
+    # Adopt a fixture created by the host Compose CLI at its original directory.
+    # The helper shares that exact path; no existing user stack is involved.
+    adoption_name = project + "-adopt"
+    adoption_local = base / "original"
+    adoption_local.mkdir()
+    (adoption_local / "data").mkdir()
+    (adoption_local / "env").mkdir()
+    (adoption_local / "data/keep").write_text("original-data", encoding="utf-8", newline="")
+    env_text = "TOKEN=private-adoption-fixture\n"
+    (adoption_local / "env/runtime.env").write_text(env_text, encoding="utf-8", newline="")
+    adoption_yaml = ("services:\n  demo:\n    image: alpine:3.23\n    command: [sleep, '600']\n"
+                     "    stop_grace_period: 1s\n    env_file: env/runtime.env\n"
+                     "    volumes:\n      - ${BIND_PATH:-./data}:/bind\n")
+    (adoption_local / "original.yml").write_text(adoption_yaml, encoding="utf-8", newline="")
+    host_dir = settings["projectsBase"] + "/original"
+    managed_names.append(adoption_name)
+    docker("run", "--rm", "--label", "nox-yard.role=managed-helper",
+           "--mount", "type=bind,source=" + host_dir + ",target=" + host_dir,
+           "--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
+           "--workdir", host_dir, "--entrypoint", "docker", args.image,
+           "compose", "-p", adoption_name, "-f", "original.yml", "up", "-d")
+    until(lambda: any(item["id"] == "compose:" + adoption_name for item in
+                     tool(url, "yard_projects")["projects"]), "external fixture inventory")
+    adoption = {"name": adoption_name, "source": {"kind": "paste", "yaml": adoption_yaml},
+                "variables": {}, "envFiles": {"env/runtime.env": env_text}, "mode": "adopt"}
+    # An unprovided host .env could redirect binds on the next operation.
+    (adoption_local / ".env").write_text("BIND_PATH=./different-data\n", encoding="utf-8", newline="")
+    tool(url, "yard_compose_preview", adoption, "OPERATION_CONFLICT")
+    (adoption_local / ".env").unlink()
+    preview = tool(url, "yard_compose_preview", adoption)
+    assert preview["projectDir"] == host_dir and preview["adoptionDir"] == host_dir, preview
+    assert not preview["changes"], preview
+    assert "private-adoption-fixture" not in json.dumps(preview)
+    identifier = docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + adoption_name)
+    adoption["fingerprint"] = preview["fingerprint"]
+    # A new matching file still changes the reviewed presence identity.
+    (adoption_local / "compose.yml").write_text(adoption_yaml, encoding="utf-8", newline="")
+    tool(url, "yard_compose_submit", adoption, "OPERATION_CONFLICT")
+    (adoption_local / "compose.yml").write_text("services: {}\n", encoding="utf-8", newline="")
+    tool(url, "yard_compose_preview", adoption, "OPERATION_CONFLICT")
+    (adoption_local / "compose.yml").unlink()
+    preview = tool(url, "yard_compose_preview", adoption)
+    adoption["fingerprint"] = preview["fingerprint"]
+    # An additional service invalidates the target before ownership is saved.
+    extra = create("--label", "com.docker.compose.project=" + adoption_name,
+                   "--label", "com.docker.compose.service=extra", "alpine:3.23", "true")
+    tool(url, "yard_compose_submit", adoption, "OPERATION_CONFLICT")
+    docker("rm", extra)
+    containers.remove(extra)
+    preview = tool(url, "yard_compose_preview", adoption)
+    adoption["fingerprint"] = preview["fingerprint"]
+    await_job(url, tool(url, "yard_compose_submit", adoption))
+    assert docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + adoption_name) == identifier
+    assert (adoption_local / "compose.yml").read_text(encoding="utf-8") == adoption_yaml
+    assert (adoption_local / "env/runtime.env").read_text(encoding="utf-8") == env_text
+    for operation in ("restart", "update"):
+        await_job(url, tool(url, "yard_compose_operation", {
+            "name": adoption_name, "operation": operation, "removeVolumes": False}))
+        identifier = docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + adoption_name)
+        info = json.loads(docker("inspect", identifier))[0]
+        assert any(mount["Source"] == host_dir + "/data" and mount["Destination"] == "/bind"
+                   for mount in info["Mounts"]), info["Mounts"]
+        assert docker("exec", identifier, "cat", "/bind/keep") == "original-data"
+    print("PASS: original-directory adoption, masked comparison, stale files/targets and relative binds after restart/update", flush=True)
+
+    # Missing Compose working-directory metadata requires a verified fallback.
+    fallback_name = project + "-fallback"
+    fallback_local = base / "fallback"
+    (fallback_local / "data").mkdir(parents=True)
+    (fallback_local / "env").mkdir()
+    (fallback_local / "data/keep").write_text("fallback-data", encoding="utf-8", newline="")
+    (fallback_local / "env/runtime.env").write_text(env_text, encoding="utf-8", newline="")
+    fallback_dir = settings["projectsBase"] + "/fallback"
+    managed_names.append(fallback_name)
+    docker("network", "create", "--label", "com.docker.compose.project=" + fallback_name,
+           "--label", "com.docker.compose.network=default",
+           fallback_name + "_default")
+    fallback_id = create("--name", fallback_name + "-demo", "--stop-timeout", "1",
+        "--label", "com.docker.compose.project=" + fallback_name,
+        "--label", "com.docker.compose.service=demo", "--env", "TOKEN=private-adoption-fixture",
+        "--label", "com.docker.compose.container-number=1",
+        "--label", "com.docker.compose.oneoff=False",
+        "--label", "com.docker.compose.config-hash=fixture-original",
+        "--network", fallback_name + "_default",
+        "--mount", "type=bind,source=" + fallback_dir + "/data,target=/bind",
+        "alpine:3.23", "sleep", "600")
+    docker("start", fallback_id)
+    until(lambda: any(item["id"] == "compose:" + fallback_name for item in
+                     tool(url, "yard_projects")["projects"]), "fallback fixture inventory")
+    fallback_yaml = adoption_yaml + "    labels:\n      nox-yard.mcp-smoke: '" + suffix + "'\n"
+    fallback = dict(adoption, name=fallback_name, source={"kind": "paste", "yaml": fallback_yaml})
+    fallback.pop("fingerprint", None)
+    tool(url, "yard_compose_preview", fallback, "INVALID_PAYLOAD")
+    fallback["projectDir"] = host_dir
+    tool(url, "yard_compose_preview", fallback, "INVALID_PAYLOAD")
+    assert not (adoption_local / "data/keep").read_text(encoding="utf-8") == "fallback-data"
+    fallback["projectDir"] = fallback_dir
+    preview = tool(url, "yard_compose_preview", fallback)
+    assert preview["projectDir"] == fallback_dir and not preview["changes"], preview
+    fallback["fingerprint"] = preview["fingerprint"]
+    await_job(url, tool(url, "yard_compose_submit", fallback))
+    assert docker("ps", "-aq", "--no-trunc", "--filter", "label=com.docker.compose.project=" + fallback_name) == fallback_id
+    await_job(url, tool(url, "yard_compose_operation", {
+        "name": fallback_name, "operation": "update", "removeVolumes": False}))
+    fallback_id = docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + fallback_name)
+    assert docker("exec", fallback_id, "cat", "/bind/keep") == "fallback-data"
+    print("PASS: missing/wrong adoption directory rejected; explicit fallback preserves the original bind", flush=True)
 
     preview = tool(url, "yard_container_remove_preview", {"id": fixture})
     tool(url, "yard_container_remove", {"id": fixture, "confirm": False,

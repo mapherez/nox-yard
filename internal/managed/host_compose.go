@@ -38,7 +38,7 @@ func checkHostBase(ctx context.Context, base string) error {
 		return err
 	}
 	mount := "type=bind,source=" + base + ",target=" + base
-	command := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "--mount", mount, "--entrypoint", "test", image, "-d", base)
+	command := exec.CommandContext(ctx, "docker", "run", "--rm", "--label", "nox-yard.role=managed-helper", "--network", "none", "--mount", mount, "--entrypoint", "test", image, "-d", base)
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("%w: directory does not exist or Docker cannot access it on the host", ErrInvalidSource)
 	}
@@ -93,7 +93,7 @@ func writeHostCompose(ctx context.Context, projectDir, content string, envFiles 
 		mode = "create"
 	}
 	mount := "type=bind,source=" + base + ",target=" + base
-	command := exec.CommandContext(ctx, "docker", "run", "--rm", "-i", "--network", "none", "--mount", mount, "--entrypoint", "sh", image, "-c", script, "sh", projectDir, mode)
+	command := exec.CommandContext(ctx, "docker", "run", "--rm", "-i", "--label", "nox-yard.role=managed-helper", "--network", "none", "--mount", mount, "--entrypoint", "sh", image, "-c", script, "sh", projectDir, mode)
 	command.Stdin = &archive
 	if output, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("cannot write host project files: %s: %w", strings.TrimSpace(string(output)), err)
@@ -108,7 +108,7 @@ func runHostCompose(ctx context.Context, name, projectDir string, variables map[
 	}
 	base := path.Dir(projectDir)
 	mount := "type=bind,source=" + base + ",target=" + base
-	commandArgs := []string{"run", "--rm", "--mount", mount, "--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock", "--workdir", projectDir}
+	commandArgs := []string{"run", "--rm", "--label", "nox-yard.role=managed-helper", "--mount", mount, "--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock", "--workdir", projectDir}
 	if home := os.Getenv("NOX_HOST_HOME"); home != "" {
 		commandArgs = append(commandArgs, "--env", "HOME="+home)
 	}

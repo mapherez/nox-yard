@@ -1,6 +1,6 @@
 module github.com/mapherez/nox-yard
 
-go 1.26.0
+go 1.26.6
 
 require (
 	github.com/coder/websocket v1.8.15

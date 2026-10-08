@@ -43,6 +43,83 @@ type Preview struct {
 	Networks    []string  `json:"networks"`
 	EnvFiles    []string  `json:"envFiles"`
 	Fingerprint string    `json:"fingerprint"`
+	model       composeModel
+}
+
+// Resolved Compose configuration is internal: environment and command values
+// must not become part of the public preview or its error messages.
+type composeModel struct {
+	Services map[string]modelService  `json:"services"`
+	Volumes  map[string]modelResource `json:"volumes"`
+	Networks map[string]modelResource `json:"networks"`
+}
+
+type modelResource struct {
+	Name string `json:"name"`
+}
+type modelPort struct {
+	Published string `json:"published"`
+	Target    int    `json:"target"`
+	Protocol  string `json:"protocol"`
+	HostIP    string `json:"host_ip"`
+}
+type modelVolume struct {
+	Type     string `json:"type"`
+	Source   string `json:"source"`
+	Target   string `json:"target"`
+	ReadOnly bool   `json:"read_only"`
+	Bind     struct {
+		Propagation string `json:"propagation"`
+	} `json:"bind"`
+}
+type modelService struct {
+	Image    string        `json:"image"`
+	Ports    []modelPort   `json:"ports"`
+	Volumes  []modelVolume `json:"volumes"`
+	Networks map[string]struct {
+		Aliases []string `json:"aliases"`
+	} `json:"networks"`
+	Command     *[]string          `json:"command"`
+	Entrypoint  *[]string          `json:"entrypoint"`
+	Environment map[string]*string `json:"environment"`
+	Labels      map[string]string  `json:"labels"`
+	User        string             `json:"user"`
+	WorkingDir  string             `json:"working_dir"`
+	Profiles    []string           `json:"profiles"`
+	Scale       *int               `json:"scale"`
+	Deploy      struct {
+		Replicas *int `json:"replicas"`
+	} `json:"deploy"`
+	DependsOn map[string]struct {
+		Condition string `json:"condition"`
+	} `json:"depends_on"`
+	Healthcheck     *modelHealthcheck `json:"healthcheck"`
+	Restart         string            `json:"restart"`
+	StopGracePeriod string            `json:"stop_grace_period"`
+	StopSignal      string            `json:"stop_signal"`
+	Hostname        string            `json:"hostname"`
+	Domainname      string            `json:"domainname"`
+	raw             map[string]json.RawMessage
+}
+
+type modelHealthcheck struct {
+	Test          []string `json:"test"`
+	Disable       bool     `json:"disable"`
+	Interval      string   `json:"interval"`
+	Timeout       string   `json:"timeout"`
+	StartPeriod   string   `json:"start_period"`
+	StartInterval string   `json:"start_interval"`
+	Retries       *int     `json:"retries"`
+}
+
+func (s *modelService) UnmarshalJSON(data []byte) error {
+	type plain modelService
+	var value plain
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*s = modelService(value)
+	return json.Unmarshal(data, &s.raw)
 }
 
 // Variables lists Compose interpolation names without sending their values back
@@ -122,24 +199,7 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 		}
 		return Preview{}, fmt.Errorf("Compose validation is unavailable: %w", err)
 	}
-	var model struct {
-		Services map[string]struct {
-			Image string `json:"image"`
-			Ports []struct {
-				Published string `json:"published"`
-				Target    int    `json:"target"`
-				Protocol  string `json:"protocol"`
-			} `json:"ports"`
-			Volumes []struct {
-				Type   string `json:"type"`
-				Source string `json:"source"`
-				Target string `json:"target"`
-			} `json:"volumes"`
-			Networks map[string]any `json:"networks"`
-		} `json:"services"`
-		Volumes  map[string]any `json:"volumes"`
-		Networks map[string]any `json:"networks"`
-	}
+	var model composeModel
 	if err := json.Unmarshal(output, &model); err != nil {
 		return Preview{}, fmt.Errorf("cannot read Compose validation result: %w", err)
 	}
@@ -147,6 +207,7 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 		return Preview{}, fmt.Errorf("%w: Compose file has no services", ErrInvalidSource)
 	}
 	preview := Preview{Name: name, Services: []Service{}, Volumes: []string{}, Networks: []string{}, EnvFiles: []string{}}
+	preview.model = model
 	info, _ := InspectSource(source.YAML)
 	for _, file := range info.EnvFiles {
 		preview.EnvFiles = append(preview.EnvFiles, file.Path)

@@ -8,7 +8,8 @@ NoX Yard manages one local Linux Docker Engine. The browser talks only to the No
 Browser (React)
   | REST, SSE, WebSocket
   v
-NoX Yard service (Go) ---- SQLite + managed Compose files (/data)
+NoX Yard service (Go) ---- SQLite (/data)
+  |                       managed source/env files (host projects directory)
   | Docker Engine SDK
   v
 Local Docker Engine ---- containers, images, networks, volumes
@@ -16,7 +17,7 @@ Local Docker Engine ---- containers, images, networks, volumes
   | temporary job container (Compose and self-update operations)
 ```
 
-The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go builder stages run on BuildKit's build platform. The Go compiler receives the target OS and architecture, and the build checks the resulting binary's `GOARCH` before copying it into the target-platform Alpine image. Normal CI validates both architectures and runs an ARM64 smoke test without publication. Formal release tags publish a multi-platform image to GHCR after tagged-source checks; only stable releases update `latest`. The host's Docker Compose installation pulls that image and does not build locally. The `./data:/data` mount holds the SQLite database and, later, managed Compose sources. The Docker Unix socket is mounted for local inventory access. The backend serves the built frontend, so production does not need a separate web server.
+The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go builder stages run on BuildKit's build platform. The Go compiler receives the target OS and architecture, and the build checks the resulting binary's `GOARCH` before copying it into the target-platform Alpine image. Normal CI validates both architectures and runs an ARM64 smoke test without publication. Formal release tags publish a multi-platform image to GHCR after tagged-source checks; only stable releases update `latest`. The host's Docker Compose installation pulls that image and does not build locally. The `./data:/data` mount holds SQLite, including managed source/variables and job records. Newly managed source/env files are also written under the configured host projects directory, outside `/data`. The Docker Unix socket is mounted for local inventory access. The backend serves the built frontend, so production does not need a separate web server.
 
 ## Backend boundaries
 
@@ -25,7 +26,7 @@ The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go bu
 - **Inventory:** a read model built from all Docker containers, with Compose projects grouped by `com.docker.compose.project` and standalone containers represented individually. Docker events trigger refreshes; periodic reconciliation handles missed events. Stored metadata supplements the live inventory but never replaces runtime state.
 - **Docker adapter:** Engine API negotiation, inspect, stats, logs, exec, image pulls, and container lifecycle operations.
 - **Compose adapter:** validation and operations for projects whose source was created, imported, or voluntarily adopted in NoX Yard. The source YAML and interpolation variables are stored persistently.
-- **Job runner:** durable operations for pulls, deploys, recreation, updates, and removal. A temporary helper container continues operations if the web service is restarted or updates itself. Jobs record progress, outcome, and recoverable errors.
+- **Jobs:** managed Compose operations persist their initial/final status, but currently run from the web process and are marked failed after a restart. General worker ownership, reconciliation, progress and contextual history are planned in completion package C2. Self-update already uses its own independent worker/recovery path; self-restart uses a helper but does not yet persist its final result.
 - **Storage:** SQLite for the initial administrator, hashed sessions, managed-project metadata, URL sources, update settings, and job history. Secrets and Compose variables remain server-side with restrictive file permissions.
 
 New Go packages under `internal/` should follow these boundaries. Keep Docker SDK types out of public HTTP responses; map them to stable application models.
@@ -34,9 +35,9 @@ New Go packages under `internal/` should follow these boundaries. Keep Docker SD
 
 The inventory exposes a common `Project` view with identity, kind (`managed-compose`, `external-compose`, or `standalone`), containers, aggregate state, health, CPU, memory, network usage, and uptime. A managed project remains visible when no containers exist because its source is stored. An external project without any remaining containers cannot be rediscovered from Compose metadata alone.
 
-External Compose projects require no host file mounts or adoption to be managed. Engine-backed actions include container and group start/stop/restart, logs, inspect, terminal, image pull, safe recreation/update, opt-in auto-update, and confirmed removal. Editing/synchronizing the Compose structure or adding/removing services requires a stored Compose definition.
+External Compose projects require no host file mounts or adoption for implemented Engine actions: container and group start/stop/restart, logs, inspect, terminal, image pull and confirmed removal. Safe recreation/update and project opt-in auto-update are planned in C4/C5. Editing/synchronizing the Compose structure or adding/removing services requires a stored Compose definition.
 
-For external recreation, snapshot the Engine-visible container configuration, preserve mounts/networks/ports/environment/labels, start replacements, verify running or healthy state, and retain originals for rollback until the job succeeds. Block recreation with a clear reason when the configuration cannot be reproduced safely. Writable container layers are not persistent data and are not promised to survive recreation. A managed project uses Docker Compose for equivalent lifecycle operations.
+The planned external recreation contract snapshots Engine-visible configuration, preserves supported mounts/networks/ports/environment/labels, verifies replacements and retains recovery resources until success. Unsupported configurations must be blocked before mutation. Writable container layers are not persistent data. Managed projects use Docker Compose followed by bounded Docker runtime verification. Active replicas must remain running for five seconds and configured healthchecks must be healthy; declared one-shot services must exit zero. Automatic managed rollback remains planned in C3.
 
 NoX Yard appears in the normal inventory. Its restart or update runs through an independent temporary job container, because the web service may stop mid-operation. Stop and remove actions for NoX Yard are unavailable in the UI.
 
@@ -48,11 +49,11 @@ The [embedded MCP endpoint](MCP.md) exposes discrete inventory, lifecycle, Compo
 
 The stable [Control API v1](Control-API.md) provides machine inventory, inspection, lifecycle, and image pulls on the same port. Protected routes are opt-in through explicit configuration. Public health/info do not require Docker availability. `/healthz` retains its SQLite-only contract. Machine routes do not expose streaming, terminal, managed editing/deployment, or self-update mutations. The `internal/application` facade retains the inventory overlay and operation orchestration used by all management adapters; their authentication, DTOs and error presentation remain independent.
 
-- REST: bootstrap state, setup/login/logout, inventory and detail reads, import preview/commit/sync, actions, job status, and auto-update settings.
+- REST: bootstrap state, setup/login/logout, inventory and detail reads, import preview/commit/sync, actions, job status, and Yard self-update settings. Project update schedules are planned.
 - SSE: inventory/metrics invalidations through `/api/projects/events`, and live container logs. Managed job progress is read through its job endpoint.
 - WebSocket: authenticated, origin-checked bidirectional container terminal sessions.
 
-Mutating calls return a job ID for long-running work. The frontend can reconnect and recover progress after a page or service restart. API payloads never return raw Docker SDK structs or secrets by default; sensitive values require an explicit reveal action.
+Managed mutations return a job ID. Final status is persisted, but rediscovery of job history after browser reload and accurate reconciliation after service restart are planned in C2. Engine pulls remain synchronous. API payloads never return raw Docker SDK structs or secrets by default; sensitive values require an explicit reveal action.
 
 ### Inventory and metrics lifecycle
 
@@ -69,12 +70,12 @@ The `/bin/sh` capability check runs only when opening a terminal. Known presence
 ## Compose import flow
 
 1. Accept HTTPS public URL, pasted YAML, or uploaded YAML. Restrict URL fetches by scheme, destination, redirects, timeout, and size.
-2. Collect interpolation variables and validate using `docker compose config`; reject unsupported local-file dependencies, builds, and relative bind mounts for newly managed projects.
+2. Collect interpolation variables/env files and validate using `docker compose config`; reject builds and unresolved local dependencies. New host-based projects support relative bind mounts resolved from their stored host project directory.
 3. Show a preview of the name, services, images, ports, volumes, and networks. Nothing is deployed before confirmation.
-4. Persist the source and variables, pull public prebuilt images, then run Compose deployment as a durable job.
-5. A repeated source URL offers a separate copy, sync of an existing associated project with diff and confirmation, or cancellation. A source matching an external project's name can be adopted only after comparison and explicit confirmation.
+4. Persist the source and variables, write the host source/env files, pull public prebuilt images, then run Compose deployment with a persisted job record. General interrupted-job recovery is planned.
+5. A repeated source URL offers a separate copy, sync of an existing associated project with diff and confirmation, or cancellation. A source matching an external project's name can be adopted only after comparison and explicit confirmation. Adoption resolves the original host directory from Compose metadata or an explicit fallback, rechecks runtime/file fingerprints, and saves source/env files without recreating containers or overwriting existing files. Relative binds retain that original base. Unsupported adoption configurations are blocked.
 
-Pull downloads images without replacing containers. Update uses the stored Compose definition for managed projects or a safe Engine-based recreation for external projects. Auto-update is opt-in per project and runs on a configurable server-local schedule; the initial default is daily at 03:00.
+Pull downloads images without replacing containers. Managed update currently pulls and forces recreation from the stored definition; unchanged-image checks and rollback are planned in C3. External update and project opt-in auto-update are planned in C4/C5, with daily checks initially at 03:00 in the explicitly documented server timezone. Yard self-update retains its separate implemented settings and worker.
 
 ## Authentication and failure handling
 

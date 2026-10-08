@@ -66,10 +66,11 @@ export type ManagedSource = {
   suggestedName?: string;
 };
 
-export type ManagedRequest = { name: string; source: ManagedSourceInput; variables: Record<string, string>; envFiles: Record<string, string>; mode: "new" | "copy" | "sync" | "adopt"; fingerprint?: string };
+export type ManagedRequest = { name: string; source: ManagedSourceInput; variables: Record<string, string>; envFiles: Record<string, string>; mode: "new" | "copy" | "sync" | "adopt"; fingerprint?: string; projectDir?: string };
 export type ManagedPreview = {
   name: string;
 	projectDir: string;
+  adoptionDir?: string;
   services: { name: string; image: string; ports: string[]; volumes: string[]; networks: string[] }[];
   volumes: string[];
   networks: string[];

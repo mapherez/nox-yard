@@ -35,6 +35,7 @@ function FileUploadField({ id, label, accept, hint, filename, required = false, 
 export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open: boolean; csrfToken: string; onClose: () => void; onChanged: () => void }) {
   const drawer = useRef<HTMLDialogElement>(null);
   const modal = useRef<HTMLDialogElement>(null);
+  const previewInvoker = useRef<HTMLElement | null>(null);
   const dismiss = useCallback(() => drawer.current?.close(), []);
   useDrawerSwipe(drawer, "right", open, dismiss);
   const [kind, setKind] = useState<ManagedSourceInput["kind"]>("url");
@@ -49,6 +50,8 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
   const [envUploads, setEnvUploads] = useState<Record<string, { filename: string; content: string }>>({});
   const [showValues, setShowValues] = useState(false);
   const [mode, setMode] = useState<ManagedRequest["mode"]>("new");
+  const [adoptionDir, setAdoptionDir] = useState("");
+  const [adoptionDirty, setAdoptionDirty] = useState(false);
   const [preview, setPreview] = useState<ManagedPreview | null>(null);
   const [job, setJob] = useState<ManagedJob | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,7 +80,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
         next = { kind, filename: file.name, yaml: new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer()) };
       }
       const loaded = await loadManagedSource(next, csrfToken);
-      setSource(loaded); setInput(next); setName(loaded.suggestedName || ""); setVariables({}); setEnvRows({}); setEnvUploads({}); setShowValues(false); setMode("new");
+      setSource(loaded); setInput(next); setName(loaded.suggestedName || ""); setVariables({}); setEnvRows({}); setEnvUploads({}); setShowValues(false); setMode("new"); setAdoptionDir(""); setAdoptionDirty(false);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to read source."); }
     finally { setBusy(false); }
   }
@@ -130,16 +133,21 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
 
   async function validate(nextMode: ManagedRequest["mode"] = mode) {
     if (!input) return;
-    setBusy(true); setError("");
-    try { setPreview(await previewManaged({ name: name.trim(), source: input, variables: providedVariables(), envFiles: providedEnvFiles(), mode: nextMode }, csrfToken)); setMode(nextMode); }
+    if (!modal.current?.open && document.activeElement instanceof HTMLElement) previewInvoker.current = document.activeElement;
+    setBusy(true); setError(""); setMode(nextMode);
+    try {
+      const next = await previewManaged({ name: name.trim(), source: input, variables: providedVariables(), envFiles: providedEnvFiles(), mode: nextMode, ...(nextMode === "adopt" && adoptionDir.trim() ? { projectDir: adoptionDir.trim() } : {}) }, csrfToken);
+      setPreview(next); setAdoptionDirty(false);
+      if (next.adoptionDir) setAdoptionDir(next.adoptionDir);
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to validate project."); }
     finally { setBusy(false); }
   }
 
   async function confirm() {
-    if (!input || !preview) return;
+    if (!input || !preview || preview.mode !== mode || adoptionDirty) return;
     setBusy(true); setError("");
-    try { setJob(await deployManaged({ name: name.trim(), source: input, variables: providedVariables(), envFiles: providedEnvFiles(), mode, fingerprint: preview.fingerprint }, csrfToken)); setPreview(null); }
+    try { setJob(await deployManaged({ name: name.trim(), source: input, variables: providedVariables(), envFiles: providedEnvFiles(), mode, fingerprint: preview.fingerprint, ...(mode === "adopt" ? { projectDir: preview.projectDir } : {}) }, csrfToken)); setPreview(null); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to deploy project."); setPreview(null); }
     finally { setBusy(false); }
   }
@@ -164,7 +172,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
         </form>
         {source && !job && <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void validate(); }}>
           <div className={styles.loaded}><strong>Source loaded</strong><span>{source.filename || source.url || "Pasted YAML"}</span></div>
-          <div className={styles.field}><label htmlFor="managed-name">Project name</label><input id="managed-name" value={name} required pattern="[a-z0-9][a-z0-9_-]{0,62}" onChange={(event) => setName(event.target.value)} /></div>
+          <div className={styles.field}><label htmlFor="managed-name">Project name</label><input id="managed-name" value={name} required pattern={"[a-z0-9][a-z0-9_\\-]{0,62}"} onChange={(event) => setName(event.target.value)} /></div>
           {(source.variables.length > 0 || source.envFiles.length > 0) && <label className={styles.visibilityToggle}><input type="checkbox" checked={showValues} onChange={(event) => setShowValues(event.target.checked)} /> Show environment values</label>}
           {source.variables.length > 0 && <fieldset className={styles.envSection}><legend>Compose interpolation variables</legend>
             {source.variables.map((variable) => <div className={styles.field} key={variable.name}><label htmlFor={`managed-var-${variable.name}`}>{variable.name}{variable.required && !rootEnvDefines(variable.name) ? " *" : ""}</label><input id={`managed-var-${variable.name}`} type={showValues ? "text" : "password"} value={variables[variable.name] ?? ""} required={variable.required && !rootEnvDefines(variable.name)} placeholder={variable.default} autoComplete="off" onChange={(event) => setVariables((current) => ({ ...current, [variable.name]: event.target.value }))} /></div>)}
@@ -190,24 +198,39 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
       </div>
     </div>
   </dialog>
-  <dialog ref={modal} className={styles.previewDialog} aria-labelledby="managed-preview-title" onClose={() => setPreview(null)} onCancel={(event) => { if (busy) event.preventDefault(); }}>
+  <dialog ref={modal} className={styles.previewDialog} aria-labelledby="managed-preview-title" onClose={() => {
+    setPreview(null);
+    if (drawer.current?.open) {
+      const target = previewInvoker.current;
+      if (target?.isConnected && !target.hasAttribute("disabled")) target.focus();
+      else drawer.current.querySelector<HTMLButtonElement>("button")?.focus();
+    }
+  }} onCancel={(event) => { if (busy) event.preventDefault(); }}>
     {preview && <div className={styles.previewBody}>
       <h2 id="managed-preview-title">Review {preview.name}</h2>
-      <p>Docker Compose validated this project. Confirm to pull its images and deploy it.</p>
+      <p>{mode === "adopt" ? "Review the original directory and configuration. Adoption saves the source without restarting the existing containers. Existing files must match; they will not be overwritten." : "Docker Compose validated this project. Confirm to pull its images and deploy it."}</p>
 	  {preview.projectDir && <p>Compose file: <code>{preview.projectDir}/compose.yml</code></p>}
       {(preview.duplicates.length > 0 || preview.externalMatch) && <fieldset className={styles.sourceChoices} disabled={busy}><legend>Existing project</legend>
         {preview.duplicates.length > 0 && <p>Source URL already used by: {preview.duplicates.join(", ")}.</p>}
         {preview.externalMatch && <p>An external Compose project already uses this name.</p>}
         {preview.duplicates.length > 0 && !preview.duplicates.includes(name.trim()) && <label><input type="radio" name="mode" checked={mode === "copy"} onChange={() => { void validate("copy"); }} /> Create a separate copy</label>}
         {preview.duplicates.includes(name.trim()) && <label><input type="radio" name="mode" checked={mode === "sync"} onChange={() => { void validate("sync"); }} /> Sync existing managed project</label>}
-        {preview.externalMatch && <label><input type="radio" name="mode" checked={mode === "adopt"} onChange={() => { void validate("adopt"); }} /> Adopt existing external project</label>}
+        {preview.externalMatch && <label><input type="radio" name="mode" checked={mode === "adopt"} onChange={() => { setMode("adopt"); if (adoptionDir) void validate("adopt"); }} /> Adopt existing external project</label>}
       </fieldset>}
+      {preview.externalMatch && mode === "adopt" && <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void validate("adopt"); }}>
+        <div className={styles.field}>
+          <label htmlFor="adoption-directory">Original project directory on the Docker host</label>
+          <p id="adoption-directory-hint" className={styles.hint}>Use the directory where the existing Compose file lives, so relative mounts keep the same data.</p>
+          <input id="adoption-directory" type="text" value={adoptionDir} required disabled={busy} autoComplete="off" spellCheck={false} aria-describedby="adoption-directory-hint" onChange={(event) => { setAdoptionDir(event.target.value); setAdoptionDirty(true); }} />
+        </div>
+        <button type="submit" className={appStyles.primaryButton} disabled={busy}>Review adoption</button>
+      </form>}
       {preview.changes.length > 0 && <section><h3>Changes</h3><ul>{preview.changes.map((change) => <li key={change}>{change}</li>)}</ul></section>}
       <section><h3>Services and images</h3>{preview.services.map((service) => <div className={styles.service} key={service.name}><strong>{service.name}</strong><code>{service.image}</code>{service.ports.length > 0 && <p>Ports: {service.ports.join(", ")}</p>}{service.volumes.length > 0 && <p>Mounts: {service.volumes.join(", ")}</p>}{service.networks.length > 0 && <p>Networks: {service.networks.join(", ")}</p>}</div>)}</section>
       <p>Volumes: {preview.volumes.join(", ") || "none"}</p><p>Networks: {preview.networks.join(", ") || "default"}</p>
       {preview.envFiles.length > 0 && <p>Environment files: {preview.envFiles.join(", ")} (values hidden)</p>}
       {error && <p className={appStyles.formError} role="alert">{error}</p>}
-      <div className={styles.previewActions}><button type="button" onClick={() => setPreview(null)} disabled={busy}>Cancel</button><button type="button" className={appStyles.primaryButton} disabled={busy || conflict} onClick={() => { void confirm(); }}>{mode === "adopt" ? "Confirm adoption" : "Confirm deployment"}</button></div>
+      <div className={styles.previewActions}><button type="button" onClick={() => setPreview(null)} disabled={busy}>Cancel</button><button type="button" className={appStyles.primaryButton} disabled={busy || conflict || preview.mode !== mode || adoptionDirty} onClick={() => { void confirm(); }}>{mode === "adopt" ? "Confirm adoption" : "Confirm deployment"}</button></div>
     </div>}
   </dialog></>;
 }

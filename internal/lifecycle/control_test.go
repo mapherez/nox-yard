@@ -84,6 +84,24 @@ func TestProjectProtectionPreflightsEntireGroup(t *testing.T) {
 	}
 }
 
+func TestManagedHelpersAreProtectedFromLifecycleAndPull(t *testing.T) {
+	id := strings.Repeat("a", 64)
+	m := testControlManager(t, dockerRoundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.Method != "GET" {
+			t.Fatal("helper mutated")
+		}
+		return dockerResponse(200, fmt.Sprintf(`{"Id":%q,"Config":{"Image":"yard:test","Labels":{"nox-yard.role":"managed-helper"}},"State":{"Status":"running"}}`, id)), nil
+	}))
+	for _, action := range []Action{Start, Stop, Restart} {
+		if _, err := m.Container(t.Context(), id, action); !errors.Is(err, ErrProtected) {
+			t.Fatalf("helper action %s accepted: %v", action, err)
+		}
+	}
+	if _, err := m.PullContainer(t.Context(), id); !errors.Is(err, ErrProtected) {
+		t.Fatalf("helper pull accepted: %v", err)
+	}
+}
+
 func TestPullDeduplicatesImagesAndPreservesTypedFailure(t *testing.T) {
 	a, b := strings.Repeat("a", 64), strings.Repeat("b", 64)
 	pulls := 0

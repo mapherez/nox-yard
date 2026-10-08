@@ -58,7 +58,7 @@ docker compose -f compose.dev.yaml up -d --build
 
 Open `http://127.0.0.1:5173`. Compose runs a Go API container and a Vite container that proxies `/api` to it. Frontend edits reload without a Docker build or a GitHub push. See the [development guide](Documentation/Developer/Development.md) for backend rebuilds and shutdown.
 
-To run the Go server directly instead, install Go 1.26 and Node.js 24. From `web/`, run `npm ci` and `npm run build`. Then, from the repository root, run:
+To run the Go server directly instead, install Go 1.26.6 or a later patch and Node.js 24. From `web/`, run `npm ci` and `npm run build`. Then, from the repository root, run:
 
 ```sh
 NOX_LISTEN_ADDR=127.0.0.1:8080 go run ./cmd/nox-yard

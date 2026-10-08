@@ -247,7 +247,7 @@ func isSelf(id string, labels map[string]string) bool {
 }
 
 func isHelper(labels map[string]string) bool {
-	return labels["nox-yard.role"] == "self-update-worker" || labels["nox-yard.role"] == "self-restart-worker"
+	return labels["nox-yard.role"] == "self-update-worker" || labels["nox-yard.role"] == "self-restart-worker" || labels["nox-yard.role"] == "managed-helper"
 }
 
 func containerName(item container.Summary) string {

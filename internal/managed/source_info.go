@@ -32,7 +32,8 @@ func InspectSource(content string) (SourceInfo, error) {
 		return SourceInfo{}, fmt.Errorf("%w: Compose file has no services", ErrInvalidSource)
 	}
 	info := SourceInfo{EnvFiles: []EnvFile{}}
-	byPath := map[string]bool{}
+	// Compose reads .env implicitly for interpolation and global controls.
+	byPath := map[string]bool{".env": false}
 	names := make([]string, 0, len(services))
 	for name := range services {
 		names = append(names, name)

@@ -13,12 +13,12 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/store"
+	"github.com/moby/moby/api/types/container"
 )
 
 var ErrConflict = errors.New("managed project conflict")
@@ -30,25 +30,32 @@ type Request struct {
 	EnvFiles    map[string]string `json:"envFiles"`
 	Mode        string            `json:"mode"`
 	Fingerprint string            `json:"fingerprint,omitempty"`
+	ProjectDir  string            `json:"projectDir,omitempty"`
 }
 
 type ProjectPreview struct {
 	Preview
-	ProjectDir    string   `json:"projectDir"`
-	SourceKind    string   `json:"sourceKind"`
-	SourceURL     string   `json:"sourceURL,omitempty"`
-	Duplicates    []string `json:"duplicates"`
-	ExternalMatch bool     `json:"externalMatch"`
-	Changes       []string `json:"changes"`
-	Mode          string   `json:"mode"`
+	ProjectDir         string   `json:"projectDir"`
+	SourceKind         string   `json:"sourceKind"`
+	SourceURL          string   `json:"sourceURL,omitempty"`
+	Duplicates         []string `json:"duplicates"`
+	ExternalMatch      bool     `json:"externalMatch"`
+	Changes            []string `json:"changes"`
+	Mode               string   `json:"mode"`
+	AdoptionDir        string   `json:"adoptionDir,omitempty"`
+	filesFingerprint   string
+	runtimeFingerprint string
 }
 
 type Manager struct {
-	data      *store.Store
-	inventory inventory.Reader
-	mu        sync.Mutex
-	active    map[string]bool
-	changes   *inventory.Notifier
+	data          *store.Store
+	inventory     inventory.Reader
+	mu            sync.Mutex
+	active        map[string]bool
+	changes       *inventory.Notifier
+	runtime       runtimeReader
+	imageDefaults func(context.Context, string) (imageDefaults, error)
+	adoptionFiles func(context.Context, string, string, map[string]string, string, bool) (string, error)
 }
 
 func (m *Manager) SetNotifier(changes *inventory.Notifier) { m.changes = changes }
@@ -64,7 +71,7 @@ func NewManager(data *store.Store, reader inventory.Reader) (*Manager, error) {
 	if err := data.InterruptManagedJobs(); err != nil {
 		return nil, err
 	}
-	return &Manager{data: data, inventory: reader, active: make(map[string]bool)}, nil
+	return &Manager{data: data, inventory: reader, active: make(map[string]bool), runtime: readProjectRuntime, imageDefaults: readImageDefaults, adoptionFiles: adoptionFiles}, nil
 }
 
 func (m *Manager) ProjectsBase() (string, error) { return m.data.ProjectsBase() }
@@ -81,24 +88,74 @@ func (m *Manager) SetProjectsBase(ctx context.Context, value string) (string, er
 }
 
 func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, Source, error) {
+	if !projectNamePattern.MatchString(input.Name) {
+		return ProjectPreview{}, Source{}, fmt.Errorf("%w: invalid project name", ErrInvalidSource)
+	}
+	if input.ProjectDir != "" && input.Mode != "adopt" {
+		return ProjectPreview{}, Source{}, fmt.Errorf("%w: an explicit project directory is only supported for adoption", ErrInvalidSource)
+	}
+	snapshot, err := m.inventory.Snapshot(ctx)
+	if err != nil {
+		return ProjectPreview{}, Source{}, fmt.Errorf("cannot inspect existing Docker projects: %w", err)
+	}
+	storedProject, isManaged, err := m.data.ManagedProject(input.Name)
+	if err != nil {
+		return ProjectPreview{}, Source{}, err
+	}
+	external := false
+	for _, project := range snapshot.Projects {
+		if project.ID == "compose:"+input.Name && !isManaged {
+			external = true
+		}
+	}
+	var runtime []container.InspectResponse
+	adoptDir, runtimeSignature := "", ""
+	if external {
+		runtime, err = m.runtime(ctx, input.Name)
+		if err != nil || len(runtime) == 0 {
+			return ProjectPreview{}, Source{}, fmt.Errorf("%w: existing project could not be inspected", ErrInvalidSource)
+		}
+		adoptDir, err = adoptionDirectory(runtime, input.ProjectDir)
+		if err != nil && input.Mode == "adopt" {
+			return ProjectPreview{}, Source{}, err
+		}
+		runtimeSignature = adoptionRuntimeFingerprint(runtime)
+	}
 	projectDir := ""
 	if input.Mode == "new" || input.Mode == "copy" {
 		base, err := m.data.ProjectsBase()
 		if err != nil {
 			return ProjectPreview{}, Source{}, err
 		}
-		if base == "" {
+		if base == "" && !external {
 			return ProjectPreview{}, Source{}, fmt.Errorf("%w: set the projects directory in Settings before creating a project", ErrInvalidSource)
 		}
-		projectDir = path.Join(base, input.Name)
+		if base != "" {
+			projectDir = path.Join(base, input.Name)
+		}
 	} else if input.Mode == "sync" {
 		old, found, err := m.data.ManagedProject(input.Name)
 		if err != nil {
 			return ProjectPreview{}, Source{}, err
 		}
 		if found {
+			if old.ProjectDir == "" {
+				return ProjectPreview{}, Source{}, fmt.Errorf("%w: saved host project directory is missing; directory recovery is required before sync", ErrInvalidSource)
+			}
 			projectDir = old.ProjectDir
 		}
+	} else if input.Mode == "adopt" {
+		if !external {
+			return ProjectPreview{}, Source{}, fmt.Errorf("%w: no external project is available for adoption", ErrConflict)
+		}
+		projectDir = adoptDir
+	}
+	if input.Mode == "sync" && isManaged {
+		runtime, err = m.runtime(ctx, input.Name)
+		if err != nil {
+			return ProjectPreview{}, Source{}, fmt.Errorf("%w: existing project could not be inspected before sync", ErrInvalidSource)
+		}
+		runtimeSignature = adoptionRuntimeFingerprint(runtime)
 	}
 	source, err := LoadSource(ctx, input.Source)
 	if err != nil {
@@ -108,7 +165,7 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
 	}
-	result := ProjectPreview{Preview: preview, ProjectDir: projectDir, SourceKind: source.Kind, SourceURL: source.URL, Duplicates: []string{}, Changes: []string{}, Mode: input.Mode}
+	result := ProjectPreview{Preview: preview, ProjectDir: projectDir, SourceKind: source.Kind, SourceURL: source.URL, Duplicates: []string{}, Changes: []string{}, Mode: input.Mode, ExternalMatch: external, AdoptionDir: adoptDir, runtimeFingerprint: runtimeSignature}
 	if source.URL != "" {
 		matches, err := m.data.ManagedByURL(source.URL)
 		if err != nil {
@@ -121,33 +178,57 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 			}
 		}
 	}
-	snapshot, err := m.inventory.Snapshot(ctx)
-	if err != nil {
-		return ProjectPreview{}, Source{}, fmt.Errorf("cannot inspect existing Docker projects: %w", err)
-	}
-	for _, project := range snapshot.Projects {
-		if project.ID != "compose:"+input.Name {
-			continue
+	imageSignature := ""
+	if external {
+		defaults := map[string]imageDefaults{}
+		for _, service := range preview.model.Services {
+			if _, found := defaults[service.Image]; found {
+				continue
+			}
+			value, err := m.imageDefaults(ctx, service.Image)
+			if err != nil {
+				return ProjectPreview{}, Source{}, fmt.Errorf("%w: image defaults are unavailable; pull the proposed images explicitly before adoption", ErrInvalidSource)
+			}
+			defaults[service.Image] = value
 		}
-		_, managed, err := m.data.ManagedProject(input.Name)
+		comparisonDir := adoptDir
+		if comparisonDir == "" {
+			comparisonDir = projectDir
+		}
+		changes, err := compareAdoption(input.Name, comparisonDir, preview.model, runtime, defaults)
 		if err != nil {
 			return ProjectPreview{}, Source{}, err
 		}
-		result.ExternalMatch = !managed
-		if result.ExternalMatch {
-			changes, err := compareExternal(ctx, m.inventory, project, preview)
-			if err != nil {
-				return ProjectPreview{}, Source{}, fmt.Errorf("cannot compare existing project: %w", err)
+		result.Changes = append(result.Changes, changes...)
+		encoded, _ := json.Marshal(defaults)
+		imageSignature = fingerprint(encoded)
+		if input.Mode == "adopt" {
+			if err := verifyAdoptionBinds(projectDir, preview.model, runtime); err != nil {
+				return ProjectPreview{}, Source{}, err
 			}
-			result.Changes = append(result.Changes, changes...)
+			result.filesFingerprint, err = m.adoptionFiles(ctx, projectDir, source.YAML, input.EnvFiles, "", false)
+			if err != nil {
+				return ProjectPreview{}, Source{}, err
+			}
 		}
 	}
 	sort.Strings(result.Changes)
+	managedSignature := ""
+	if isManaged {
+		encoded, _ := json.Marshal(storedProject)
+		managedSignature = fingerprint(encoded)
+	}
 	signature, _ := json.Marshal(struct {
 		Fingerprint string
 		Mode        string
 		Changes     []string
-	}{preview.Fingerprint, input.Mode, result.Changes})
+		External    bool
+		Runtime     string
+		Images      string
+		Files       string
+		Duplicates  []string
+		Managed     string
+	}{preview.Fingerprint, input.Mode, result.Changes, external, runtimeSignature, imageSignature, result.filesFingerprint, result.Duplicates, managedSignature})
 	result.Fingerprint = fingerprint(signature)
 	return result, source, nil
 }
@@ -225,69 +306,6 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
-func compareExternal(ctx context.Context, reader inventory.Reader, project inventory.Project, preview Preview) ([]string, error) {
-	oldServices := map[string]inventory.Container{}
-	for _, container := range project.Containers {
-		if container.Service != "" {
-			oldServices[container.Service] = container
-		}
-	}
-	changes := []string{}
-	for _, service := range preview.Services {
-		container, exists := oldServices[service.Name]
-		if !exists {
-			changes = append(changes, "New service: "+service.Name)
-		} else {
-			if container.Image != service.Image {
-				changes = append(changes, "Image differs for "+service.Name)
-			}
-			inspection, err := reader.InspectContainer(ctx, container.ID, false)
-			if err != nil {
-				return nil, err
-			}
-			for _, port := range service.Ports {
-				matched := false
-				for _, current := range inspection.Ports {
-					if current.HostPort+":"+current.ContainerPort == port {
-						matched = true
-					}
-				}
-				if !matched {
-					changes = append(changes, "Published port differs for "+service.Name+": "+port)
-				}
-			}
-			for _, volume := range service.Volumes {
-				source, target, _ := strings.Cut(volume, ":")
-				matched := false
-				for _, current := range inspection.Mounts {
-					if current.Destination == target && (current.Source == source || current.Source == project.Name+"_"+source) {
-						matched = true
-					}
-				}
-				if !matched {
-					changes = append(changes, "Mount differs for "+service.Name+": "+volume)
-				}
-			}
-			for _, network := range service.Networks {
-				matched := false
-				for _, current := range inspection.Networks {
-					if current.Name == network || current.Name == project.Name+"_"+network {
-						matched = true
-					}
-				}
-				if !matched {
-					changes = append(changes, "Network differs for "+service.Name+": "+network)
-				}
-			}
-		}
-		delete(oldServices, service.Name)
-	}
-	for service := range oldServices {
-		changes = append(changes, "Existing service absent from source: "+service)
-	}
-	return changes, nil
-}
-
 func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, error) {
 	if input.Name == "nox-yard" {
 		return store.ManagedJob{}, fmt.Errorf("%w: NoX Yard cannot manage itself", ErrConflict)
@@ -363,6 +381,17 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 		defer finish()
 		defer release()
 		if input.Mode == "adopt" {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			current, err := m.runtime(ctx, input.Name)
+			if err != nil || adoptionRuntimeFingerprint(current) != preview.runtimeFingerprint {
+				_ = m.data.FinishManagedJob(job.ID, "failed", "Existing project changed before adoption; review again.")
+				return
+			}
+			if _, err := m.adoptionFiles(ctx, projectRecord.ProjectDir, source.YAML, input.EnvFiles, preview.filesFingerprint, true); err != nil {
+				_ = m.data.FinishManagedJob(job.ID, "failed", "Project files could not be adopted without overwriting existing files; review again.")
+				return
+			}
 			m.finishWithProject(job.ID, projectRecord, nil)
 			return
 		}
@@ -377,11 +406,24 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 		if err := composeCommand(jobCtx, input.Name, source.YAML, input.Variables, input.EnvFiles, preview.ProjectDir, "pull"); err == nil {
 			err = composeCommand(jobCtx, input.Name, source.YAML, input.Variables, input.EnvFiles, preview.ProjectDir, "up", "-d", "--no-build")
 			if err == nil {
+				err = m.verify(jobCtx, input.Name, preview.Preview)
+				if err != nil {
+					message := "Deployment verification failed: " + err.Error() + "."
+					if input.Mode == "sync" {
+						message += " Automatic rollback was not performed."
+					}
+					_ = m.data.FinishManagedJob(job.ID, "failed", message)
+					return
+				}
 				m.finishWithProject(job.ID, projectRecord, nil)
 				return
 			}
 		}
-		_ = m.data.FinishManagedJob(job.ID, "failed", "Docker Compose could not complete the operation. Inspect the host Docker logs and retry.")
+		message := "Docker Compose could not complete the operation. Inspect the host Docker logs and retry."
+		if input.Mode == "sync" {
+			message += " Automatic rollback was not performed."
+		}
+		_ = m.data.FinishManagedJob(job.ID, "failed", message)
 	}()
 	return job, nil
 }
@@ -457,6 +499,20 @@ func (m *Manager) Operation(name, operation string, removeVolumes bool) (store.M
 			_ = m.data.FinishManagedJob(job.ID, "failed", "Saved environment files could not be read.")
 			return
 		}
+		var verifiedPreview Preview
+		needsVerification := operation == "start" || operation == "restart" || operation == "update"
+		if needsVerification {
+			if project.ProjectDir == "" {
+				_ = m.data.FinishManagedJob(job.ID, "failed", "Saved host project directory is missing; directory recovery is required before this operation.")
+				return
+			}
+			var err error
+			verifiedPreview, err = Validate(ctx, name, Source{YAML: project.YAML}, variables, envFiles, project.ProjectDir)
+			if err != nil {
+				_ = m.data.FinishManagedJob(job.ID, "failed", "Saved Compose configuration could not be validated.")
+				return
+			}
+		}
 		args := []string{}
 		switch operation {
 		case "start":
@@ -480,8 +536,22 @@ func (m *Manager) Operation(name, operation string, removeVolumes bool) (store.M
 			args = []string{"up", "-d", "--no-build", "--force-recreate"}
 		}
 		if err := composeCommand(ctx, name, project.YAML, variables, envFiles, project.ProjectDir, args...); err != nil {
-			_ = m.data.FinishManagedJob(job.ID, "failed", "Docker Compose could not complete the operation.")
+			message := "Docker Compose could not complete the operation."
+			if operation == "update" {
+				message += " Automatic rollback was not performed."
+			}
+			_ = m.data.FinishManagedJob(job.ID, "failed", message)
 			return
+		}
+		if needsVerification {
+			if err := m.verify(ctx, name, verifiedPreview); err != nil {
+				message := "Verification failed: " + err.Error() + "."
+				if operation == "update" {
+					message += " Automatic rollback was not performed."
+				}
+				_ = m.data.FinishManagedJob(job.ID, "failed", message)
+				return
+			}
 		}
 		if operation == "remove" {
 			if err := m.data.DeleteManagedProject(name); err != nil {

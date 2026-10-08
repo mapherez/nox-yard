@@ -2,7 +2,7 @@
 
 ## Toolchains
 
-- Go 1.26 for the root module `github.com/mapherez/nox-yard`.
+- Go 1.26.6 or later in the 1.26 series for the root module `github.com/mapherez/nox-yard`; this patch floor addresses the standard-library advisories identified by the completion baseline scan.
 - Node.js 24 for `web/` (`.nvmrc`), with npm and the committed `web/package-lock.json`.
 - Docker Engine and the Compose plugin on a Linux integration host. Raspberry Pi 5 (`linux/arm64`) is the primary release target; `linux/amd64` is also intended.
 
@@ -13,7 +13,7 @@
 - `internal/store/`: SQLite schema, administrator, and sessions.
 - `internal/httpapi/`: browser HTTP routes, session protection, static assets, and the independent versioned machine Control API.
 - `internal/selfupdate/`: opt-in GHCR checks and the temporary Engine-based update worker; see [Self-Update](Self-Update.md).
-- `internal/managed/`: source intake for new managed Compose projects; validation and deployment follow in Phase 3.
+- `internal/managed/`: source intake, validation/preview, host project files, adoption and asynchronous managed Compose operations.
 - `web/src/`: typed API client, React views, and CSS Modules. Shared tokens and global rules are in `web/src/styles/`.
 - `Dockerfile`, `compose.yaml`, `compose.dev.yaml`, `.env.example`: production and local development images and Compose configurations.
 - `scripts/check.sh`, `scripts/test.sh`, `scripts/ci-local.sh`: shared local and CI validation.
@@ -55,7 +55,7 @@ For frontend development, run `npm run dev` from `web/`. Vite proxies `/api` to 
 
 ## Local validation and pre-push
 
-Install Go 1.26, Node.js 24, Docker with the Compose plugin, and frontend dependencies. From the repository root:
+Install Go 1.26.6 or a later patch, Node.js 24, Docker with the Compose plugin, and frontend dependencies. From the repository root:
 
 ```sh
 npm ci --prefix web
@@ -84,7 +84,13 @@ The optional [Control API](Control-API.md) uses the same backend port. `NOX_YARD
 
 `NOX_LISTEN_ADDR` defaults to `:8080`; use `127.0.0.1:8080` for a local development server. `NOX_DATA_DIR` defaults to `./data`, and `NOX_WEB_DIR` defaults to `./web/dist`. In Compose, these are `/data` and `/srv/nox-yard/web`. The optional `NOX_PUBLIC_URL` must be an exact HTTP(S) origin without a path. Set it to the browser-facing HTTPS origin behind a reverse proxy so sessions use Secure cookies and Origin checks compare against that origin.
 
-`.env.example` configures the Compose host bind address and port. Compose defaults to host port 8095 mapped to container port 8080; `NOX_PORT` can override the host port. The Compose file mounts `./data` and `/var/run/docker.sock`. Keep the application on a trusted LAN/VPN, especially before the administrator account has been created. Do not commit `.env`, `data/`, credentials, sessions, or host Docker data. Back up `data/` before upgrades; SQLite is the only persisted application state at this stage.
+`.env.example` configures the Compose host bind address and port. Compose defaults to host port 8095 mapped to container port 8080; `NOX_PORT` can override the host port. The Compose file mounts `./data` and `/var/run/docker.sock`. Keep the application on a trusted LAN/VPN, especially before the administrator account has been created. Do not commit `.env`, `data/`, credentials, sessions, or host Docker data.
+
+Back up SQLite with a consistent SQLite backup/snapshot method, the configured host projects directory (Compose and environment files), and the applications' named-volume/bind data. These are separate storage locations; copying `/data` alone does not back up deployed application data or host source files. Restore matching source/configuration and metadata before resuming management. Container/configuration rollback does not undo application data writes or schema migrations inside shared volumes.
+
+Run `sh scripts/security.sh` to scan Linux amd64 and arm64 call paths with the pinned official `govulncheck` tool. The scanner is installed into a temporary directory and does not change `go.mod`. Database/network failures are failures, not a clean scan. `npm audit --prefix web` checks frontend dependencies. Update only the affected compatible dependency or toolchain patch, then repeat the relevant checks.
+
+`scripts/fixtures/managed-acceptance.yaml` supplies healthy, unhealthy, one-shot, volume/bind and failed-pull examples. Run only with a unique disposable Compose project name and a copied temporary fixture directory; profiles select intentional failures. A standalone fixture is the same Alpine sleep service created without Compose labels; external Compose fixtures use these definitions outside Yard ownership. Never use an existing user stack as a fixture.
 
 To reset a forgotten password, use an interactive terminal attached to the same data directory:
 
