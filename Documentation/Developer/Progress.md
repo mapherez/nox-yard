@@ -1,8 +1,12 @@
 # Current checkpoint
 
-**Updated:** 2026-10-05
+**Updated:** 2026-10-08
 
 **Phase:** 3 — Managed Compose projects (implementation, host checkpoint pending)
+
+The [MVP completion plan](Completion-Plan.md) is the execution path for remaining work. The next implementation batch is C0 (baseline/dependency hygiene), followed by C1 (managed health reporting and adoption paths). Creating this plan does not close an implementation or host acceptance checkpoint.
+
+Repository review on 2026-10-08 confirmed clean `v1.0.1` source, passing local Go/release/frontend/Compose checks, both Linux image builds, ARM64 runtime health under emulation, and disposable real-Docker MCP/Compose/self-restart tests. The connected `v1.0.1` instance reports ready storage and available Docker. Phase 4 remains incomplete: external safe recreation, project-level scheduling and general interrupted-job reconciliation are absent. Managed deploy/update can report success for unhealthy containers; adoption does not retain a host project directory. These findings must be resolved before closing the MVP. See [Repository review](Repository-Review-2026-10-08.md) for evidence, test limits and implementation order. The Pi acceptance checkpoints below remain open.
 
 The embedded MCP endpoint is implemented on the existing port at `/mcp`, with 25 tools and a 60-second runtime timeout. Browser and Control API operations use the same lightweight application facade and manager instances; pending states and SSE share one notifier. Existing authentication, server deadlines, UI and SQLite schema remain unchanged. Go unit/integration tests cover anonymous MCP, schemas/annotations, adapter compatibility, cancellation, timeout, pending states and asynchronous job lifetimes. Local checks passed: formatting, vet, Go tests, frontend typecheck/build and Compose configuration. Linux amd64/arm64 images built successfully; isolated Docker tests passed real MCP operations, SSE, Compose jobs/removal, fingerprint protection, Yard self-restart with persisted session/settings, and ARM64 health/discovery under emulation. See [Embedded MCP](MCP.md) for the catalog, connection and dependency-update instructions. Deployment validation on the Pi remains a separate checkpoint.
 

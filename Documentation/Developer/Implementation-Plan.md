@@ -1,6 +1,6 @@
 # MVP implementation plan
 
-This plan records the MVP scope and acceptance checkpoints. Current work is tracked in [Progress](Progress.md).
+This plan records the MVP scope and acceptance checkpoints. Current work is tracked in [Progress](Progress.md). The [MVP completion plan](Completion-Plan.md) defines the ordered implementation packages for remaining work identified in the 2026-10-08 review.
 
 ## Outcome and constraints
 

@@ -5,6 +5,7 @@ This directory is the **canonical technical documentation** for NoX Yard. The ro
 | Document | Use it for |
 | --- | --- |
 | [Implementation Plan](Implementation-Plan.md) | MVP scope, phases, and acceptance criteria. |
+| [MVP Completion Plan](Completion-Plan.md) | Ordered remaining implementation packages, dependencies, acceptance gates, and release closure. |
 | [Architecture](Architecture.md) | System boundaries, data flow, Docker integration, and persistence. |
 | [MCP](MCP.md) | Embedded LAN MCP endpoint, tools, contexts, notifications, and dependency updates. |
 | [Control API](Control-API.md) | Stable v1 machine endpoints, Bearer authentication, contracts, and version metadata. |
@@ -14,6 +15,7 @@ This directory is the **canonical technical documentation** for NoX Yard. The ro
 | [Releases](Releases.md) | One-command formal releases, stable/prerelease channels, and recovery. |
 | [Progress](Progress.md) | Single current phase checkpoint and remaining work. |
 | [Features](Features.md) | Notes on implemented features and their operational behavior. |
+| [Repository review — 2026-10-08](Repository-Review-2026-10-08.md) | Audit evidence, implementation gaps, and recommended next work. |
 
 ## Documentation rules
 
