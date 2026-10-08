@@ -34,16 +34,17 @@ var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{3,32}$`)
 var containerIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type Server struct {
-	application  *application.Service
-	mcp          http.Handler
-	store        *store.Store
-	webDir       string
-	publicOrigin string
-	secureCookie bool
-	limiter      loginLimiter
-	terminal     inventory.TerminalManager
-	changes      *inventory.Notifier
-	control      controlSettings
+	application          *application.Service
+	mcp                  http.Handler
+	store                *store.Store
+	webDir               string
+	publicOrigin         string
+	secureCookie         bool
+	limiter              loginLimiter
+	terminal             inventory.TerminalManager
+	changes              *inventory.Notifier
+	control              controlSettings
+	sessionCheckInterval time.Duration
 }
 
 type bootstrapResponse struct {
@@ -69,7 +70,7 @@ func New(data *store.Store, webDir, publicURL string, shared ...*application.Ser
 	} else {
 		app = application.New(data, inventory.NewNotifier())
 	}
-	s := &Server{store: data, webDir: webDir, limiter: loginLimiter{entries: make(map[string]loginAttempt)}, changes: app.Changes, application: app}
+	s := &Server{store: data, webDir: webDir, limiter: loginLimiter{entries: make(map[string]loginAttempt)}, changes: app.Changes, application: app, sessionCheckInterval: 15 * time.Second}
 	if publicURL == "" {
 		return s, nil
 	}

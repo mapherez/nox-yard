@@ -21,6 +21,8 @@ import {
   runManagedOperation,
   signIn,
   signOut,
+  notifySessionExpired,
+  sessionExpiredEvent,
   type Bootstrap,
   type Container,
   type ContainerInspection,
@@ -58,6 +60,13 @@ function viewFromBootstrap(result: Bootstrap): View {
 
 export default function App() {
   const [view, setView] = useState<View>({ kind: "loading" });
+
+  useEffect(() => {
+    if (view.kind !== "dashboard") return;
+    const expire = () => setView({ kind: "login" });
+    window.addEventListener(sessionExpiredEvent, expire);
+    return () => window.removeEventListener(sessionExpiredEvent, expire);
+  }, [view.kind]);
 
   useEffect(() => {
     const titles: Record<View["kind"], string> = {
@@ -740,6 +749,10 @@ function LogsPanel({ project, preferredContainerID, onSelectContainer }: {
       setStatus("error");
       setError("Docker stopped the log stream. Reconnect to try again.");
       source.close();
+    });
+    source.addEventListener("session-expired", () => {
+      source.close();
+      notifySessionExpired();
     });
     source.onerror = () => {
       if (source.readyState !== EventSource.CLOSED) {

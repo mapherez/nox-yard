@@ -10,7 +10,8 @@
     "dev": "vite",
     "docker:up": "docker compose -f ../compose.dev.yaml up -d --build",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node ../scripts/test-browser.mjs"
   },
   "dependencies": {
     "@phosphor-icons/web": "2.1.2",

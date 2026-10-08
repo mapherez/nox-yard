@@ -1,0 +1,29 @@
+# Isolated C6 UI instance; never uses the production Yard name or data.
+# Override NOX_VALIDATION_NAME and NOX_VALIDATION_CONTAINER together if occupied.
+name: ${NOX_VALIDATION_NAME:-nox-yard-c6-validation}
+services:
+  nox-yard:
+    image: ${NOX_VALIDATION_IMAGE:?Set a tested local validation image}
+    container_name: ${NOX_VALIDATION_CONTAINER:-nox-yard-c6-validation-yard}
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${NOX_VALIDATION_BIND:-0.0.0.0}:${NOX_VALIDATION_PORT:-18096}:8080"
+    environment:
+      TZ: Europe/Lisbon
+      NOX_DATA_DIR: /data
+      NOX_WEB_DIR: /srv/nox-yard/web
+      NOX_LISTEN_ADDR: :8080
+      NOX_PUBLIC_URL: ${NOX_VALIDATION_PUBLIC_URL:-}
+    volumes:
+      - ../../.tmp/pi5-ui/data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s

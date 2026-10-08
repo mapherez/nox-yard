@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getProjects, getMetrics, type Project, type ContainerMetrics } from "./api";
+import { getProjects, getMetrics, notifySessionExpired, type Project, type ContainerMetrics } from "./api";
 import { operationState, subscribeInventoryActions, type InventoryAction } from "./inventoryUpdates";
 
 export function mergeMetrics(projects: Project[], samples: Record<string, ContainerMetrics>): Project[] {
@@ -101,7 +101,7 @@ export function useProjects() {
       });
       source.addEventListener("session-expired", () => {
         source?.close();
-        setInventoryError("Session expired. Reload and sign in again.");
+        notifySessionExpired();
       });
       source.onerror = () => { void refreshInventory(); };
     }

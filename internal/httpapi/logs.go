@@ -67,7 +67,7 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 		completed <- readErr
 	}()
 
-	heartbeat := time.NewTicker(15 * time.Second)
+	heartbeat := time.NewTicker(s.sessionCheckInterval)
 	defer heartbeat.Stop()
 	for {
 		select {
@@ -87,6 +87,12 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-heartbeat.C:
+			_, _, valid, err := s.currentSession(r)
+			if err != nil || !valid {
+				_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				_ = writeLogEvent(w, controller, "session-expired", struct{}{})
+				return
+			}
 			if _, err := io.WriteString(w, ": keepalive\n\n"); err != nil {
 				return
 			}

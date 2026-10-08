@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import type { Project } from "./api";
+import { notifySessionExpired, type Project } from "./api";
 import styles from "./App.module.css";
 
 type TerminalStatus = "connecting" | "connected" | "exited" | "error";
@@ -123,8 +123,13 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
         socket.close();
       }
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       ready = false;
+      if (active && event.code === 4001) {
+        ended = true;
+        notifySessionExpired();
+        return;
+      }
       if (active && !ended) {
         setStatus("error");
         setMessage("Terminal disconnected. Reconnect to try again.");

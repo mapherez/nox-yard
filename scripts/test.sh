@@ -17,7 +17,4 @@ fi
 cd web
 run_check 'Frontend typecheck and build' npm run build
 
-# These are no-ops until the corresponding package.json scripts are added.
-run_check 'Optional frontend tests' npm run --if-present test
-run_check 'Optional frontend lint' npm run --if-present lint
-run_check 'Optional frontend stylelint' npm run --if-present stylelint
+run_check 'Frontend state regressions' npm test

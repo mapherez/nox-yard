@@ -42,7 +42,7 @@ func (s *Server) projectEvents(w http.ResponseWriter, r *http.Request) {
 	if err := write(inventory.Change{Inventory: true, Metrics: true}); err != nil {
 		return
 	}
-	heartbeat := time.NewTicker(15 * time.Second)
+	heartbeat := time.NewTicker(s.sessionCheckInterval)
 	defer heartbeat.Stop()
 	for {
 		select {

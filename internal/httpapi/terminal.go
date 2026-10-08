@@ -22,6 +22,10 @@ type terminalMessage struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// A distinct application close code lets the browser return to sign-in without
+// confusing session revocation with an invalid terminal request (1008).
+const terminalSessionExpired websocket.StatusCode = 4001
+
 func (s *Server) containerTerminal(w http.ResponseWriter, r *http.Request) {
 	if !s.checkOrigin(w, r) {
 		return
@@ -67,6 +71,27 @@ func (s *Server) containerTerminal(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+	// The opening handshake can outlive the session which authorized it.
+	if _, _, valid, err := s.currentSession(r); err != nil || !valid {
+		_ = conn.Close(terminalSessionExpired, "Session expired")
+		return
+	}
+	go func() {
+		heartbeat := time.NewTicker(s.sessionCheckInterval)
+		defer heartbeat.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-heartbeat.C:
+				if _, _, valid, err := s.currentSession(r); err != nil || !valid {
+					_ = conn.Close(terminalSessionExpired, "Session expired")
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	openCtx, openCancel := context.WithTimeout(ctx, 15*time.Second)
 	stream, err := s.terminal.OpenTerminal(openCtx, r.PathValue("id"), initial.Cols, initial.Rows)
 	openCancel()

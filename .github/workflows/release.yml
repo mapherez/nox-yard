@@ -61,6 +61,8 @@ jobs:
           cache-dependency-path: go.sum
       - name: Install frontend dependencies
         run: npm ci --prefix web
+      - name: Install Chrome for frontend regressions
+        run: npx --yes --package @playwright/cli@0.1.22 playwright-cli install-browser chrome
       - name: Validate tagged source
         run: sh scripts/ci-local.sh
       - name: Set up QEMU

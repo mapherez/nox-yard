@@ -1,5 +1,10 @@
 import { trackInventoryAction } from "./inventoryUpdates";
 
+export const sessionExpiredEvent = "nox:session-expired";
+export function notifySessionExpired() {
+  window.dispatchEvent(new Event(sessionExpiredEvent));
+}
+
 export type Bootstrap = {
   needsSetup: boolean;
   authenticated: boolean;
@@ -164,6 +169,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (response.status === 204) {
     return undefined as T;
+  }
+
+  if (response.status === 401 && path !== "/api/login" && path !== "/api/setup") {
+    notifySessionExpired();
   }
 
   const payload: unknown = await response.json().catch(() => null);

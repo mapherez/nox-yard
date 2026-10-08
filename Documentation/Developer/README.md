@@ -14,6 +14,7 @@ This directory is the **canonical technical documentation** for NoX Yard. The ro
 | [Decisions](Decisions.md) | Decisions that constrain later work and their reasons. |
 | [Development Guide](Development.md) | Repository conventions, workflow, and maintenance instructions. |
 | [Releases](Releases.md) | One-command formal releases, stable/prerelease channels, and recovery. |
+| [Host validation](Host-Validation.md) | Isolated Pi 5/Linux acceptance, upgrade/password/backup recovery and native-host evidence. |
 | [Progress](Progress.md) | Single current phase checkpoint and remaining work. |
 | [Features](Features.md) | Notes on implemented features and their operational behavior. |
 | [Repository review — 2026-10-08](Repository-Review-2026-10-08.md) | Audit evidence, implementation gaps, and recommended next work. |

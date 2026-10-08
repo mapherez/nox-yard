@@ -14,12 +14,17 @@ cleanup() {
 trap cleanup EXIT
 
 container_id=$(docker create --platform linux/arm64 \
-  -p 127.0.0.1:18095:8080 \
+  -p 127.0.0.1::8080 \
   -e NOX_DATA_DIR=/tmp/nox-yard-smoke \
   "$image")
 docker cp "$container_id:/usr/local/bin/nox-yard" "$binary"
 
-python3 - "$binary" <<'PY'
+if command -v python3 >/dev/null 2>&1; then
+  python_command=python3
+else
+  python_command=python
+fi
+"$python_command" - "$binary" <<'PY'
 import sys
 
 with open(sys.argv[1], "rb") as executable:
@@ -32,9 +37,10 @@ print("Confirmed Linux ARM64 executable")
 PY
 
 docker start "$container_id" >/dev/null
+address=$(docker port "$container_id" 8080/tcp)
 attempt=0
 while [ "$attempt" -lt 45 ]; do
-  if curl --fail --silent --show-error http://127.0.0.1:18095/healthz 2>/dev/null | grep -q '"status":"ok"'; then
+  if curl --fail --silent --show-error "http://$address/healthz" 2>/dev/null | grep -q '"status":"ok"'; then
     echo "ARM64 container started and /healthz responded"
     exit 0
   fi
