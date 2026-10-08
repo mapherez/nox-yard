@@ -81,7 +81,8 @@ export type ManagedPreview = {
   mode: ManagedRequest["mode"];
   fingerprint: string;
 };
-export type ManagedJob = { id: string; projectName: string; operation: string; status: "running" | "succeeded" | "failed"; error?: string };
+export type ImageIdentity = { service?: string; containerID?: string; imageID: string; startedAt?: string };
+export type ManagedJob = { id: string; projectName: string; targetID: string; domain: string; operation: string; status: "running" | "succeeded" | "failed"; stage: string; outcome?: string; error?: string; cleanupError?: string; rollback?: string; createdAt: number; startedAt?: number; completedAt?: number; updatedAt: number; deadlineAt?: number; workerID?: string; sourceImages?: ImageIdentity[]; targetImages?: ImageIdentity[] };
 
 export type LifecycleAction = "start" | "stop" | "restart";
 
@@ -211,6 +212,13 @@ export function deployManaged(input: ManagedRequest, csrfToken: string): Promise
 
 export function getManagedJob(id: string): Promise<ManagedJob> {
   return request<ManagedJob>(`/api/managed/jobs/${encodeURIComponent(id)}`);
+}
+
+export function getJobHistory(target: string): Promise<ManagedJob[]> {
+  return request<ManagedJob[]>(`/api/jobs?target=${encodeURIComponent(target)}`);
+}
+export function acknowledgeJobRecovery(job: ManagedJob, csrfToken: string): Promise<ManagedJob> {
+  return request<ManagedJob>(`/api/jobs/${encodeURIComponent(job.id)}/recovery`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ confirm: true, updatedAt: job.updatedAt }) });
 }
 
 export function runManagedOperation(name: string, operation: "start" | "stop" | "restart" | "pull" | "update" | "remove", removeVolumes: boolean, csrfToken: string): Promise<ManagedJob> {

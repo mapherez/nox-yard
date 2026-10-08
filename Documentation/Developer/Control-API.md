@@ -127,7 +127,7 @@ Each failure has `target` (container ID or image reference), stable `code`, and 
 
 HTTP 200 means no failures, including skips for targets already in the relevant state. HTTP 202 with `queued>0` means a restart helper was launched, not that it completed. There is no machine job-polling endpoint.
 
-Managed projects with existing containers use the same generic Engine operations as other groups. A stored managed project without containers remains listed, but generic actions/pulls return `TARGET_NOT_FOUND`. These routes do not dispatch to Compose `up`, create jobs, or deploy missing services.
+Managed projects with existing containers use the same generic Engine operations as other groups. A stored managed project without containers remains listed, but generic actions/pulls return `TARGET_NOT_FOUND`. These routes do not dispatch to Compose `up` or deploy missing services. Operations now persist shared ownership/history records, while v1 response shapes and routes stay unchanged; uncertain interrupted actions retain reservations for [host recovery review](Operation-Jobs.md).
 
 Existing protections apply: Yard stop/pull and protected maintenance workers are blocked. Yard restart uses the existing independent helper. Protected group stop is rejected before mutating other members.
 

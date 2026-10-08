@@ -2,7 +2,6 @@ package managed
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,10 +12,10 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 )
@@ -50,28 +49,17 @@ type ProjectPreview struct {
 type Manager struct {
 	data          *store.Store
 	inventory     inventory.Reader
-	mu            sync.Mutex
-	active        map[string]bool
 	changes       *inventory.Notifier
 	runtime       runtimeReader
 	imageDefaults func(context.Context, string) (imageDefaults, error)
 	adoptionFiles func(context.Context, string, string, map[string]string, string, bool) (string, error)
+	launch        func(context.Context, *store.Store, store.Job, string) error
 }
 
 func (m *Manager) SetNotifier(changes *inventory.Notifier) { m.changes = changes }
 
-func (m *Manager) beginChange(name, operation string) func() {
-	if m.changes == nil {
-		return func() {}
-	}
-	return m.changes.Begin("compose:"+name, operation)
-}
-
 func NewManager(data *store.Store, reader inventory.Reader) (*Manager, error) {
-	if err := data.InterruptManagedJobs(); err != nil {
-		return nil, err
-	}
-	return &Manager{data: data, inventory: reader, active: make(map[string]bool), runtime: readProjectRuntime, imageDefaults: readImageDefaults, adoptionFiles: adoptionFiles}, nil
+	return &Manager{data: data, inventory: reader, runtime: readProjectRuntime, imageDefaults: readImageDefaults, adoptionFiles: adoptionFiles, launch: jobs.Launch}, nil
 }
 
 func (m *Manager) ProjectsBase() (string, error) { return m.data.ProjectsBase() }
@@ -341,91 +329,11 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 	default:
 		return store.ManagedJob{}, fmt.Errorf("%w: choose a project action", ErrInvalidSource)
 	}
-	m.mu.Lock()
-	if m.active[input.Name] {
-		m.mu.Unlock()
-		return store.ManagedJob{}, fmt.Errorf("%w: project operation already running", ErrConflict)
-	}
-	m.active[input.Name] = true
-	m.mu.Unlock()
-	release := func() {
-		m.mu.Lock()
-		delete(m.active, input.Name)
-		m.mu.Unlock()
-	}
 	variablesJSON, _ := json.Marshal(input.Variables)
 	envFilesJSON, _ := json.Marshal(input.EnvFiles)
-	projectRecord := store.ManagedProject{
-		Name: input.Name, SourceKind: source.Kind, SourceURL: source.URL, Filename: source.Filename,
-		YAML: source.YAML, VariablesJSON: string(variablesJSON), EnvFilesJSON: string(envFilesJSON), ProjectDir: preview.ProjectDir,
-	}
-	var bytes [16]byte
-	if _, err := rand.Read(bytes[:]); err != nil {
-		release()
-		return store.ManagedJob{}, err
-	}
-	job := store.ManagedJob{ID: hex.EncodeToString(bytes[:]), ProjectName: input.Name, Operation: input.Mode, Status: "running", CreatedAt: time.Now().Unix()}
-	if err := m.data.CreateManagedJob(job); err != nil {
-		release()
-		return store.ManagedJob{}, err
-	}
-	if input.Mode == "new" || input.Mode == "copy" {
-		if err := m.data.SaveManagedProject(projectRecord); err != nil {
-			_ = m.data.FinishManagedJob(job.ID, "failed", "Project configuration could not be saved.")
-			release()
-			return store.ManagedJob{}, err
-		}
-	}
-	finish := m.beginChange(input.Name, input.Mode)
-	go func() {
-		defer finish()
-		defer release()
-		if input.Mode == "adopt" {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			current, err := m.runtime(ctx, input.Name)
-			if err != nil || adoptionRuntimeFingerprint(current) != preview.runtimeFingerprint {
-				_ = m.data.FinishManagedJob(job.ID, "failed", "Existing project changed before adoption; review again.")
-				return
-			}
-			if _, err := m.adoptionFiles(ctx, projectRecord.ProjectDir, source.YAML, input.EnvFiles, preview.filesFingerprint, true); err != nil {
-				_ = m.data.FinishManagedJob(job.ID, "failed", "Project files could not be adopted without overwriting existing files; review again.")
-				return
-			}
-			m.finishWithProject(job.ID, projectRecord, nil)
-			return
-		}
-		jobCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-		if projectRecord.ProjectDir != "" {
-			if err := writeHostCompose(jobCtx, projectRecord.ProjectDir, source.YAML, input.EnvFiles, input.Mode != "sync"); err != nil {
-				_ = m.data.FinishManagedJob(job.ID, "failed", err.Error())
-				return
-			}
-		}
-		if err := composeCommand(jobCtx, input.Name, source.YAML, input.Variables, input.EnvFiles, preview.ProjectDir, "pull"); err == nil {
-			err = composeCommand(jobCtx, input.Name, source.YAML, input.Variables, input.EnvFiles, preview.ProjectDir, "up", "-d", "--no-build")
-			if err == nil {
-				err = m.verify(jobCtx, input.Name, preview.Preview)
-				if err != nil {
-					message := "Deployment verification failed: " + err.Error() + "."
-					if input.Mode == "sync" {
-						message += " Automatic rollback was not performed."
-					}
-					_ = m.data.FinishManagedJob(job.ID, "failed", message)
-					return
-				}
-				m.finishWithProject(job.ID, projectRecord, nil)
-				return
-			}
-		}
-		message := "Docker Compose could not complete the operation. Inspect the host Docker logs and retry."
-		if input.Mode == "sync" {
-			message += " Automatic rollback was not performed."
-		}
-		_ = m.data.FinishManagedJob(job.ID, "failed", message)
-	}()
-	return job, nil
+	projectRecord := store.ManagedProject{Name: input.Name, SourceKind: source.Kind, SourceURL: source.URL, Filename: source.Filename,
+		YAML: source.YAML, VariablesJSON: string(variablesJSON), EnvFilesJSON: string(envFilesJSON), ProjectDir: preview.ProjectDir}
+	return m.enqueue(ctx, projectRecord, input.Mode, workerPayload{Project: projectRecord, RuntimeFingerprint: preview.runtimeFingerprint, FilesFingerprint: preview.filesFingerprint})
 }
 
 func composeCommand(ctx context.Context, name, content string, variables, envFiles map[string]string, hostProjectDir string, args ...string) error {
@@ -466,123 +374,13 @@ func (m *Manager) Operation(name, operation string, removeVolumes bool) (store.M
 	if !found {
 		return store.ManagedJob{}, fmt.Errorf("%w: managed project not found", ErrConflict)
 	}
-	m.mu.Lock()
-	if m.active[name] {
-		m.mu.Unlock()
-		return store.ManagedJob{}, fmt.Errorf("%w: project operation already running", ErrConflict)
-	}
-	m.active[name] = true
-	m.mu.Unlock()
-	var id [16]byte
-	if _, err := rand.Read(id[:]); err != nil {
-		m.release(name)
-		return store.ManagedJob{}, err
-	}
-	job := store.ManagedJob{ID: hex.EncodeToString(id[:]), ProjectName: name, Operation: operation, Status: "running", CreatedAt: time.Now().Unix()}
-	if err := m.data.CreateManagedJob(job); err != nil {
-		m.release(name)
-		return store.ManagedJob{}, err
-	}
-	finish := m.beginChange(name, operation)
-	go func() {
-		defer finish()
-		defer m.release(name)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-		variables := map[string]string{}
-		if err := json.Unmarshal([]byte(project.VariablesJSON), &variables); err != nil {
-			_ = m.data.FinishManagedJob(job.ID, "failed", "Saved variables could not be read.")
-			return
-		}
-		envFiles := map[string]string{}
-		if err := json.Unmarshal([]byte(project.EnvFilesJSON), &envFiles); err != nil {
-			_ = m.data.FinishManagedJob(job.ID, "failed", "Saved environment files could not be read.")
-			return
-		}
-		var verifiedPreview Preview
-		needsVerification := operation == "start" || operation == "restart" || operation == "update"
-		if needsVerification {
-			if project.ProjectDir == "" {
-				_ = m.data.FinishManagedJob(job.ID, "failed", "Saved host project directory is missing; directory recovery is required before this operation.")
-				return
-			}
-			var err error
-			verifiedPreview, err = Validate(ctx, name, Source{YAML: project.YAML}, variables, envFiles, project.ProjectDir)
-			if err != nil {
-				_ = m.data.FinishManagedJob(job.ID, "failed", "Saved Compose configuration could not be validated.")
-				return
-			}
-		}
-		args := []string{}
-		switch operation {
-		case "start":
-			args = []string{"up", "-d", "--no-build"}
-		case "stop":
-			args = []string{"stop"}
-		case "restart":
-			args = []string{"restart"}
-		case "pull":
-			args = []string{"pull"}
-		case "remove":
-			args = []string{"down"}
-			if removeVolumes {
-				args = append(args, "--volumes")
-			}
-		case "update":
-			if err := composeCommand(ctx, name, project.YAML, variables, envFiles, project.ProjectDir, "pull"); err != nil {
-				_ = m.data.FinishManagedJob(job.ID, "failed", "Image pull failed.")
-				return
-			}
-			args = []string{"up", "-d", "--no-build", "--force-recreate"}
-		}
-		if err := composeCommand(ctx, name, project.YAML, variables, envFiles, project.ProjectDir, args...); err != nil {
-			message := "Docker Compose could not complete the operation."
-			if operation == "update" {
-				message += " Automatic rollback was not performed."
-			}
-			_ = m.data.FinishManagedJob(job.ID, "failed", message)
-			return
-		}
-		if needsVerification {
-			if err := m.verify(ctx, name, verifiedPreview); err != nil {
-				message := "Verification failed: " + err.Error() + "."
-				if operation == "update" {
-					message += " Automatic rollback was not performed."
-				}
-				_ = m.data.FinishManagedJob(job.ID, "failed", message)
-				return
-			}
-		}
-		if operation == "remove" {
-			if err := m.data.DeleteManagedProject(name); err != nil {
-				_ = m.data.FinishManagedJob(job.ID, "failed", "Containers were removed, but project metadata could not be deleted.")
-				return
-			}
-		}
-		_ = m.data.FinishManagedJob(job.ID, "succeeded", "")
-	}()
-	return job, nil
-}
-
-func (m *Manager) release(name string) {
-	m.mu.Lock()
-	delete(m.active, name)
-	m.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return m.enqueue(ctx, project, operation, workerPayload{Project: project, RemoveVolumes: removeVolumes})
 }
 
 func fingerprint(data []byte) string {
 	// A fingerprint is a confirmation token, not a secret.
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
-}
-
-func (m *Manager) finishWithProject(id string, project store.ManagedProject, operationErr error) {
-	if operationErr == nil {
-		operationErr = m.data.SaveManagedProject(project)
-	}
-	if operationErr != nil {
-		_ = m.data.FinishManagedJob(id, "failed", operationErr.Error())
-		return
-	}
-	_ = m.data.FinishManagedJob(id, "succeeded", "")
 }

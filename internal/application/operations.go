@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 )
 
@@ -53,6 +54,31 @@ func (s *Service) Projects(ctx context.Context) (inventory.Snapshot, error) {
 		}
 	}
 	s.Changes.Apply(&snapshot)
+	active, err := s.Store.Jobs(ctx, "", true)
+	if err != nil {
+		return inventory.Snapshot{}, ManagedReadError{err}
+	}
+	for _, job := range active {
+		if job.Status != "running" {
+			continue
+		}
+		state := inventory.OperationState(job.Operation)
+		for i := range snapshot.Projects {
+			project := &snapshot.Projects[i]
+			if project.ID == job.TargetID {
+				project.Operation = state
+			}
+			for j := range project.Containers {
+				item := &project.Containers[j]
+				if project.ID == job.TargetID || "container:"+item.ID == job.TargetID {
+					item.Operation = state
+					if state != "" {
+						project.Operation = state
+					}
+				}
+			}
+		}
+	}
 	return snapshot, nil
 }
 
@@ -67,12 +93,26 @@ func (s *Service) Action(ctx context.Context, id string, container bool, action 
 	if container {
 		target = "container:" + id
 	}
+	job, err := s.beginOperation(ctx, target, string(action))
+	if err != nil {
+		return lifecycle.Result{}, err
+	}
 	finish := s.Changes.Begin(target, string(action))
 	defer finish()
+	ctx = jobs.WithJob(ctx, job)
+	var result lifecycle.Result
 	if container {
-		return s.Lifecycle.Container(ctx, id, action)
+		result, err = s.Lifecycle.Container(ctx, id, action)
+	} else {
+		result, err = s.Lifecycle.Project(ctx, id, action)
 	}
-	return s.Lifecycle.Project(ctx, id, action)
+	if result.Queued == 0 {
+		current, found, _ := s.Store.Job(job.ID)
+		if !found || current.WorkerID == "" {
+			s.finishOperation(job, result.Failed > 0, operationFailure(err, result.Failures))
+		}
+	}
+	return result, err
 }
 
 func (s *Service) Pull(ctx context.Context, id string, container bool) (lifecycle.MaintenanceResult, error) {
@@ -82,10 +122,30 @@ func (s *Service) Pull(ctx context.Context, id string, container bool) (lifecycl
 	if s.Lifecycle == nil {
 		return lifecycle.MaintenanceResult{}, ErrDockerUnavailable
 	}
+	target := id
 	if container {
-		return s.Lifecycle.PullContainer(ctx, id)
+		target = "container:" + id
 	}
-	return s.Lifecycle.PullProject(ctx, id)
+	job, err := s.beginOperation(ctx, target, "pull")
+	if err != nil {
+		return lifecycle.MaintenanceResult{}, err
+	}
+	var result lifecycle.MaintenanceResult
+	if container {
+		result, err = s.Lifecycle.PullContainer(ctx, id)
+	} else {
+		result, err = s.Lifecycle.PullProject(ctx, id)
+	}
+	s.finishOperation(job, result.Failed > 0, operationFailure(err, result.Failures))
+	return result, err
+}
+
+// Preserve interrupted per-target causes even when the group call returned nil.
+func operationFailure(err error, failures []lifecycle.Failure) error {
+	for _, failure := range failures {
+		err = errors.Join(err, failure.Cause)
+	}
+	return err
 }
 
 // Keep storage failures separate from errors reported by the Docker reader.

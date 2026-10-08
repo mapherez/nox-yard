@@ -18,15 +18,7 @@ type ManagedProject struct {
 	ProjectDir    string
 }
 
-type ManagedJob struct {
-	ID          string `json:"id"`
-	ProjectName string `json:"projectName"`
-	Operation   string `json:"operation"`
-	Status      string `json:"status"`
-	Error       string `json:"error,omitempty"`
-	CreatedAt   int64  `json:"createdAt"`
-	CompletedAt int64  `json:"completedAt,omitempty"`
-}
+type ManagedJob = Job
 
 func (s *Store) ManagedProjects() ([]ManagedProject, error) {
 	return s.ManagedProjectsContext(context.Background())
@@ -77,11 +69,17 @@ func (s *Store) ManagedByURL(sourceURL string) ([]ManagedProject, error) {
 }
 
 func (s *Store) SaveManagedProject(project ManagedProject) error {
+	return saveManagedProject(s.db, project)
+}
+
+func saveManagedProject(writer interface {
+	Exec(string, ...any) (sql.Result, error)
+}, project ManagedProject) error {
 	now := time.Now().Unix()
 	if project.EnvFilesJSON == "" {
 		project.EnvFilesJSON = "{}"
 	}
-	_, err := s.db.Exec(`INSERT INTO managed_projects (name, source_kind, source_url, filename, yaml, variables_json, env_files_json, project_dir, created_at, updated_at)
+	_, err := writer.Exec(`INSERT INTO managed_projects (name, source_kind, source_url, filename, yaml, variables_json, env_files_json, project_dir, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(name) DO UPDATE SET source_kind = excluded.source_kind, source_url = excluded.source_url,
 		filename = excluded.filename, yaml = excluded.yaml, variables_json = excluded.variables_json, env_files_json = excluded.env_files_json, project_dir = excluded.project_dir, updated_at = excluded.updated_at`,
@@ -94,28 +92,59 @@ func (s *Store) DeleteManagedProject(name string) error {
 	return err
 }
 
+// CommitManagedJob fences metadata writes and resource release with the same
+// terminal CAS. An expired observer/worker cannot overwrite a later project.
+func (s *Store) CommitManagedJob(job Job, project *ManagedProject, remove bool, outcome string) error {
+	if job.Domain != "managed" || (project != nil && project.Name != job.ProjectName) {
+		return ErrJobChanged
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := finishJobTx(tx, job.ID, job.Owner, "succeeded", outcome, "", ""); err != nil {
+		return err
+	}
+	if remove {
+		if _, err := tx.Exec("DELETE FROM managed_projects WHERE name=?", job.ProjectName); err != nil {
+			return err
+		}
+	} else if project != nil {
+		if err := saveManagedProject(tx, *project); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) CreateManagedJob(job ManagedJob) error {
-	_, err := s.db.Exec(`INSERT INTO managed_jobs (id, project_name, operation, status, created_at) VALUES (?, ?, ?, ?, ?)`,
-		job.ID, job.ProjectName, job.Operation, job.Status, time.Now().Unix())
-	return err
+	if job.TargetID == "" {
+		job.TargetID = "compose:" + job.ProjectName
+	}
+	if job.Domain == "" {
+		job.Domain = "managed"
+	}
+	if job.Stage == "" {
+		job.Stage = "queued"
+	}
+	if job.CreatedAt == 0 {
+		job.CreatedAt = time.Now().Unix()
+	}
+	if job.UpdatedAt == 0 {
+		job.UpdatedAt = job.CreatedAt
+	}
+	return s.CreateJob(job)
 }
 
 func (s *Store) FinishManagedJob(id, status, message string) error {
-	_, err := s.db.Exec(`UPDATE managed_jobs SET status = ?, error = ?, completed_at = ? WHERE id = ?`, status, message, time.Now().Unix(), id)
-	return err
+	outcome := "verified"
+	if status == "failed" {
+		outcome = "failed"
+	}
+	return s.FinishJob(id, "", status, outcome, message, "")
 }
 
 func (s *Store) ManagedJob(id string) (ManagedJob, bool, error) {
-	var job ManagedJob
-	err := s.db.QueryRow(`SELECT id, project_name, operation, status, error, created_at, completed_at FROM managed_jobs WHERE id = ?`, id).
-		Scan(&job.ID, &job.ProjectName, &job.Operation, &job.Status, &job.Error, &job.CreatedAt, &job.CompletedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ManagedJob{}, false, nil
-	}
-	return job, err == nil, err
-}
-
-func (s *Store) InterruptManagedJobs() error {
-	_, err := s.db.Exec(`UPDATE managed_jobs SET status = 'failed', error = 'Service restarted while the operation was running.', completed_at = ? WHERE status = 'running'`, time.Now().Unix())
-	return err
+	return s.Job(id)
 }

@@ -102,8 +102,18 @@ Adoption verifies the absence of unprovided declared env files, including implic
 
 ## D-022 — Durable outcomes, supported updates and scheduling contracts (2026-10-08)
 
-These are planned contracts for C2–C5. Preserve managed job status compatibility (`running`, `succeeded`, `failed`) and add stage/result fields for unchanged, verified replacement, successful rollback and recovery-required outcomes. A rolled-back update remains failed. Reconcile durable worker/resource state after interruption; never assume success or blindly replay mutation. Conflicting operations share resource ownership across adapters. Self-update retains its dedicated SQLite snapshot/recovery path.
+These define contracts for C2–C5. C2 implements durable ownership, progress, verified/recovery outcomes and contextual history as specified in D-023. Unchanged-image, managed rollback, external recreation and scheduling capabilities remain planned. Preserve managed job status compatibility (`running`, `succeeded`, `failed`); a rolled-back update remains failed. Self-update retains its dedicated SQLite snapshot/recovery path.
 
 External reconstruction supports only configurations that can be preserved and verified; unknown dependencies/settings are rejected before mutation. Retain original images/configuration until verification finishes. Runtime rollback does not revert shared-volume writes, application migrations or discarded writable container layers. File/metadata consistency for managed sync is part of C3.
 
 Project schedules are separate from Yard self-update, disabled by default, and initially daily at 03:00 server-local time with the effective timezone shown explicitly. Skip stopped/unsupported/protected targets; deduplicate scheduled occurrences across restart/clock changes, coalesce missed checks, and use the same unchanged-image/health/rollback path as manual updates. Suppress automatic retries of a failed image until a new image or explicit retry. These capabilities remain planned until their acceptance gates pass.
+
+## D-023 — Durable resource ownership and reviewed recovery (2026-10-08)
+
+Use SQLite operation records plus unique resource reservations across adapters/managers. Managed Compose and Yard restart run in narrowly mounted independent containers from the exact current image, claim once and persist progress/results. Register worker identity before starting it; a lost create/start response retains ownership for observation. Self-update preserves its dedicated snapshot/rollback protocol while recording shared ownership/history.
+
+Observe running workers and child helpers after web restart. Verify completed commands without replay; otherwise retain resources with a recovery-required failure. Interrupted synchronous Engine requests also retain uncertain reservations, including per-target timeout causes in partial results. Cleanup failures are distinct from operation failures. Recovery acknowledgement requires current revision, explicit host review and no active worker/helper; it releases reservations without mutation or changing failure into success.
+
+Keep execution payloads and ownership tokens private, use safe public errors, and restore typed contextual history after drawer/browser/backend reload. Browser recovery uses existing session/Origin/CSRF protection; MCP exposes equivalent lookup/history/acknowledgement. Control API v1 retains its response and route contracts. See [Durable operations](Operation-Jobs.md).
+
+Managed metadata writes/deletion, terminal outcome and reservation release commit atomically behind the operation's ownership/status guard. Late observations cannot overwrite a newer project's metadata. Host-file staging/source rollback remains C3 work.

@@ -25,6 +25,8 @@ type SelfUpdateJob struct {
 	Error         string
 	CreatedAt     int64
 	CompletedAt   int64
+	ProjectName   string
+	ContainerID   string
 }
 
 func (s *Store) SelfUpdateSettings() (SelfUpdateSettings, error) {
@@ -76,14 +78,46 @@ func (s *Store) SelfUpdateJob(id string) (SelfUpdateJob, error) {
 }
 
 func (s *Store) CreateSelfUpdateJob(job SelfUpdateJob) error {
-	_, err := s.db.Exec(`INSERT INTO self_update_jobs
+	target := "compose:" + job.ProjectName
+	if job.ProjectName == "" {
+		target = "compose:nox-yard"
+	}
+	operation, err := NewJob(target, "self-update", "update", []string{"yard:self"})
+	if err != nil {
+		return err
+	}
+	operation.ID = job.ID
+	operation.ProjectName = job.ProjectName
+	operation.Stage = "pulling"
+	operation.WorkerID = "nox-yard-update-" + job.ID
+	operation.SourceImages = []ImageIdentity{{ContainerID: job.ContainerID, ImageID: job.OldImageID}}
+	operation.TargetImages = []ImageIdentity{{ImageID: job.TargetImageID}}
+	if job.ContainerID != "" {
+		operation.Resources = append(operation.Resources, "container:"+job.ContainerID)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := insertJob(tx, operation); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO self_update_jobs
 		(id, status, old_image_id, target_image_id, target_digest, created_at)
 		VALUES (?, 'updating', ?, ?, ?, ?)`,
 		job.ID, job.OldImageID, job.TargetImageID, job.TargetDigest, time.Now().Unix())
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) FinishSelfUpdateJob(id, status, message string) error {
+	return s.FinishSelfUpdateOutcome(id, status, message, false, "")
+}
+
+func (s *Store) FinishSelfUpdateOutcome(id, status, message string, recovery bool, rollback string) error {
 	if status != "succeeded" && status != "failed" {
 		return fmt.Errorf("invalid self-update job status %q", status)
 	}
@@ -113,6 +147,26 @@ func (s *Store) FinishSelfUpdateJob(id, status, message string) error {
 	if _, err := tx.Exec(`UPDATE self_update_settings
 		SET failed_digest = ?, last_check_error = '' WHERE id = 1`, failedDigest); err != nil {
 		return err
+	}
+	messageSafe := ""
+	outcome := "verified"
+	if status == "failed" {
+		messageSafe = "Self-update failed. Inspect the dedicated self-update status and retained rollback resources on the host."
+		outcome = "failed"
+	}
+	stage := "completed"
+	if recovery {
+		outcome = "recovery_required"
+		stage = "awaiting_recovery"
+		messageSafe = "Self-update completion or rollback is uncertain. Inspect the running container, SQLite snapshot and retained rollback resources on the host, then acknowledge recovery."
+	}
+	if _, err := tx.Exec(`UPDATE operation_jobs SET status=?,stage=?,outcome=?,error=?,rollback=?,completed_at=?,updated_at=? WHERE id=? AND domain='self-update'`, status, stage, outcome, messageSafe, rollback, time.Now().Unix(), time.Now().Unix(), id); err != nil {
+		return err
+	}
+	if !recovery {
+		if _, err := tx.Exec("DELETE FROM operation_locks WHERE job_id=?", id); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

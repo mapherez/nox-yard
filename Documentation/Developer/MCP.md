@@ -10,7 +10,7 @@ Browser authentication and `/api/*`, the opt-in Bearer Control API `/v1/*`, and 
 
 `internal/application` is a lightweight orchestration facade. HTTP and MCP share the same inventory, lifecycle, managed Compose, self-update and storage instances. MCP does not call `/v1` over HTTP. Docker operations, source validation, locks, protected-target rules, confirmation fingerprints, jobs and persistence remain implemented by the existing managers.
 
-The executable creates one `inventory.Notifier`. The facade, browser SSE and Compose manager use that same instance. Engine action/removal pending states are owned by the facade; Compose jobs retain their manager-owned pending states through completion. No operation emits duplicate Begin/finalization events merely because it originated through MCP.
+The executable creates one `inventory.Notifier`. The facade, browser SSE, Compose manager and durable-job observer use that same instance. Persisted running jobs restore pending inventory states after restart; independent workers save their results and the observer notifies clients. All mutation adapters share SQLite resource reservations.
 
 Facade operations accept the adapter's context, introduce no deadlines and do not replace it with Background/WithoutCancel. Existing synchronous HTTP deadlines remain in the HTTP adapters; existing manager deadlines and asynchronous job contexts remain unchanged. Methods without a context API check cancellation before invoking their manager; an already accepted asynchronous operation is not retroactively canceled.
 
@@ -42,6 +42,9 @@ IDs must be copied from inventory: containers use full 64-character lowercase he
 | `yard_compose_submit` | `compose submit` | Same managed request. Submission requires the current preview fingerprint and returns a job. Adoption resolves/rechecks the original directory and runtime/files before saving ownership; it does not recreate containers. |
 | `yard_compose_operation` | `compose operation` | `name`, `operation`, `removeVolumes`. Operations: `start`, `stop`, `restart`, `pull`, `update`, `remove`. Returns a job. |
 | `yard_compose_job` | `compose job` | `id`. Persisted job status. |
+| `yard_job` | `job get` | `id`. Typed operation status, stages, images, recovery and cleanup fields. |
+| `yard_job_history` | `job history` | `target`: `compose:NAME` or `container:FULL_ID`. Latest 30 contextual operations. |
+| `yard_job_recovery_acknowledge` | `job recovery acknowledge` | `id`, `updatedAt`, `confirm:true`. Release an uncertain reservation after host review; no Docker mutation. Reject active workers/helpers and stale reviews. |
 | `yard_projects_settings_get` | `settings projects get` | No inputs. Read the configured host projects base directory. |
 | `yard_projects_settings_set` | `settings projects set` | `projectsBase`. Existing host-directory checks apply. |
 | `yard_self_update_status` | `update status` | No inputs. Current update settings/state. |
@@ -56,7 +59,7 @@ All tools explicitly declare ReadOnly, Destructive and Idempotent through NoX MC
 
 The Yard configures the NoX MCP runtime with a global **60-second timeout**, 32 concurrent requests and an 8 MiB payload limit. Existing Compose source limits still apply. Neither the server's 130-second WriteTimeout nor the NoX MCP library's default timeout is changed.
 
-Compose and self-update retain their existing asynchronous execution; query their job/status tools rather than waiting for completion. Engine pulls remain synchronous and can exceed the MCP timeout. A timeout or disconnect does not establish success or failure of already issued work; reconcile current state before retrying. There are no automatic mutation retries or newly introduced jobs.
+The catalog contains 28 tools. Managed Compose and Yard restart use independent durable workers; self-update retains its dedicated worker. Query job/history/status tools rather than treating an accepted response as completion. Engine pulls remain synchronous and can exceed the MCP timeout. Interrupted Engine responses persist recovery-required outcomes and hold resource reservations until reviewed. There are no automatic mutation retries. See [Durable operations](Operation-Jobs.md) for the additive fields and recovery procedure.
 
 Container log snapshots share Docker opening and stdout/stderr/TTY decoding with browser SSE. The browser retains its 200-record initial tail and continuous stream. Long lines retain the existing 16 KiB segmentation, and snapshots keep at most 20 decoded records.
 

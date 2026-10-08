@@ -7,6 +7,7 @@ This directory is the **canonical technical documentation** for NoX Yard. The ro
 | [Implementation Plan](Implementation-Plan.md) | MVP scope, phases, and acceptance criteria. |
 | [MVP Completion Plan](Completion-Plan.md) | Ordered remaining implementation packages, dependencies, acceptance gates, and release closure. |
 | [Architecture](Architecture.md) | System boundaries, data flow, Docker integration, and persistence. |
+| [Durable operations](Operation-Jobs.md) | Worker lifetime, resource reservations, job/history contracts and host recovery review. |
 | [MCP](MCP.md) | Embedded LAN MCP endpoint, tools, contexts, notifications, and dependency updates. |
 | [Control API](Control-API.md) | Stable v1 machine endpoints, Bearer authentication, contracts, and version metadata. |
 | [Design System](Design-System.md) | UI structure, style tokens, component rules, and responsive behavior. |

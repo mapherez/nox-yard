@@ -39,12 +39,7 @@ func TestLegacyMissingDirectoryCannotStartRestartOrUpdate(t *testing.T) {
 				if current.Status != "failed" || !strings.Contains(current.Error, "directory is missing") {
 					t.Fatalf("unsafe operation passed: %+v", current)
 				}
-				m.mu.Lock()
-				active := m.active["legacy"]
-				m.mu.Unlock()
-				if !active {
-					break
-				}
+				break
 			}
 			if time.Now().After(deadline) {
 				t.Fatal("job did not finish")

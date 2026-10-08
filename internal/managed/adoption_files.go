@@ -122,7 +122,7 @@ func adoptionFiles(ctx context.Context, directory, content string, envFiles map[
 	} else {
 		mount += ",readonly"
 	}
-	arguments := []string{"run", "--rm", "-i", "--label", "nox-yard.role=managed-helper", "--network", "none", "--mount", mount, "--entrypoint", "sh", image, "-c", adoptionFileScript, "sh", expected, mode}
+	arguments := helperCommandArgs("-i", "--network", "none", "--mount", mount, "--entrypoint", "sh", image, "-c", adoptionFileScript, "sh", expected, mode)
 	arguments = append(arguments, names...)
 	command := exec.CommandContext(ctx, "docker", arguments...)
 	command.Stdin = &archive

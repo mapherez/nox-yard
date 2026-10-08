@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/containerd/errdefs"
+	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
@@ -60,7 +61,10 @@ type Controller interface {
 type Manager struct {
 	client *client.Client
 	mu     contextMutex
+	data   *store.Store
 }
+
+func (m *Manager) SetStore(data *store.Store) { m.data = data }
 
 func New() (*Manager, error) {
 	cli, err := client.New(client.WithHost("unix:///var/run/docker.sock"))
@@ -136,7 +140,7 @@ func (m *Manager) Project(ctx context.Context, id string, action Action) (Result
 		}
 	}
 	if selfID != "" {
-		if err := m.launchSelfRestart(ctx, selfID); err != nil {
+		if err := m.launchSelfRestart(ctx, selfID, result.Failures...); err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, "NoX Yard: "+err.Error())
 			result.Failures = append(result.Failures, Failure{Target: selfID, Cause: err})
@@ -247,7 +251,7 @@ func isSelf(id string, labels map[string]string) bool {
 }
 
 func isHelper(labels map[string]string) bool {
-	return labels["nox-yard.role"] == "self-update-worker" || labels["nox-yard.role"] == "self-restart-worker" || labels["nox-yard.role"] == "managed-helper"
+	return labels["nox-yard.role"] == "self-update-worker" || labels["nox-yard.role"] == "self-restart-worker" || labels["nox-yard.role"] == "managed-helper" || labels["nox-yard.role"] == "operation-worker"
 }
 
 func containerName(item container.Summary) string {

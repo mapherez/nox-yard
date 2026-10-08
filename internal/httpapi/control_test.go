@@ -288,7 +288,7 @@ func TestControlInspectionAndEmptyCollections(t *testing.T) {
 }
 
 func TestControlActionsAndPullUseSharedControllers(t *testing.T) {
-	_, api, _, controller := controlFixture(t, true)
+	data, api, _, controller := controlFixture(t, true)
 	handler := api.Handler()
 	id := strings.Repeat("a", 64)
 	for _, target := range []struct {
@@ -311,6 +311,13 @@ func TestControlActionsAndPullUseSharedControllers(t *testing.T) {
 	if w.Code != 202 || !strings.Contains(w.Body.String(), `"queued":1`) {
 		t.Fatal("queued restart reported completed")
 	}
+	active, err := data.Jobs(context.Background(), "container:"+id, true)
+	if err != nil || len(active) != 1 {
+		t.Fatalf("queued operation missing: %v", err)
+	}
+	if err := data.FinishJob(active[0].ID, active[0].Owner, "succeeded", "verified", "", ""); err != nil {
+		t.Fatal(err)
+	}
 	controller.result = lifecycle.Result{Skipped: 1}
 	w = controlRequest(handler, "POST", "/v1/containers/"+id+"/actions", `{"action":"start"}`, "Bearer "+controlTestKey)
 	if w.Code != 200 {
@@ -319,7 +326,7 @@ func TestControlActionsAndPullUseSharedControllers(t *testing.T) {
 }
 
 func TestControlStableErrorsAndPartialResults(t *testing.T) {
-	_, api, _, controller := controlFixture(t, true)
+	data, api, _, controller := controlFixture(t, true)
 	handler := api.Handler()
 	for _, test := range []struct {
 		err    error
@@ -335,6 +342,17 @@ func TestControlStableErrorsAndPartialResults(t *testing.T) {
 				body = `{"action":"stop"}`
 			}
 			controlCode(t, controlRequest(handler, "POST", "/v1/projects/compose:app/"+operation, body, "Bearer "+controlTestKey), test.status, test.code)
+			active, err := data.Jobs(context.Background(), "compose:app", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, job := range active {
+				if job.Outcome == "recovery_required" {
+					if err := data.AcknowledgeRecovery(job.ID, job.UpdatedAt); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
 		}
 	}
 	controller.err = nil
@@ -358,6 +376,17 @@ func TestControlStableErrorsAndPartialResults(t *testing.T) {
 			controlCode(t, w, test.status, test.code)
 			if !strings.Contains(w.Body.String(), `"result"`) || !strings.Contains(w.Body.String(), `"target":"app:latest"`) {
 				t.Fatal("lost partial result")
+			}
+			active, err := data.Jobs(context.Background(), "compose:app", true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, job := range active {
+				if job.Outcome == "recovery_required" {
+					if err := data.AcknowledgeRecovery(job.ID, job.UpdatedAt); err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
 		}
 	}

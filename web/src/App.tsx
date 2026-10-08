@@ -5,7 +5,6 @@ import {
   createAdministrator,
   getBootstrap,
   getContainerInspection,
-  getManagedJob,
 	getManagedSettings,
   getSelfUpdateStatus,
   pullContainerImage,
@@ -27,7 +26,6 @@ import {
   type ContainerInspection,
   type LifecycleAction,
   type MaintenanceResult,
-  type ManagedJob,
   type Project,
   type RemovalPlan,
   type RemovalReport,
@@ -38,6 +36,8 @@ import { useDrawerSwipe } from "./useDrawerSwipe";
 import { TerminalPanel } from "./TerminalPanel";
 import { NewProjectDrawer } from "./NewProjectDrawer";
 import { useProjects } from "./useProjects";
+import { useOperationHistory } from "./useOperationHistory";
+import { OperationHistory } from "./OperationHistory";
 
 type View =
   | { kind: "loading" }
@@ -434,6 +434,7 @@ function Dashboard({
 type RemovalTarget = { kind: "project" | "container"; id: string; name: string };
 
 function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: Project; csrfToken: string; onChanged: () => void; onClose: () => void }) {
+  const operations = useOperationHistory(project?.id, onChanged);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const detailsTabRef = useRef<HTMLButtonElement>(null);
@@ -567,14 +568,14 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
       {terminalUnavailable && <p className={styles.terminalUnavailable} role="status">Terminal unavailable: /bin/sh is missing from this {project.containers.length === 1 ? "container" : "project's containers"}.</p>}
       <div ref={contentRef} id={`${tabsID}-${activeTab}-panel`} role="tabpanel" aria-labelledby={`${tabsID}-${activeTab}-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
         {activeTab === "details" ? <>
-        {project.kind === "managed-compose" && <ManagedProjectControls project={project} csrfToken={csrfToken} onChanged={onChanged} />}
+        {project.kind === "managed-compose" && <ManagedProjectControls key={`managed:${project.id}`} project={project} csrfToken={csrfToken} onChanged={onChanged} busy={operations.blocked} onAccepted={operations.refresh} />}
         {activeContainer && (project.kind === "managed-compose" || project.kind === "external-compose" && project.containers.length > 1) && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}>← Back to project</button>}
         {!activeContainer && <>
           {project.kind === "external-compose" && <LifecycleControls
             name={project.name}
             state={project.state}
             selfTarget={project.containers.some((container) => project.name === "nox-yard" && container.service === "nox-yard")}
-            busy={busyTarget !== null || Boolean(project.operation)}
+            busy={busyTarget !== null || Boolean(project.operation) || operations.blocked}
             onRun={(action) => runAction("project", project.id, action)}
             pullLabel="Pull project images"
             removeLabel="Remove project"
@@ -594,13 +595,14 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
         </>}
         {actionMessage && <p className={styles.actionMessage} role="status">{actionMessage}</p>}
         {actionError && <p className={styles.inventoryError} role="alert">{actionError}</p>}
+        <OperationHistory key={`history:${project.id}`} history={operations.history} error={operations.error} loading={operations.loading} csrfToken={csrfToken} onRefresh={operations.refresh} />
         {activeContainer
           ? <ContainerDetails
               key={activeContainer.id}
               container={activeContainer}
               hideActions={project.kind === "managed-compose"}
               csrfToken={csrfToken}
-              busy={busyTarget !== null || Boolean(activeContainer.operation)}
+              busy={busyTarget !== null || Boolean(activeContainer.operation) || operations.blocked}
               selfTarget={project.name === "nox-yard" && activeContainer.service === "nox-yard"}
               helperTarget={activeContainer.name.startsWith("nox-yard-update-")}
               onRun={(action) => runAction("container", activeContainer.id, action)}
@@ -631,24 +633,17 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
   </>;
 }
 
-function ManagedProjectControls({ project, csrfToken, onChanged }: { project: Project; csrfToken: string; onChanged: () => void }) {
-  const [job, setJob] = useState<ManagedJob | null>(null);
+function ManagedProjectControls({ project, csrfToken, onChanged, busy: historyBusy, onAccepted }: { project: Project; csrfToken: string; onChanged: () => void; busy: boolean; onAccepted: () => void }) {
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [confirm, setConfirm] = useState<"stop" | "restart" | "update" | "remove" | null>(null);
   const [removeVolumes, setRemoveVolumes] = useState(false);
-  const busy = job?.status === "running" || Boolean(project.operation);
-  useEffect(() => {
-    if (!busy || !job) return;
-    let live = true;
-    const timer = window.setInterval(() => { void getManagedJob(job.id).then((next) => {
-      if (live) { setJob(next); if (next.status !== "running") onChanged(); }
-    }).catch((cause: unknown) => { if (live) setError(cause instanceof Error ? cause.message : "Unable to read operation status."); }); }, 1500);
-    return () => { live = false; window.clearInterval(timer); };
-  }, [busy, job, onChanged]);
+  const busy = submitting || historyBusy || Boolean(project.operation);
   async function run(operation: "start" | "stop" | "restart" | "pull" | "update" | "remove") {
-    setError(""); setConfirm(null);
-    try { setJob(await runManagedOperation(project.name, operation, removeVolumes, csrfToken)); }
+    setError(""); setConfirm(null); setSubmitting(true);
+    try { await runManagedOperation(project.name, operation, removeVolumes, csrfToken); onAccepted(); onChanged(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to start operation."); }
+    finally { setSubmitting(false); }
   }
   return <div className={styles.lifecycleControls}>
     <div className={styles.actionRow} aria-label={`${project.name} actions`}>
@@ -663,9 +658,8 @@ function ManagedProjectControls({ project, csrfToken, onChanged }: { project: Pr
     </div>
     {confirm && <div className={styles.actionConfirm} role="group" aria-label={`Confirm ${confirm}`}><p>{confirm === "remove" ? "Remove" : confirm === "update" ? "Update and recreate" : confirm === "restart" ? "Restart" : "Stop"} <strong>{project.name}</strong>?</p>
       {confirm === "remove" && <label><input type="checkbox" checked={removeVolumes} onChange={(event) => setRemoveVolumes(event.target.checked)} /> Delete project volumes</label>}
-      <div className={styles.actionRow}><button type="button" className={styles.inspectButton} onClick={() => setConfirm(null)}>Cancel</button><button type="button" className={`${styles.inspectButton} ${confirm === "remove" ? styles.dangerAction : ""}`} onClick={() => { void run(confirm); }}>Confirm {confirm}</button></div>
+      <div className={styles.actionRow}><button type="button" className={styles.inspectButton} onClick={() => setConfirm(null)}>Cancel</button><button type="button" className={`${styles.inspectButton} ${confirm === "remove" ? styles.dangerAction : ""}`} disabled={busy} onClick={() => { void run(confirm); }}>Confirm {confirm}</button></div>
     </div>}
-    {job && <p className={styles.actionMessage} role="status">{job.operation}: {job.status}{job.error ? ` — ${job.error}` : ""}</p>}
     {error && <p className={styles.inventoryError} role="alert">{error}</p>}
   </div>;
 }

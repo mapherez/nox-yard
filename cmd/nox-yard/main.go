@@ -18,6 +18,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/auth"
 	"github.com/mapherez/nox-yard/internal/httpapi"
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/mcpapi"
@@ -50,6 +51,12 @@ func run() error {
 	}
 
 	if len(os.Args) > 1 {
+		if len(os.Args) == 4 && os.Args[1] == "restart-worker" {
+			return lifecycle.RunDurableRestartWorker(data, os.Args[2], os.Args[3])
+		}
+		if len(os.Args) == 4 && os.Args[1] == "managed-worker" {
+			return managed.RunWorker(data, os.Args[2], os.Args[3])
+		}
 		if len(os.Args) == 2 && os.Args[1] == "reset-admin-password" {
 			return resetAdminPassword(data)
 		}
@@ -90,11 +97,26 @@ func run() error {
 		return err
 	}
 	defer dockerLifecycle.Close()
+	dockerLifecycle.SetStore(data)
 	api.SetLifecycle(dockerLifecycle)
 	updates := selfupdate.New(data, buildSHA)
 	api.SetSelfUpdate(updates)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	app.ResourceKeys = jobs.TargetResources
+	app.ResourceImages = jobs.Images
+	observer := &jobs.Observer{Data: data, Changes: changes, Verify: func(ctx context.Context, job store.Job) error {
+		if job.Domain == "managed" {
+			return managedProjects.Reconcile(ctx, job)
+		}
+		return store.ErrJobChanged
+	}}
+	app.JobObserver = observer
+	if err := app.ReconcileDirectJobs(ctx); err != nil {
+		return err
+	}
+	stopObserver := observer.Start(ctx)
+	defer stopObserver()
 	dockerInventory.Start(ctx, changes.Notify)
 	mcpRuntime, err := mcpapi.New(app, control.Version)
 	if err != nil {

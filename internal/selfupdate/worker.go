@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
@@ -41,6 +42,19 @@ func RunWorker(data *store.Store, dataDir, jobID, oldID string) (result error) {
 	defer cli.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	operation, found, err := data.Job(jobID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return store.ErrJobChanged
+	}
+	if err := jobs.ValidateWorker(ctx, operation, operation.Owner); err != nil {
+		return err
+	}
+	if err := data.ClaimJob(jobID, operation.Owner); err != nil {
+		return err
+	}
 	oldResult, err := cli.ContainerInspect(ctx, oldID, client.ContainerInspectOptions{})
 	if err != nil {
 		return failBeforeReplacement(data, cli, job, err)
@@ -66,6 +80,7 @@ func RunWorker(data *store.Store, dataDir, jobID, oldID string) (result error) {
 		if committed {
 			return
 		}
+		rollbackFailed := false
 		// Recovery must continue even if the update deadline expired.
 		recovery, stop := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer stop()
@@ -84,16 +99,24 @@ func RunWorker(data *store.Store, dataDir, jobID, oldID string) (result error) {
 			}
 		}
 		if err := rollback(recovery, cli, oldID, newID, name, restore); err != nil {
+			rollbackFailed = true
 			log.Printf("Self-update rollback failed: %v", err)
 			result = fmt.Errorf("%v; rollback failed: %w", result, err)
 		}
 		if data != nil {
-			if err := data.FinishSelfUpdateJob(jobID, "failed", result.Error()); err != nil {
+			rollbackResult := "restored"
+			if rollbackFailed {
+				rollbackResult = "failed"
+			}
+			if err := data.FinishSelfUpdateOutcome(jobID, "failed", result.Error(), rollbackFailed, rollbackResult); err != nil {
 				result = fmt.Errorf("%v; save update failure: %w", result, err)
 			}
 		}
 	}()
 
+	if err = data.JobProgress(jobID, operation.Owner, "replacing", nil, nil); err != nil {
+		return err
+	}
 	if _, err = cli.ContainerRename(ctx, oldID, client.ContainerRenameOptions{NewName: backupName}); err != nil {
 		return fmt.Errorf("reserve original container: %w", err)
 	}
@@ -114,6 +137,9 @@ func RunWorker(data *store.Store, dataDir, jobID, oldID string) (result error) {
 	if _, err = cli.ContainerStart(ctx, newID, client.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("start replacement: %w", err)
 	}
+	if err = data.JobProgress(jobID, operation.Owner, "verifying", nil, []store.ImageIdentity{{ContainerID: newID, ImageID: job.TargetImageID}}); err != nil {
+		return err
+	}
 	if err = waitHealthy(ctx, cli, newID); err != nil {
 		return fmt.Errorf("replacement healthcheck: %w", err)
 	}
@@ -124,9 +150,11 @@ func RunWorker(data *store.Store, dataDir, jobID, oldID string) (result error) {
 	cleanup, stopCleanup := context.WithTimeout(context.Background(), 30*time.Second)
 	defer stopCleanup()
 	if _, err = cli.ContainerRemove(cleanup, oldID, client.ContainerRemoveOptions{}); err != nil {
+		_ = data.JobCleanupError(jobID, "Self-update succeeded, but the original rollback container could not be removed.")
 		log.Printf("Self-update succeeded but original container cleanup failed: %v", err)
 	}
 	if err := os.Remove(backupPath); err != nil {
+		_ = data.JobCleanupError(jobID, "Self-update succeeded, but its SQLite rollback snapshot could not be removed.")
 		log.Printf("Self-update succeeded but SQLite snapshot cleanup failed: %v", err)
 	}
 	return nil

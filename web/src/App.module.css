@@ -1853,3 +1853,19 @@
     transition: none;
   }
 }
+.operationHistory {
+  border-block-start: 1px solid var(--color-border);
+  padding-block: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.operationHistory h3 { margin: 0 0 0.5rem; }
+.operationStatus { color: var(--color-text-secondary); margin-block: 0.5rem; }
+.operationStatus[data-status="failed"] { color: var(--color-danger); }
+.operationStatus[data-status="succeeded"] { color: var(--color-success); }
+.operationHistory summary { cursor: pointer; min-block-size: 2rem; padding-block: 0.4rem; }
+.operationList { margin: 0.75rem 0 0; padding-inline-start: 1.25rem; }
+.operationList li { padding-block: 0.6rem; }
+.operationList strong, .operationList time { display: block; }
+.operationList time { color: var(--color-text-muted); font-size: 0.8rem; margin-block-start: 0.25rem; }
+.operationList p { margin-block: 0.4rem 0; }

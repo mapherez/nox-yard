@@ -38,7 +38,12 @@ func (c *contextController) Container(ctx context.Context, id string, action lif
 }
 func TestContextPropagationAndPendingCleanup(t *testing.T) {
 	changes := inventory.NewNotifier()
-	app := New(nil, changes)
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	app := New(data, changes)
 	c := &contextController{entered: make(chan struct{})}
 	app.Lifecycle = c
 	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), struct{}{}, "marker"))
@@ -46,8 +51,8 @@ func TestContextPropagationAndPendingCleanup(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { _, err := app.Action(ctx, "target", true, lifecycle.Restart); done <- err }()
 	<-c.entered
-	if c.ctx != ctx {
-		t.Fatal("facade replaced adapter context")
+	if c.ctx.Value(struct{}{}) != "marker" || c.ctx.Done() != ctx.Done() {
+		t.Fatal("facade lost adapter context propagation")
 	}
 	if _, ok := c.ctx.Deadline(); ok {
 		t.Fatal("facade introduced a deadline")

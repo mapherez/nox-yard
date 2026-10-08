@@ -10,6 +10,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
+	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/client"
 )
 
@@ -32,7 +33,7 @@ func ClassifyError(err error, execution bool) (int, Problem) {
 		return 404, Problem{Code: "TARGET_NOT_FOUND", Message: "Target does not exist."}
 	case errors.Is(err, lifecycle.ErrProtected):
 		return 409, Problem{Code: "TARGET_PROTECTED", Message: "This target is protected from the requested operation."}
-	case errors.Is(err, lifecycle.ErrChanged), errors.Is(err, lifecycle.ErrConflict), errdefs.IsConflict(err), errdefs.IsAlreadyExists(err):
+	case errors.Is(err, store.ErrOperationConflict), errors.Is(err, store.ErrJobChanged), errors.Is(err, lifecycle.ErrChanged), errors.Is(err, lifecycle.ErrConflict), errdefs.IsConflict(err), errdefs.IsAlreadyExists(err):
 		return 409, Problem{Code: "OPERATION_CONFLICT", Message: "The operation conflicts with the current target state."}
 	case errors.Is(err, lifecycle.ErrInvalidAction):
 		return 400, Problem{Code: "INVALID_PAYLOAD", Message: "Action must be start, stop, or restart."}

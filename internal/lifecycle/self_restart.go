@@ -2,17 +2,51 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/containerd/errdefs"
+	"github.com/mapherez/nox-yard/internal/jobs"
+	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 )
 
-func (m *Manager) launchSelfRestart(ctx context.Context, id string) error {
+func (m *Manager) launchSelfRestart(ctx context.Context, id string, failures ...Failure) error {
+	if job, ok := jobs.FromContext(ctx); ok && m.data != nil {
+		inspected, err := m.client.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+		if err != nil {
+			return err
+		}
+		self := inspected.Container
+		if self.ID != id || self.State == nil || !self.State.Running || self.Config == nil || self.Config.Healthcheck == nil {
+			return errors.New("NoX Yard must be running with a healthcheck to restart safely")
+		}
+		payload := map[string]any{}
+		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+			return err
+		}
+		payload["selfID"] = id
+		if len(failures) > 0 {
+			payload["partialFailure"] = "true"
+		}
+		for _, failure := range failures {
+			if errors.Is(failure.Cause, context.Canceled) || errors.Is(failure.Cause, context.DeadlineExceeded) {
+				payload["interrupted"] = "true"
+			}
+		}
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		if err := m.data.JobPayload(job.ID, job.Owner, string(encoded)); err != nil {
+			return err
+		}
+		return jobs.Launch(ctx, m.data, job, "restart-worker")
+	}
 	listed, err := m.client.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return err
@@ -63,8 +97,55 @@ func (m *Manager) launchSelfRestart(ctx context.Context, id string) error {
 	return nil
 }
 
+func RunDurableRestartWorker(data *store.Store, id, owner string) error {
+	job, found, err := data.Job(id)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return store.ErrJobChanged
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), time.Unix(job.DeadlineAt, 0))
+	defer cancel()
+	if err := jobs.ValidateWorker(ctx, job, owner); err != nil {
+		return err
+	}
+	if err := data.ClaimJob(id, owner); err != nil {
+		return err
+	}
+	payload := map[string]string{}
+	if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
+		return err
+	}
+	if payload["selfID"] == "" {
+		return errors.New("restart target identity is missing")
+	}
+	if err := data.JobProgress(id, owner, "restarting", nil, nil); err != nil {
+		return err
+	}
+	if err := RunRestartWorker(payload["selfID"]); err != nil {
+		return data.FinishJob(id, owner, "failed", "recovery_required", "NoX Yard restart failed or its healthcheck did not become healthy. Inspect the container on the host and acknowledge recovery before retrying.", "")
+	}
+	images, imageErr := jobs.Images(ctx, job.Resources, false)
+	if imageErr == nil {
+		_ = data.JobProgress(id, owner, "verifying", nil, images)
+	}
+	status, outcome, message := restartOutcome(payload)
+	return data.FinishJob(id, owner, status, outcome, message, "")
+}
+
+func restartOutcome(payload map[string]string) (string, string, string) {
+	if payload["interrupted"] == "true" {
+		return "failed", "recovery_required", "Yard restarted successfully, but another group action was interrupted. Inspect the other targets and acknowledge recovery before retrying."
+	}
+	if payload["partialFailure"] == "true" {
+		return "failed", "failed", "Yard restarted successfully, but another requested group action failed. Inspect the other targets before retrying."
+	}
+	return "succeeded", "verified", ""
+}
+
 // RunRestartWorker runs independently of the web server, from the exact image
-// currently used by NoX Yard. AutoRemove removes the helper after it exits.
+// currently used by NoX Yard. Durable helpers are cleaned after their saved result.
 func RunRestartWorker(id string) error {
 	cli, err := client.New(client.WithHost("unix:///var/run/docker.sock"))
 	if err != nil {

@@ -37,6 +37,7 @@ project = "mcp-smoke-" + suffix
 base = root / ".tmp" / ("mcp-smoke-" + suffix)
 base.mkdir(parents=True, exist_ok=False)
 containers = []
+workers = set()
 volumes = []
 managed_names = []
 events_response = None
@@ -126,12 +127,14 @@ def serve(image, platform="linux/amd64", socket=False):
     until(lambda: ready(url), platform + " health")
     rpc(url, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                            "clientInfo": {"name": "yard-smoke", "version": "1"}})
-    assert len(rpc(url, "tools/list", {})["tools"]) == 25
+    assert len(rpc(url, "tools/list", {})["tools"]) == 28
     assert tool(url, "yard_health")["ready"]
     return identifier, url
 
 def await_job(url, job, expected="succeeded"):
     value = until(lambda: completed_job(url, job["id"]), "Compose job " + job["id"], seconds=150)
+    if value.get("workerID"):
+        workers.add(value["workerID"])
     assert value["status"] == expected, value
     return value
 
@@ -374,7 +377,15 @@ try:
     until(lambda: ready(url), "Yard recovery")
     assert request(url, "/api/bootstrap", opener=browser)[1]["authenticated"]
     assert tool(url, "yard_projects_settings_get")["projectsBase"] == settings["projectsBase"]
-    assert len(rpc(url, "tools/list", {})["tools"]) == 25
+    assert len(rpc(url, "tools/list", {})["tools"]) == 28
+    def restart_job():
+        history = tool(url, "yard_job_history", {"target": "container:" + yard})["jobs"]
+        return next((job for job in history if job["operation"] == "restart" and job["status"] != "running"), None)
+    durable = until(restart_job, "persisted self-restart result")
+    assert durable["status"] == "succeeded" and durable["outcome"] == "verified", durable
+    assert durable["workerID"] and durable["startedAt"] and durable["completedAt"] and durable["targetImages"], durable
+    workers.add(durable["workerID"])
+    assert tool(url, "yard_job", {"id": durable["id"]})["id"] == durable["id"]
     print("PASS: fingerprint protection, removal, queued self-restart, persisted session/settings and MCP recovery", flush=True)
     if args.arm64_image:
         serve(args.arm64_image, platform="linux/arm64")
@@ -382,6 +393,8 @@ try:
 finally:
     if events_response:
         events_response.close()
+    for identifier in workers:
+        subprocess.run(command + ["rm", "-f", identifier], capture_output=True)
     # Remove only containers belonging to this randomly named Compose fixture.
     for name in managed_names:
         found = docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + name)

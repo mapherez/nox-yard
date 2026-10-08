@@ -271,7 +271,7 @@ func (r *DockerReader) Snapshot(ctx context.Context) (Snapshot, error) {
 func group(items []container.Summary, containers []Container, collectedAt time.Time) Snapshot {
 	projects := make(map[string]*Project)
 	for index, summary := range items {
-		if summary.Labels["nox-yard.role"] == "managed-helper" {
+		if summary.Labels["nox-yard.role"] == "managed-helper" || summary.Labels["nox-yard.role"] == "operation-worker" {
 			continue
 		}
 		item := containers[index]

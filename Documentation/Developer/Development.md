@@ -14,6 +14,7 @@
 - `internal/httpapi/`: browser HTTP routes, session protection, static assets, and the independent versioned machine Control API.
 - `internal/selfupdate/`: opt-in GHCR checks and the temporary Engine-based update worker; see [Self-Update](Self-Update.md).
 - `internal/managed/`: source intake, validation/preview, host project files, adoption and asynchronous managed Compose operations.
+- `internal/jobs/`: independent worker transport, resource identity, interruption observation and reviewed recovery.
 - `web/src/`: typed API client, React views, and CSS Modules. Shared tokens and global rules are in `web/src/styles/`.
 - `Dockerfile`, `compose.yaml`, `compose.dev.yaml`, `.env.example`: production and local development images and Compose configurations.
 - `scripts/check.sh`, `scripts/test.sh`, `scripts/ci-local.sh`: shared local and CI validation.
@@ -53,6 +54,8 @@ Open `http://127.0.0.1:8080`. On Windows PowerShell, set the address with `$env:
 
 For frontend development, run `npm run dev` from `web/`. Vite proxies `/api` to the Go service at `http://127.0.0.1:8080`. Keep the Go service running for authentication and persistence. Local Docker inventory requires access to `/var/run/docker.sock` on Linux.
 
+Managed mutations and durable Yard restart require the container backend, its exact running image and a writable persistent state mount plus Docker socket. A host `go run` process cannot provide that independent-worker transport; use `compose.dev.yaml` for those flows.
+
 ## Local validation and pre-push
 
 Install Go 1.26.6 or a later patch, Node.js 24, Docker with the Compose plugin, and frontend dependencies. From the repository root:
@@ -65,6 +68,28 @@ sh scripts/install-hooks.sh
 Run the installer from Git Bash on Windows, or from a POSIX shell on Linux. It installs a minimal `.git/hooks/pre-push` that calls `scripts/ci-local.sh`. Hooks are local to each clone, so repeat the installer in every new clone. The installer refuses to overwrite an existing pre-push hook or a custom `core.hooksPath`; in that case, add `sh "$(git rev-parse --show-toplevel)/scripts/ci-local.sh"` to the existing hook setup. The hook blocks a push when any check fails. It can be bypassed locally with `git push --no-verify`, but GitHub CI still runs.
 
 The same checks can be run at any time with `sh scripts/ci-local.sh`. Each check prints its name and a `[pass]` or `[FAIL]` result; a failure includes the command's own diagnostic output. The main script sends output to stderr so Git clients show the actual failure instead of only `failed to push some refs`. `check.sh` validates tracked Go files with `gofmt`, runs `go vet ./...`, and validates Compose with `docker compose config --quiet`. `test.sh` runs `go test ./...`, the frontend type-check/build, and optional frontend `test`, `lint`, and `stylelint` package scripts through `npm run --if-present`. Those optional scripts are not defined yet. Add non-interactive checks under these names when the relevant tooling is introduced. The local scripts do not build Docker images or start services. The frontend build creates the ignored `web/dist/` directory.
+
+## Explicit durable-job acceptance
+
+These checks run against disposable fixtures, separately from the default source checks. Build a local image and run:
+
+```sh
+docker buildx build --platform linux/amd64 --load -t nox-yard:jobs-smoke .
+python scripts/smoke-jobs.py --image nox-yard:jobs-smoke
+python scripts/smoke-mcp.py --image nox-yard:jobs-smoke
+```
+
+The jobs fixture gates pull/replacement in a derived image, interrupts web/worker containers and checks resource ownership, truthful recovery, no replay and secret-free history. It uses random identities and cleans up only its own resources. Linux tests, including SQLite self-update restore, should also run on Linux; `go test -race ./internal/store ./internal/application ./internal/jobs ./internal/selfupdate` checks the persistence/orchestration boundaries when a C compiler is available.
+
+For deterministic browser feedback tests, start local Vite at port 5173, then run:
+
+```sh
+npx --yes --package @playwright/cli playwright-cli -s=history open http://127.0.0.1:5173 --headed
+npx --yes --package @playwright/cli playwright-cli -s=history run-code --filename scripts/smoke-history.cjs
+npx --yes --package @playwright/cli playwright-cli -s=history close
+```
+
+The script mocks API responses in the test browser only; it checks reload/reopening, action blocking, keyboard acknowledgement/conflict/retry/focus, rollback/cleanup details and 1440/768/390/320px layouts. Screenshots go to ignored `output/playwright/`. Real Docker interruption remains the jobs fixture's responsibility. Wiring these runtime gates into release CI remains C7 work.
 
 ## GitHub CI and image publication
 
@@ -87,6 +112,8 @@ The optional [Control API](Control-API.md) uses the same backend port. `NOX_YARD
 `.env.example` configures the Compose host bind address and port. Compose defaults to host port 8095 mapped to container port 8080; `NOX_PORT` can override the host port. The Compose file mounts `./data` and `/var/run/docker.sock`. Keep the application on a trusted LAN/VPN, especially before the administrator account has been created. Do not commit `.env`, `data/`, credentials, sessions, or host Docker data.
 
 Back up SQLite with a consistent SQLite backup/snapshot method, the configured host projects directory (Compose and environment files), and the applications' named-volume/bind data. These are separate storage locations; copying `/data` alone does not back up deployed application data or host source files. Restore matching source/configuration and metadata before resuming management. Container/configuration rollback does not undo application data writes or schema migrations inside shared volumes.
+
+Coordinate backups/restores with active independent workers as well as the web process. Operation payloads contain sensitive project inputs. See [Durable operations](Operation-Jobs.md) for uncertain-job inspection and recovery acknowledgement.
 
 Run `sh scripts/security.sh` to scan Linux amd64 and arm64 call paths with the pinned official `govulncheck` tool. The scanner is installed into a temporary directory and does not change `go.mod`. Database/network failures are failures, not a clean scan. `npm audit --prefix web` checks frontend dependencies. Update only the affected compatible dependency or toolchain patch, then repeat the relevant checks.
 

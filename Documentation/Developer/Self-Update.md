@@ -30,6 +30,8 @@ Authenticated `GET /api/self-update` returns `automatic`, `intervalMinutes`, `st
 
 SQLite schema version 2 adds `self_update_settings` and `self_update_jobs`; version 3 adds the persisted check interval with a 15-minute default. Existing enabled installations adopt the new default after migration. Jobs record the old/target image IDs, platform-manifest digest, outcome, timestamps, and failure. This is the canonical record across web-service restarts; no updater service is added to Compose.
 
+Schema version 7 mirrors self-update into shared operation history/resource reservations. New workers register their identity/ownership before start, claim once and record replacement/verification stages. The dedicated snapshot/rollback protocol above remains authoritative. An uncertain launch keeps ownership for observation; failed rollback or an unconfirmed replacement retains recovery reservations for host review. Successful replacement cleanup errors appear separately in contextual history and do not turn success into replacement failure. See [Durable operations](Operation-Jobs.md).
+
 ## Maintenance
 
 Keep the healthcheck and persistent mount contract stable when changing the Dockerfile or Compose file. Future database migrations should remain backward compatible during an update attempt; the SQLite snapshot protects a failed replacement. Do not add Docker CLI or Compose to the runtime image for this mechanism.

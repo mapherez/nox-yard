@@ -48,6 +48,9 @@ var cliPaths = map[string]string{
 	"yard_compose_submit":               "compose submit",
 	"yard_compose_operation":            "compose operation",
 	"yard_compose_job":                  "compose job",
+	"yard_job":                          "job get",
+	"yard_job_history":                  "job history",
+	"yard_job_recovery_acknowledge":     "job recovery acknowledge",
 	"yard_projects_settings_get":        "settings projects get",
 	"yard_projects_settings_set":        "settings projects set",
 	"yard_self_update_status":           "update status",
@@ -297,6 +300,30 @@ func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 	register(b, "yard_projects_settings_get", "Projects settings", "Read the configured host projects base directory.", read, func(ctx context.Context, _ empty) (settingsInput, error) {
 		base, err := app.ProjectsBase(ctx)
 		return settingsInput{base}, err
+	})
+	register(b, "yard_job", "Operation status", "Read a persisted managed, Engine or Yard maintenance operation, including stage, outcome and cleanup result.", read, func(ctx context.Context, in targetInput) (store.Job, error) {
+		job, found, err := app.Job(ctx, in.ID)
+		if err == nil && !found {
+			err = lifecycle.ErrNotFound
+		}
+		return job, err
+	})
+	register(b, "yard_job_history", "Project operation history", "Read up to 30 recent operations for a compose:NAME or container:ID target.", read, func(ctx context.Context, in struct {
+		Target string `json:"target"`
+	}) (struct {
+		Jobs []store.Job `json:"jobs"`
+	}, error) {
+		jobs, err := app.JobHistory(ctx, in.Target)
+		return struct {
+			Jobs []store.Job `json:"jobs"`
+		}{jobs}, err
+	})
+	register(b, "yard_job_recovery_acknowledge", "Acknowledge reviewed recovery", "After inspecting the target and retained resources on the host, confirm that an uncertain operation may release its resource reservation. Does not retry, restore or delete resources. Requires confirm=true and the current updatedAt; active workers/helpers block acknowledgement.", write, func(ctx context.Context, in struct {
+		ID        string `json:"id"`
+		UpdatedAt int64  `json:"updatedAt"`
+		Confirm   bool   `json:"confirm"`
+	}) (store.Job, error) {
+		return app.AcknowledgeRecovery(ctx, in.ID, in.UpdatedAt, in.Confirm)
 	})
 	register(b, "yard_projects_settings_set", "Set projects directory", "Validate and persist the projects base directory using existing Yard host checks.", setting, func(ctx context.Context, in settingsInput) (settingsInput, error) {
 		base, err := app.SetProjectsBase(ctx, in.ProjectsBase)

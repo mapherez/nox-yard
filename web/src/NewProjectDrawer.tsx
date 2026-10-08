@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEventHandler, type FormEvent } from "react";
 import { deployManaged, getManagedJob, loadManagedSource, previewManaged, type ManagedJob, type ManagedPreview, type ManagedRequest, type ManagedSource, type ManagedSourceInput } from "./api";
+import { operationStage } from "./OperationHistory";
 import { useDrawerSwipe } from "./useDrawerSwipe";
 import appStyles from "./App.module.css";
 import styles from "./NewProjectDrawer.module.css";
@@ -193,7 +194,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
           </fieldset>)}
           <button className={appStyles.primaryButton} type="submit" disabled={busy}>Validate and preview</button>
         </form>}
-        {job && <div className={styles.loaded} role="status"><strong>{job.status === "running" ? "Operation in progress" : job.status === "succeeded" ? "Project ready" : "Operation failed"}</strong><span>{job.operation} · {job.projectName}</span>{job.error && <p>{job.error}</p>}</div>}
+        {job && <div className={styles.loaded} role="status"><strong>{operationStage(job)}</strong><span>{job.operation} · {job.projectName}</span>{job.error && <p>{job.error}</p>}</div>}
         {error && <p className={appStyles.formError} role="alert">{error}</p>}
       </div>
     </div>

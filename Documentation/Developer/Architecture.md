@@ -26,7 +26,7 @@ The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go bu
 - **Inventory:** a read model built from all Docker containers, with Compose projects grouped by `com.docker.compose.project` and standalone containers represented individually. Docker events trigger refreshes; periodic reconciliation handles missed events. Stored metadata supplements the live inventory but never replaces runtime state.
 - **Docker adapter:** Engine API negotiation, inspect, stats, logs, exec, image pulls, and container lifecycle operations.
 - **Compose adapter:** validation and operations for projects whose source was created, imported, or voluntarily adopted in NoX Yard. The source YAML and interpolation variables are stored persistently.
-- **Jobs:** managed Compose operations persist their initial/final status, but currently run from the web process and are marked failed after a restart. General worker ownership, reconciliation, progress and contextual history are planned in completion package C2. Self-update already uses its own independent worker/recovery path; self-restart uses a helper but does not yet persist its final result.
+- **Jobs:** durable operation records and atomic resource reservations coordinate managed, Engine and Yard mutations across adapters. Managed Compose and self-restart use independent workers; startup observes live workers/helpers and verifies completed work or retains uncertain reservations for host review. Self-update keeps its dedicated snapshot/rollback protocol and mirrors progress/results into history. See [Durable operations](Operation-Jobs.md).
 - **Storage:** SQLite for the initial administrator, hashed sessions, managed-project metadata, URL sources, update settings, and job history. Secrets and Compose variables remain server-side with restrictive file permissions.
 
 New Go packages under `internal/` should follow these boundaries. Keep Docker SDK types out of public HTTP responses; map them to stable application models.
@@ -53,7 +53,7 @@ The stable [Control API v1](Control-API.md) provides machine inventory, inspecti
 - SSE: inventory/metrics invalidations through `/api/projects/events`, and live container logs. Managed job progress is read through its job endpoint.
 - WebSocket: authenticated, origin-checked bidirectional container terminal sessions.
 
-Managed mutations return a job ID. Final status is persisted, but rediscovery of job history after browser reload and accurate reconciliation after service restart are planned in C2. Engine pulls remain synchronous. API payloads never return raw Docker SDK structs or secrets by default; sensitive values require an explicit reveal action.
+Managed mutations return a job ID. The contextual drawer reads typed job history after reload/reopening, including progress, recovery and cleanup results. Engine pulls remain synchronous and also persist operation records; uncertain interruption retains reservations instead of permitting blind retry. API payloads never return raw Docker SDK structs or secrets by default; sensitive values require an explicit reveal action.
 
 ### Inventory and metrics lifecycle
 
@@ -72,7 +72,7 @@ The `/bin/sh` capability check runs only when opening a terminal. Known presence
 1. Accept HTTPS public URL, pasted YAML, or uploaded YAML. Restrict URL fetches by scheme, destination, redirects, timeout, and size.
 2. Collect interpolation variables/env files and validate using `docker compose config`; reject builds and unresolved local dependencies. New host-based projects support relative bind mounts resolved from their stored host project directory.
 3. Show a preview of the name, services, images, ports, volumes, and networks. Nothing is deployed before confirmation.
-4. Persist the source and variables, write the host source/env files, pull public prebuilt images, then run Compose deployment with a persisted job record. General interrupted-job recovery is planned.
+4. Persist the source and variables, launch an independent durable worker to write host source/env files, pull public prebuilt images and deploy, then verify the Docker outcome. Interrupted workers are observed without replay; source/file transactionality and managed rollback remain C3 work.
 5. A repeated source URL offers a separate copy, sync of an existing associated project with diff and confirmation, or cancellation. A source matching an external project's name can be adopted only after comparison and explicit confirmation. Adoption resolves the original host directory from Compose metadata or an explicit fallback, rechecks runtime/file fingerprints, and saves source/env files without recreating containers or overwriting existing files. Relative binds retain that original base. Unsupported adoption configurations are blocked.
 
 Pull downloads images without replacing containers. Managed update currently pulls and forces recreation from the stored definition; unchanged-image checks and rollback are planned in C3. External update and project opt-in auto-update are planned in C4/C5, with daily checks initially at 03:00 in the explicitly documented server timezone. Yard self-update retains its separate implemented settings and worker.

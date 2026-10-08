@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/mapherez/nox-yard/internal/managed"
+	"github.com/mapherez/nox-yard/internal/store"
 )
 
 func decodeManaged(w http.ResponseWriter, r *http.Request, target any) bool {
@@ -57,7 +58,7 @@ func (s *Server) managedDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job, err := s.application.ComposeSubmit(r.Context(), input)
-	if errors.Is(err, managed.ErrConflict) {
+	if errors.Is(err, managed.ErrConflict) || errors.Is(err, store.ErrOperationConflict) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -104,7 +105,7 @@ func (s *Server) managedOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job, err := s.application.ComposeOperation(r.Context(), r.PathValue("name"), input.Operation, input.RemoveVolumes)
-	if errors.Is(err, managed.ErrConflict) {
+	if errors.Is(err, managed.ErrConflict) || errors.Is(err, store.ErrOperationConflict) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}

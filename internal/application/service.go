@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
@@ -37,20 +38,28 @@ type Updater interface {
 	CheckNow() error
 }
 type Service struct {
-	Store     *store.Store
-	Inventory inventory.Reader
-	Logs      inventory.LogReader
-	Lifecycle lifecycle.Controller
-	Managed   ManagedController
-	Updates   Updater
-	Changes   *inventory.Notifier
+	Store          *store.Store
+	Inventory      inventory.Reader
+	Logs           inventory.LogReader
+	Lifecycle      lifecycle.Controller
+	Managed        ManagedController
+	Updates        Updater
+	Changes        *inventory.Notifier
+	JobObserver    *jobs.Observer
+	ResourceKeys   func(context.Context, string) ([]string, error)
+	ResourceImages func(context.Context, []string, bool) ([]store.ImageIdentity, error)
+	instance       string
 }
 
 func New(data *store.Store, changes *inventory.Notifier) *Service {
 	if changes == nil {
 		panic("application requires the shared inventory notifier")
 	}
-	return &Service{Store: data, Changes: changes}
+	identity, err := store.NewJob("instance", "engine", "", nil)
+	if err != nil {
+		panic(err)
+	}
+	return &Service{Store: data, Changes: changes, instance: identity.ID}
 }
 func ValidTarget(id string, container bool) bool {
 	if container {
@@ -116,12 +125,26 @@ func (s *Service) Remove(ctx context.Context, id string, container, confirm bool
 	if container {
 		target = "container:" + id
 	}
+	job, err := s.beginOperation(ctx, target, "remove")
+	if err != nil {
+		return lifecycle.RemovalReport{}, err
+	}
 	finish := s.Changes.Begin(target, "remove")
 	defer finish()
+	var result lifecycle.RemovalReport
 	if container {
-		return s.Lifecycle.RemoveContainer(ctx, id, fingerprint)
+		result, err = s.Lifecycle.RemoveContainer(ctx, id, fingerprint)
+	} else {
+		result, err = s.Lifecycle.RemoveProject(ctx, id, fingerprint)
 	}
-	return s.Lifecycle.RemoveProject(ctx, id, fingerprint)
+	failed := false
+	for _, item := range result.Items {
+		if item.Status == "failed" {
+			failed = true
+		}
+	}
+	s.finishOperation(job, failed, errors.Join(err, ctx.Err()))
+	return result, err
 }
 
 type PreparedSource struct {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/containerd/errdefs"
+	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
@@ -236,6 +237,7 @@ func (m *Manager) check(ctx context.Context, manual bool) error {
 	job = store.SelfUpdateJob{
 		ID: jobID, OldImageID: current.Image,
 		TargetImageID: available.ImageID, TargetDigest: available.ManifestDigest,
+		ProjectName: current.Config.Labels["com.docker.compose.project"], ContainerID: current.ID,
 	}
 	if err := m.store.CreateSelfUpdateJob(job); err != nil {
 		return err
@@ -243,7 +245,10 @@ func (m *Manager) check(ctx context.Context, manual bool) error {
 	if err := pullAndVerify(ctx, cli, available.ImageID); err != nil {
 		return m.failJobWithTag(cli, jobID, current.Image, err)
 	}
-	if err := launchWorker(ctx, cli, current, jobID); err != nil {
+	if err := launchWorker(ctx, cli, current, jobID, m.store); err != nil {
+		if errors.Is(err, jobs.ErrLaunchUncertain) {
+			return err
+		}
 		return m.failJobWithTag(cli, jobID, current.Image, err)
 	}
 	return nil
@@ -253,7 +258,20 @@ func (m *Manager) check(ctx context.Context, manual bool) error {
 // A live worker owns the job; the web service only resolves it after that worker is gone.
 func (m *Manager) reconcileInterruptedJob(ctx context.Context) {
 	job, exists, err := m.store.LatestSelfUpdateJob()
-	if err != nil || !exists || job.Status != "updating" {
+	if err != nil || !exists {
+		return
+	}
+	if job.Status != "updating" {
+		// A pre-C2 worker only finalizes its dedicated table. Mirror that durable
+		// result after an upgrade without rerunning its replacement protocol.
+		operation, found, _ := m.store.Job(job.ID)
+		if found && operation.Status == "running" {
+			outcome, message := "verified", ""
+			if job.Status == "failed" {
+				outcome, message = "recovery_required", "Previous self-update failed during upgrade. Inspect its dedicated status and retained resources, then acknowledge recovery before retrying."
+			}
+			_ = m.store.FinishJob(job.ID, operation.Owner, job.Status, outcome, message, "")
+		}
 		return
 	}
 	cli, err := client.New(client.WithHost("unix:///var/run/docker.sock"))
@@ -295,7 +313,8 @@ func (m *Manager) reconcileInterruptedJob(ctx context.Context) {
 			message += " Restoring the previous latest tag failed: " + tagErr.Error()
 		}
 	}
-	if err := m.store.FinishSelfUpdateJob(job.ID, "failed", message); err != nil {
+	recoveryRequired := current.Image != job.OldImageID
+	if err := m.store.FinishSelfUpdateOutcome(job.ID, "failed", message, recoveryRequired, ""); err != nil {
 		log.Printf("Cannot record interrupted self-update: %v", err)
 	}
 }
@@ -388,9 +407,19 @@ func pullAndVerify(ctx context.Context, cli *client.Client, expectedID string) e
 	return nil
 }
 
-func launchWorker(ctx context.Context, cli *client.Client, self container.InspectResponse, jobID string) error {
+func launchWorker(ctx context.Context, cli *client.Client, self container.InspectResponse, jobID string, data *store.Store) error {
 	mounts, err := requiredMounts(self)
 	if err != nil {
+		return err
+	}
+	operation, found, err := data.Job(jobID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return store.ErrJobChanged
+	}
+	if err := data.SetJobWorker(jobID, operation.Owner, "nox-yard-update-"+jobID); err != nil {
 		return err
 	}
 	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
@@ -399,7 +428,7 @@ func launchWorker(ctx context.Context, cli *client.Client, self container.Inspec
 			Image:  self.Image,
 			Cmd:    []string{"nox-yard", "update-worker", jobID, self.ID},
 			Env:    []string{"NOX_DATA_DIR=/data"},
-			Labels: map[string]string{"nox-yard.role": "self-update-worker"},
+			Labels: map[string]string{"nox-yard.role": "self-update-worker", "nox-yard.job": jobID, "nox-yard.owner": operation.Owner},
 		},
 		HostConfig: &container.HostConfig{
 			AutoRemove:  true,
@@ -409,11 +438,13 @@ func launchWorker(ctx context.Context, cli *client.Client, self container.Inspec
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("create update worker: %w", err)
+		return fmt.Errorf("%w: create update worker", jobs.ErrLaunchUncertain)
+	}
+	if err := data.SetJobWorker(jobID, operation.Owner, created.ID); err != nil {
+		return fmt.Errorf("%w: register update worker", jobs.ErrLaunchUncertain)
 	}
 	if _, err := cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
-		_, _ = cli.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true})
-		return fmt.Errorf("start update worker: %w", err)
+		return fmt.Errorf("%w: start update worker", jobs.ErrLaunchUncertain)
 	}
 	return nil
 }
