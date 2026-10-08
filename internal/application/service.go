@@ -14,6 +14,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/managed"
+	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 )
@@ -38,11 +39,15 @@ type Updater interface {
 	CheckNow() error
 }
 type Service struct {
-	Store          *store.Store
-	Inventory      inventory.Reader
-	Logs           inventory.LogReader
-	Lifecycle      lifecycle.Controller
-	Managed        ManagedController
+	Store     *store.Store
+	Inventory inventory.Reader
+	Logs      inventory.LogReader
+	Lifecycle lifecycle.Controller
+	Managed   ManagedController
+	Recreator interface {
+		Preview(context.Context, recreate.Request) (recreate.Preview, error)
+		Submit(context.Context, recreate.Request) (store.Job, error)
+	}
 	Updates        Updater
 	Changes        *inventory.Notifier
 	JobObserver    *jobs.Observer
@@ -100,11 +105,26 @@ func (s *Service) Metrics(ctx context.Context) (map[string]inventory.Metrics, er
 	return reader.CachedMetrics(), nil
 }
 func (s *Service) PreviewRemove(ctx context.Context, id string, container bool) (lifecycle.RemovalPlan, error) {
+	return s.PreviewRemoveWithOptions(ctx, id, container, false)
+}
+func (s *Service) PreviewRemoveWithOptions(ctx context.Context, id string, container, removeVolumes bool) (lifecycle.RemovalPlan, error) {
 	if err := ctx.Err(); err != nil {
 		return lifecycle.RemovalPlan{}, err
 	}
 	if s.Lifecycle == nil {
 		return lifecycle.RemovalPlan{}, ErrDockerUnavailable
+	}
+	if controller, ok := s.Lifecycle.(interface {
+		PreviewRemoval(context.Context, string, bool) (lifecycle.RemovalPlan, error)
+	}); ok {
+		target := id
+		if container {
+			target = "container:" + id
+		}
+		return controller.PreviewRemoval(ctx, target, removeVolumes)
+	}
+	if removeVolumes {
+		return lifecycle.RemovalPlan{}, ErrUnavailable
 	}
 	if container {
 		return s.Lifecycle.PreviewRemoveContainer(ctx, id)
@@ -112,6 +132,9 @@ func (s *Service) PreviewRemove(ctx context.Context, id string, container bool) 
 	return s.Lifecycle.PreviewRemoveProject(ctx, id)
 }
 func (s *Service) Remove(ctx context.Context, id string, container, confirm bool, fingerprint string) (lifecycle.RemovalReport, error) {
+	return s.RemoveWithOptions(ctx, id, container, confirm, fingerprint, false)
+}
+func (s *Service) RemoveWithOptions(ctx context.Context, id string, container, confirm bool, fingerprint string, removeVolumes bool) (lifecycle.RemovalReport, error) {
 	if err := ctx.Err(); err != nil {
 		return lifecycle.RemovalReport{}, err
 	}
@@ -132,7 +155,13 @@ func (s *Service) Remove(ctx context.Context, id string, container, confirm bool
 	finish := s.Changes.Begin(target, "remove")
 	defer finish()
 	var result lifecycle.RemovalReport
-	if container {
+	if controller, ok := s.Lifecycle.(interface {
+		RemoveWithOptions(context.Context, string, string, bool) (lifecycle.RemovalReport, error)
+	}); ok {
+		result, err = controller.RemoveWithOptions(ctx, target, fingerprint, removeVolumes)
+	} else if removeVolumes {
+		err = ErrUnavailable
+	} else if container {
 		result, err = s.Lifecycle.RemoveContainer(ctx, id, fingerprint)
 	} else {
 		result, err = s.Lifecycle.RemoveProject(ctx, id, fingerprint)
@@ -190,11 +219,26 @@ func (s *Service) ComposeSubmit(ctx context.Context, input managed.Request) (sto
 	return s.Managed.Submit(ctx, input)
 }
 func (s *Service) ComposeOperation(ctx context.Context, name, operation string, removeVolumes bool) (store.ManagedJob, error) {
+	return s.ComposeOperationWithPreview(ctx, name, operation, removeVolumes, "")
+}
+func (s *Service) ComposeOperationWithPreview(ctx context.Context, name, operation string, removeVolumes bool, fingerprint string) (store.ManagedJob, error) {
 	if err := ctx.Err(); err != nil {
 		return store.ManagedJob{}, err
 	}
 	if s.Managed == nil {
 		return store.ManagedJob{}, ErrUnavailable
+	}
+	if fingerprint != "" {
+		if operation != "remove" || len(fingerprint) != 64 {
+			return store.ManagedJob{}, ErrInvalidRemoval
+		}
+		controller, ok := s.Managed.(interface {
+			OperationWithPreview(string, string, bool, string) (store.ManagedJob, error)
+		})
+		if !ok {
+			return store.ManagedJob{}, ErrUnavailable
+		}
+		return controller.OperationWithPreview(name, operation, removeVolumes, fingerprint)
 	}
 	return s.Managed.Operation(name, operation, removeVolumes)
 }

@@ -8,15 +8,18 @@ import (
 
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/jobs"
+	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/store"
 )
 
 type workerPayload struct {
-	Project            store.ManagedProject
-	RuntimeFingerprint string
-	FilesFingerprint   string
-	RemoveVolumes      bool
-	Deployment         *deploymentSnapshot
+	Project             store.ManagedProject
+	RuntimeFingerprint  string
+	FilesFingerprint    string
+	RemoveVolumes       bool
+	RemovalFingerprint  string
+	RemovalCleanupError string
+	Deployment          *deploymentSnapshot
 }
 
 func (m *Manager) enqueue(ctx context.Context, project store.ManagedProject, operation string, payload workerPayload) (store.ManagedJob, error) {
@@ -219,12 +222,44 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 	case "stop":
 		args = []string{"stop"}
 	case "remove":
-		args = []string{"down"}
-		if payload.RemoveVolumes {
-			args = append(args, "--volumes")
+		// Pre-C4 persisted jobs cannot manufacture a confirmation for resources
+		// which were never assessed. They require a fresh removal request.
+		if payload.RemovalFingerprint == "" {
+			return fail("Removal assessment is missing; review a current preview before retrying.")
 		}
 	}
-	if err := composeCommand(ctx, project.Name, project.YAML, variables, envFiles, project.ProjectDir, args...); err != nil {
+	if job.Operation == "remove" && payload.RemovalFingerprint != "" {
+		engine, err := lifecycle.New()
+		if err != nil {
+			return fail("Docker removal is unavailable.")
+		}
+		defer engine.Close()
+		engine.SetStore(m.data)
+		report, err := engine.RemoveWithOptions(ctx, "compose:"+project.Name, payload.RemovalFingerprint, payload.RemoveVolumes)
+		if err != nil {
+			if ctx.Err() != nil {
+				return m.data.FinishJob(job.ID, job.Owner, "failed", "recovery_required", "Removal completion is uncertain. Inspect retained resources before acknowledging recovery.", "")
+			}
+			return fail("Removal preview changed or Docker could not remove the confirmed resources; review again.")
+		}
+		cleanupFailed := false
+		for _, item := range report.Items {
+			if item.Status == "failed" {
+				if item.Kind == "container" {
+					return fail("Some confirmed containers could not be removed; inspect the project before retrying.")
+				}
+				cleanupFailed = true
+			}
+		}
+		if cleanupFailed {
+			payload.RemovalCleanupError = "Containers were removed, but some selected volumes, networks or images remain. Inspect the host before removing those resources manually."
+			encoded, _ := json.Marshal(payload)
+			if err := m.data.JobPayload(job.ID, job.Owner, string(encoded)); err != nil {
+				return err
+			}
+			_ = m.data.JobCleanupError(job.ID, payload.RemovalCleanupError)
+		}
+	} else if err := composeCommand(ctx, project.Name, project.YAML, variables, envFiles, project.ProjectDir, args...); err != nil {
 		return fail("Docker Compose could not complete the operation.")
 	}
 	if err := progress("verifying"); err != nil {

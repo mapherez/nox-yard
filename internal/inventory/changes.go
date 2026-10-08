@@ -53,7 +53,7 @@ func OperationState(operation string) string {
 		return "restarting"
 	case "remove":
 		return "removing"
-	case "update", "sync":
+	case "update", "sync", "recreate":
 		return "updating"
 	default:
 		return ""

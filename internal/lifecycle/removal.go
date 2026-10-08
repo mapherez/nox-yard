@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
@@ -63,11 +64,15 @@ func (m *Manager) RemoveProject(ctx context.Context, id, fingerprint string) (Re
 }
 
 func (m *Manager) remove(ctx context.Context, id, fingerprint string) (RemovalReport, error) {
+	return m.RemoveWithOptions(ctx, id, fingerprint, false)
+}
+
+func (m *Manager) RemoveWithOptions(ctx context.Context, id, fingerprint string, removeVolumes bool) (RemovalReport, error) {
 	if err := m.mu.Lock(ctx); err != nil {
 		return RemovalReport{}, err
 	}
 	defer m.mu.Unlock()
-	plan, err := m.removalPlan(ctx, id)
+	plan, err := m.removalPlanWithOptions(ctx, id, removeVolumes)
 	if err != nil {
 		return RemovalReport{}, err
 	}
@@ -172,6 +177,18 @@ func (m *Manager) removeUnusedResource(ctx context.Context, item RemovalItem) er
 }
 
 func (m *Manager) removalPlan(ctx context.Context, id string) (RemovalPlan, error) {
+	return m.removalPlanWithOptions(ctx, id, false)
+}
+
+func (m *Manager) PreviewRemoval(ctx context.Context, id string, removeVolumes bool) (RemovalPlan, error) {
+	if err := m.mu.Lock(ctx); err != nil {
+		return RemovalPlan{}, err
+	}
+	defer m.mu.Unlock()
+	return m.removalPlanWithOptions(ctx, id, removeVolumes)
+}
+
+func (m *Manager) removalPlanWithOptions(ctx context.Context, id string, removeVolumes bool) (RemovalPlan, error) {
 	all, err := m.client.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return RemovalPlan{}, err
@@ -188,7 +205,16 @@ func (m *Manager) removalPlan(ctx context.Context, id string) (RemovalPlan, erro
 		}
 	}
 	if len(targets) == 0 {
-		return RemovalPlan{}, ErrNotFound
+		managed := false
+		if compose && m.data != nil {
+			_, managed, err = m.data.ManagedProject(name)
+			if err != nil {
+				return RemovalPlan{}, err
+			}
+		}
+		if !managed {
+			return RemovalPlan{}, ErrNotFound
+		}
 	}
 	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
 	plan := RemovalPlan{Items: []RemovalItem{}}
@@ -202,6 +228,16 @@ func (m *Manager) removalPlan(ctx context.Context, id string) (RemovalPlan, erro
 		if !unique[key] {
 			unique[key] = true
 			plan.Items = append(plan.Items, item)
+		}
+	}
+	if compose && m.data != nil {
+		project, found, err := m.data.ManagedProject(name)
+		if err != nil {
+			return RemovalPlan{}, err
+		}
+		if found && project.ProjectDir != "" {
+			file := path.Join(project.ProjectDir, "compose.yml")
+			add(RemovalItem{Kind: "Compose file", ID: file, Name: file, Action: "keep", Reason: "Host source files remain after project removal."})
 		}
 	}
 	for _, target := range targets {
@@ -280,6 +316,9 @@ func (m *Manager) removalPlan(ctx context.Context, id string) (RemovalPlan, erro
 				}
 			}
 		}
+		if !removeVolumes && item.Action == "remove" {
+			item.Action, item.Reason = "keep", "Volume deletion was not selected."
+		}
 		add(item)
 	}
 	networkList, err := m.client.NetworkList(ctx, client.NetworkListOptions{})
@@ -334,9 +373,10 @@ func (m *Manager) removalPlan(ctx context.Context, id string) (RemovalPlan, erro
 		return a.ID < b.ID
 	})
 	encoded, _ := json.Marshal(struct {
-		Target string
-		Items  []RemovalItem
-	}{id, plan.Items})
+		Target        string
+		RemoveVolumes bool
+		Items         []RemovalItem
+	}{id, removeVolumes, plan.Items})
 	sum := sha256.Sum256(encoded)
 	plan.Fingerprint = hex.EncodeToString(sum[:])
 	return plan, nil

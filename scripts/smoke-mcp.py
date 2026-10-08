@@ -127,7 +127,7 @@ def serve(image, platform="linux/amd64", socket=False):
     until(lambda: ready(url), platform + " health")
     rpc(url, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                            "clientInfo": {"name": "yard-smoke", "version": "1"}})
-    assert len(rpc(url, "tools/list", {})["tools"]) == 28
+    assert len(rpc(url, "tools/list", {})["tools"]) == 30
     assert tool(url, "yard_health")["ready"]
     return identifier, url
 
@@ -170,6 +170,42 @@ try:
         assert tool(url, "yard_container_action", {"id": fixture, "action": action})["succeeded"] == 1
     tool(url, "yard_container_action", {"id": yard, "action": "stop"}, "TARGET_PROTECTED")
     print("PASS: anonymous MCP, existing auth, lifecycle, logs, inspection, pull and self-protection", flush=True)
+
+    # C4 uses the same independent worker lifetime as managed operations.
+    external = {"id": "container:" + fixture, "operation": "update"}
+    external["fingerprint"] = tool(url, "yard_recreate_preview", external)["fingerprint"]
+    external["confirm"] = True
+    accepted = tool(url, "yard_recreate_submit", external)
+    def engine_result(identifier):
+        current = tool(url, "yard_job", {"id": identifier})
+        return current if current["status"] != "running" else None
+    unchanged = until(lambda: engine_result(accepted["id"]), "unchanged external update")
+    workers.add(unchanged["workerID"])
+    assert unchanged["outcome"] == "unchanged" and unchanged["targetImages"][0]["containerID"] == fixture, unchanged
+    external = {"id": "container:" + fixture, "operation": "recreate"}
+    external["fingerprint"] = tool(url, "yard_recreate_preview", external)["fingerprint"]
+    external["confirm"] = True
+    accepted = tool(url, "yard_recreate_submit", external)
+    workers.add(accepted["workerID"])
+    def candidate():
+        current = tool(url, "yard_job", {"id": accepted["id"]})
+        return next((item["containerID"] for item in current.get("targetImages", [])
+                     if item.get("containerID") and item["containerID"] != fixture), None)
+    replacement = until(candidate, "replacement identity reservation")
+    tool(url, "yard_container_action", {"id": replacement, "action": "stop"}, "OPERATION_CONFLICT")
+    docker("restart", yard)
+    url = address(yard)
+    until(lambda: ready(url), "Yard restart during Engine replacement")
+    final = until(lambda: engine_result(accepted["id"]), "external worker after web restart")
+    assert final["status"] == "succeeded" and final["targetID"] == "container:" + replacement, final
+    assert final["targetImages"][0]["previousContainerID"] == fixture, final
+    containers.remove(fixture)
+    containers.append(replacement)
+    fixture = replacement
+    history = tool(url, "yard_job_history", {"target": "container:" + fixture})["jobs"]
+    assert any(item["id"] == final["id"] for item in history)
+    assert any(item == {"name": "MCP_TEST_VALUE", "value": "fixture"} for item in tool(url, "yard_container_environment", {"id": fixture})["environment"])
+    print("PASS: C4 unchanged/recreate worker, new-target conflict, web restart, replacement identity/history and environment", flush=True)
 
     browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
     status, setup = request(url, "/api/setup", {"username": "smoke",
@@ -361,6 +397,25 @@ try:
     assert docker("exec", fallback_id, "cat", "/bind/keep") == "fallback-data"
     print("PASS: missing/wrong adoption directory rejected; explicit fallback preserves the original bind", flush=True)
 
+    # C4: managed removal uses the same preview and protects shared volumes
+    # even when deletion is explicitly selected. No host source is removed.
+    shared_volume = healthy_name + "_sample-data"
+    keeper = create("--mount", "type=volume,source="+shared_volume+",target=/data", "alpine:3.23", "sleep", "600")
+    unselected = tool(url, "yard_project_remove_preview", {"id": "compose:"+healthy_name})
+    assert all(item["action"] == "keep" for item in unselected["items"] if item["kind"] == "volume")
+    selected = tool(url, "yard_project_remove_preview", {"id": "compose:"+healthy_name, "removeVolumes": True})
+    assert selected["fingerprint"] != unselected["fingerprint"]
+    assert any(item["kind"] == "volume" and item["id"] == shared_volume and item["action"] == "keep" for item in selected["items"])
+    tool(url, "yard_compose_operation", {"name": healthy_name, "operation": "remove", "removeVolumes": True,
+        "fingerprint": unselected["fingerprint"]}, "OPERATION_CONFLICT")
+    await_job(url, tool(url, "yard_compose_operation", {"name": healthy_name, "operation": "remove", "removeVolumes": True,
+        "fingerprint": selected["fingerprint"]}))
+    docker("start", keeper)
+    assert docker("exec", keeper, "cat", "/data/keep") == "fixture"
+    assert (base / healthy_name / "compose.yml").is_file()
+    assert not any(p["id"] == "compose:"+healthy_name for p in tool(url, "yard_projects")["projects"])
+    print("PASS: C4 removal defaults, changed-choice rejection, shared-volume protection, retained source and managed metadata cleanup", flush=True)
+
     preview = tool(url, "yard_container_remove_preview", {"id": fixture})
     tool(url, "yard_container_remove", {"id": fixture, "confirm": False,
         "fingerprint": preview["fingerprint"]}, "INVALID_PAYLOAD")
@@ -383,7 +438,7 @@ try:
     until(lambda: ready(url), "Yard recovery")
     assert request(url, "/api/bootstrap", opener=browser)[1]["authenticated"]
     assert tool(url, "yard_projects_settings_get")["projectsBase"] == settings["projectsBase"]
-    assert len(rpc(url, "tools/list", {})["tools"]) == 28
+    assert len(rpc(url, "tools/list", {})["tools"]) == 30
     def restart_job():
         history = tool(url, "yard_job_history", {"target": "container:" + yard})["jobs"]
         return next((job for job in history if job["operation"] == "restart" and job["status"] != "running"), None)

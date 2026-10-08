@@ -22,6 +22,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/mcpapi"
+	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"golang.org/x/term"
@@ -51,6 +52,9 @@ func run() error {
 	}
 
 	if len(os.Args) > 1 {
+		if len(os.Args) == 4 && os.Args[1] == "recreate-worker" {
+			return recreate.RunWorker(data, os.Args[2], os.Args[3])
+		}
 		if len(os.Args) == 4 && os.Args[1] == "restart-worker" {
 			return lifecycle.RunDurableRestartWorker(data, os.Args[2], os.Args[3])
 		}
@@ -99,6 +103,12 @@ func run() error {
 	defer dockerLifecycle.Close()
 	dockerLifecycle.SetStore(data)
 	api.SetLifecycle(dockerLifecycle)
+	recreator, err := recreate.New(data)
+	if err != nil {
+		return err
+	}
+	defer recreator.Close()
+	app.Recreator = recreator
 	updates := selfupdate.New(data, buildSHA)
 	api.SetSelfUpdate(updates)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -106,11 +116,17 @@ func run() error {
 	app.ResourceKeys = jobs.TargetResources
 	app.ResourceImages = jobs.Images
 	observer := &jobs.Observer{Data: data, Changes: changes, Verify: func(ctx context.Context, job store.Job) error {
+		if job.Domain == "engine" && (job.Operation == "update" || job.Operation == "recreate") {
+			return recreator.Reconcile(ctx, job)
+		}
 		if job.Domain == "managed" {
 			return managedProjects.Reconcile(ctx, job)
 		}
 		return store.ErrJobChanged
 	}, CleanupFinal: func(ctx context.Context, job store.Job) error {
+		if job.Domain == "engine" && (job.Operation == "update" || job.Operation == "recreate") {
+			return recreator.Cleanup(ctx, job)
+		}
 		if job.Domain == "managed" {
 			return managedProjects.CleanupDeployment(ctx, job)
 		}

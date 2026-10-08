@@ -76,17 +76,29 @@ func TestRemovalReportsEveryResourceAndNeverDeletesUnreviewedResources(t *testin
 		t.Fatal(err)
 	}
 	m := &Manager{client: docker}
-	plan, err := m.PreviewRemoveProject(context.Background(), "compose:sample")
+	kept, err := m.PreviewRemoveProject(context.Background(), "compose:sample")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range kept.Items {
+		if item.Kind == "volume" && item.Action != "keep" {
+			t.Fatal("default removal deletes volumes")
+		}
+	}
+	plan, err := m.PreviewRemoval(context.Background(), "compose:sample", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(deletes) != 0 {
 		t.Fatal("preview made a destructive Docker call")
 	}
+	if _, err := m.RemoveWithOptions(context.Background(), "compose:sample", plan.Fingerprint, false); err != ErrChanged || len(deletes) != 0 {
+		t.Fatal("changed volume choice reused its fingerprint")
+	}
 	if _, err := m.RemoveProject(context.Background(), "compose:sample", "stale"); err != ErrChanged || len(deletes) != 0 {
 		t.Fatalf("stale confirmation must not delete anything: %v, %v", err, deletes)
 	}
-	report, err := m.RemoveProject(context.Background(), "compose:sample", plan.Fingerprint)
+	report, err := m.RemoveWithOptions(context.Background(), "compose:sample", plan.Fingerprint, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,11 +160,11 @@ func TestRemovalKeepsResourcesUsedByAnotherContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &Manager{client: docker}
-	plan, err := m.PreviewRemoveProject(context.Background(), "compose:sample")
+	plan, err := m.PreviewRemoval(context.Background(), "compose:sample", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := m.RemoveProject(context.Background(), "compose:sample", plan.Fingerprint)
+	report, err := m.RemoveWithOptions(context.Background(), "compose:sample", plan.Fingerprint, true)
 	if err != nil {
 		t.Fatal(err)
 	}

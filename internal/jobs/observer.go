@@ -2,12 +2,16 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/store"
 )
+
+// A final result can retain a resource cleanup issue requiring host review.
+var ErrCleanupReview = errors.New("resource cleanup requires host review")
 
 type Observer struct {
 	Data         *store.Store
@@ -81,7 +85,9 @@ func (o *Observer) Reconcile(ctx context.Context) {
 				_ = o.Data.JobCleanupError(job.ID, "Operation result was saved, but worker cleanup is pending; inspect the worker on the host.")
 			}
 		} else if o.CleanupFinal != nil {
-			if err := o.CleanupFinal(cleanup, job); err != nil {
+			if err := o.CleanupFinal(cleanup, job); errors.Is(err, ErrCleanupReview) {
+				_ = o.Data.WorkerCleaned(job.ID, false)
+			} else if err != nil {
 				_ = o.Data.JobCleanupError(job.ID, "Operation result was saved, but retained snapshot/image cleanup is pending; inspect the job's rollback image references on the host.")
 			} else {
 				_ = o.Data.WorkerCleaned(job.ID)

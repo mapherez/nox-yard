@@ -251,6 +251,10 @@ func (m *Manager) CleanupDeployment(ctx context.Context, job store.Job) error {
 	if json.Unmarshal([]byte(job.Payload), &payload) != nil {
 		return store.ErrJobChanged
 	}
+	if payload.RemovalCleanupError != "" {
+		_ = m.data.JobCleanupError(job.ID, payload.RemovalCleanupError)
+		return jobs.ErrCleanupReview
+	}
 	if payload.Deployment == nil || len(payload.Deployment.RetainedImages) == 0 {
 		return nil
 	}

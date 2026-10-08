@@ -88,8 +88,9 @@ func (s *Server) removeOperation(w http.ResponseWriter, r *http.Request, isConta
 		return
 	}
 	var input struct {
-		Confirm     bool   `json:"confirm"`
-		Fingerprint string `json:"fingerprint"`
+		Confirm       bool   `json:"confirm"`
+		Fingerprint   string `json:"fingerprint"`
+		RemoveVolumes bool   `json:"removeVolumes"`
 	}
 	if !preview {
 		if !decodeJSON(w, r, &input) {
@@ -106,9 +107,9 @@ func (s *Server) removeOperation(w http.ResponseWriter, r *http.Request, isConta
 	var result any
 	var err error
 	if preview {
-		result, err = s.application.PreviewRemove(ctx, id, isContainer)
+		result, err = s.application.PreviewRemoveWithOptions(ctx, id, isContainer, r.URL.Query().Get("removeVolumes") == "true")
 	} else {
-		result, err = s.application.Remove(ctx, id, isContainer, input.Confirm, input.Fingerprint)
+		result, err = s.application.RemoveWithOptions(ctx, id, isContainer, input.Confirm, input.Fingerprint, input.RemoveVolumes)
 	}
 	switch {
 	case errors.Is(err, lifecycle.ErrNotFound):

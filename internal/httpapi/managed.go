@@ -100,11 +100,12 @@ func (s *Server) managedOperation(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Operation     string `json:"operation"`
 		RemoveVolumes bool   `json:"removeVolumes"`
+		Fingerprint   string `json:"fingerprint,omitempty"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	job, err := s.application.ComposeOperation(r.Context(), r.PathValue("name"), input.Operation, input.RemoveVolumes)
+	job, err := s.application.ComposeOperationWithPreview(r.Context(), r.PathValue("name"), input.Operation, input.RemoveVolumes, input.Fingerprint)
 	if errors.Is(err, managed.ErrConflict) || errors.Is(err, store.ErrOperationConflict) {
 		writeError(w, http.StatusConflict, err.Error())
 		return

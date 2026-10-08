@@ -77,16 +77,18 @@ These checks run against disposable fixtures, separately from the default source
 docker buildx build --platform linux/amd64 --load -t nox-yard:jobs-smoke .
 python scripts/smoke-jobs.py --image nox-yard:jobs-smoke
 python scripts/smoke-managed.py --image nox-yard:jobs-smoke
+python scripts/smoke-recreate.py --image nox-yard:jobs-smoke
 python scripts/smoke-mcp.py --image nox-yard:jobs-smoke
 ```
 
-The jobs fixture gates changed-image pull/replacement in a derived image, interrupts web/worker containers and checks resource ownership, truthful recovery, no replay and secret-free history. The managed fixture uses a real disposable registry plus a Linux Go runner to verify immutable/unchanged images, cache-only pull, failed pull, unhealthy update/sync rollback, stopped state, source/SQL/file-journal consistency and volume/bind preservation. Its URL loader is injected only inside the test to exercise copy/sync/cancel without publishing fixture files or weakening production public-address checks. Both use random identities and clean up only their own resources. Linux tests, including SQLite self-update restore, should also run on Linux; `go test -race ./internal/store ./internal/application ./internal/jobs ./internal/managed ./internal/selfupdate` checks the persistence/orchestration boundaries when a C compiler is available.
+The jobs fixture gates changed-image pull/replacement in a derived image, interrupts web/worker containers and checks resource ownership, truthful recovery, no replay and secret-free history. The managed fixture uses a real disposable registry plus a Linux Go runner to verify immutable/unchanged images, cache-only pull, failed pull, unhealthy update/sync rollback, stopped state, source/SQL/file-journal consistency and volume/bind preservation. Its URL loader is injected only inside the test to exercise copy/sync/cancel without publishing fixture files or weakening production public-address checks. The recreation fixture verifies standalone/external group replacement/rollback, fixed ports/static networking, anonymous/named volumes, binds, unsupported image volumes and unchanged external source. MCP also tests real external worker/web restart and removal choices/shared-volume protection. Fixtures use random identities and clean up only their resources. Linux tests, including SQLite self-update restore, should run on Linux; `go test -race ./internal/store ./internal/application ./internal/jobs ./internal/managed ./internal/recreate ./internal/selfupdate` checks persistence/orchestration boundaries when a C compiler is available.
 
 For deterministic browser feedback tests, start local Vite at port 5173, then run:
 
 ```sh
 npx --yes --package @playwright/cli playwright-cli -s=history open http://127.0.0.1:5173 --headed
 npx --yes --package @playwright/cli playwright-cli -s=history run-code --filename scripts/smoke-history.cjs
+npx --yes --package @playwright/cli playwright-cli -s=history run-code --filename scripts/smoke-recreate.cjs
 npx --yes --package @playwright/cli playwright-cli -s=history close
 ```
 

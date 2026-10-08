@@ -254,6 +254,11 @@ func isHelper(labels map[string]string) bool {
 	return labels["nox-yard.role"] == "self-update-worker" || labels["nox-yard.role"] == "self-restart-worker" || labels["nox-yard.role"] == "managed-helper" || labels["nox-yard.role"] == "operation-worker"
 }
 
+// Protected is shared by assessment before any cache or runtime mutation.
+func Protected(id string, labels map[string]string) bool {
+	return isSelf(id, labels) || isHelper(labels)
+}
+
 func containerName(item container.Summary) string {
 	if len(item.Names) > 0 {
 		return strings.TrimPrefix(item.Names[0], "/")

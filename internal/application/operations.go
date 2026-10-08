@@ -63,14 +63,18 @@ func (s *Service) Projects(ctx context.Context) (inventory.Snapshot, error) {
 			continue
 		}
 		state := inventory.OperationState(job.Operation)
+		reserved := map[string]bool{}
+		for _, resource := range job.Resources {
+			reserved[resource] = true
+		}
 		for i := range snapshot.Projects {
 			project := &snapshot.Projects[i]
-			if project.ID == job.TargetID {
+			if project.ID == job.TargetID || reserved[project.ID] {
 				project.Operation = state
 			}
 			for j := range project.Containers {
 				item := &project.Containers[j]
-				if project.ID == job.TargetID || "container:"+item.ID == job.TargetID {
+				if project.ID == job.TargetID || "container:"+item.ID == job.TargetID || reserved["container:"+item.ID] {
 					item.Operation = state
 					if state != "" {
 						project.Operation = state

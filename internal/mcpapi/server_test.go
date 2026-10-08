@@ -177,7 +177,7 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Tools) != 28 {
+	if len(list.Tools) != 30 {
 		t.Fatalf("tools=%d", len(list.Tools))
 	}
 	expectedCLIPaths := map[string]string{
@@ -196,6 +196,8 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 		"yard_project_remove_preview":       "project remove preview",
 		"yard_container_remove":             "container remove",
 		"yard_project_remove":               "project remove",
+		"yard_recreate_preview":             "recreate preview",
+		"yard_recreate_submit":              "recreate submit",
 		"yard_compose_source":               "compose source",
 		"yard_compose_preview":              "compose preview",
 		"yard_compose_submit":               "compose submit",
@@ -217,7 +219,7 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 			writes["yard_"+kind+"_"+op] = true
 		}
 	}
-	for _, name := range []string{"yard_compose_submit", "yard_compose_operation", "yard_job_recovery_acknowledge", "yard_projects_settings_set", "yard_self_update_settings", "yard_self_update_check_and_update"} {
+	for _, name := range []string{"yard_recreate_submit", "yard_compose_submit", "yard_compose_operation", "yard_job_recovery_acknowledge", "yard_projects_settings_set", "yard_self_update_settings", "yard_self_update_check_and_update"} {
 		writes[name] = true
 	}
 	for _, tool := range list.Tools {

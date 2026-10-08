@@ -38,6 +38,7 @@ import { NewProjectDrawer } from "./NewProjectDrawer";
 import { useProjects } from "./useProjects";
 import { useOperationHistory } from "./useOperationHistory";
 import { OperationHistory } from "./OperationHistory";
+import { RecreateConfirmation, type RecreateTarget } from "./RecreateConfirmation";
 
 type View =
   | { kind: "loading" }
@@ -431,7 +432,7 @@ function Dashboard({
   );
 }
 
-type RemovalTarget = { kind: "project" | "container"; id: string; name: string };
+type RemovalTarget = { kind: "project" | "container"; id: string; name: string; managedName?: string };
 
 function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: Project; csrfToken: string; onChanged: () => void; onClose: () => void }) {
   const operations = useOperationHistory(project?.id, onChanged);
@@ -451,6 +452,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [removalTarget, setRemovalTarget] = useState<RemovalTarget | null>(null);
+  const [recreateTarget, setRecreateTarget] = useState<RecreateTarget | null>(null);
   useDrawerSwipe(dialogRef, "right", Boolean(project), dismiss);
 
   useEffect(() => {
@@ -568,7 +570,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
       {terminalUnavailable && <p className={styles.terminalUnavailable} role="status">Terminal unavailable: /bin/sh is missing from this {project.containers.length === 1 ? "container" : "project's containers"}.</p>}
       <div ref={contentRef} id={`${tabsID}-${activeTab}-panel`} role="tabpanel" aria-labelledby={`${tabsID}-${activeTab}-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
         {activeTab === "details" ? <>
-        {project.kind === "managed-compose" && <ManagedProjectControls key={`managed:${project.id}`} project={project} csrfToken={csrfToken} onChanged={onChanged} busy={operations.blocked} onAccepted={operations.refresh} />}
+        {project.kind === "managed-compose" && <ManagedProjectControls key={`managed:${project.id}`} project={project} csrfToken={csrfToken} onChanged={onChanged} busy={operations.blocked} onAccepted={operations.refresh} onRemove={() => setRemovalTarget({kind:"project",id:project.id,name:project.name,managedName:project.name})} />}
         {activeContainer && (project.kind === "managed-compose" || project.kind === "external-compose" && project.containers.length > 1) && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}>← Back to project</button>}
         {!activeContainer && <>
           {project.kind === "external-compose" && <LifecycleControls
@@ -581,6 +583,8 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
             removeLabel="Remove project"
             onPull={() => { void runMaintenance("project", project.id); }}
             onRemove={() => setRemovalTarget({ kind: "project", id: project.id, name: project.name })}
+            onUpdate={() => setRecreateTarget({id:project.id,name:project.name,operation:"update"})}
+            onRecreate={() => setRecreateTarget({id:project.id,name:project.name,operation:"recreate"})}
           />}
           <section className={styles.projectOverview} aria-label="Project overview">
             <p className={styles.detailSummary}>
@@ -606,6 +610,8 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
               selfTarget={project.name === "nox-yard" && activeContainer.service === "nox-yard"}
               helperTarget={activeContainer.name.startsWith("nox-yard-update-")}
               onRun={(action) => runAction("container", activeContainer.id, action)}
+              onUpdate={() => setRecreateTarget({id:project.id,name:project.name,operation:"update"})}
+              onRecreate={() => setRecreateTarget({id:project.id,name:project.name,operation:"recreate"})}
               pullLabel={project.kind === "external-compose" && project.containers.length === 1 ? "Pull project image" : "Pull image"}
               removeLabel={project.kind === "external-compose" && project.containers.length === 1 ? "Remove project" : "Remove container"}
               onPull={() => { void runMaintenance(project.kind === "external-compose" && project.containers.length === 1 ? "project" : "container", project.kind === "external-compose" && project.containers.length === 1 ? project.id : activeContainer.id); }}
@@ -630,14 +636,14 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     </div>}
   </dialog>
     <RemoveConfirmation target={removalTarget} csrfToken={csrfToken} onClose={() => setRemovalTarget(null)} onChanged={onChanged} />
+    <RecreateConfirmation target={recreateTarget} csrfToken={csrfToken} onClose={() => setRecreateTarget(null)} onAccepted={() => { operations.refresh(); onChanged(); }} />
   </>;
 }
 
-function ManagedProjectControls({ project, csrfToken, onChanged, busy: historyBusy, onAccepted }: { project: Project; csrfToken: string; onChanged: () => void; busy: boolean; onAccepted: () => void }) {
+function ManagedProjectControls({ project, csrfToken, onChanged, busy: historyBusy, onAccepted, onRemove }: { project: Project; csrfToken: string; onChanged: () => void; busy: boolean; onAccepted: () => void; onRemove: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [confirm, setConfirm] = useState<"stop" | "restart" | "update" | "remove" | null>(null);
-  const [removeVolumes, setRemoveVolumes] = useState(false);
+  const [confirm, setConfirm] = useState<"stop" | "restart" | "update" | null>(null);
   const menuRef = useRef<HTMLDetailsElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmInvoker = useRef<HTMLElement | null>(null);
@@ -653,9 +659,9 @@ function ManagedProjectControls({ project, csrfToken, onChanged, busy: historyBu
     else confirmInvoker.current?.focus();
   }
   const busy = submitting || historyBusy || Boolean(project.operation);
-  async function run(operation: "start" | "stop" | "restart" | "pull" | "update" | "remove") {
+  async function run(operation: "start" | "stop" | "restart" | "pull" | "update") {
     setError(""); setConfirm(null); setSubmitting(true);
-    try { await runManagedOperation(project.name, operation, removeVolumes, csrfToken); onAccepted(); onChanged(); }
+    try { await runManagedOperation(project.name, operation, false, csrfToken); onAccepted(); onChanged(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to start operation."); }
     finally { setSubmitting(false); }
   }
@@ -667,13 +673,12 @@ function ManagedProjectControls({ project, csrfToken, onChanged, busy: historyBu
       <details ref={menuRef} className={styles.maintenanceMenu}><summary className={styles.inspectButton} aria-label="More actions">···</summary><div className={styles.maintenanceOptions}>
         <button type="button" disabled={busy} onClick={() => { if (menuRef.current) menuRef.current.open = false; void run("pull"); }}>Pull images</button>
         <button type="button" disabled={busy} onClick={() => ask("update")}>Update images</button>
-        <button type="button" className={styles.maintenanceRemove} disabled={busy} onClick={() => { setRemoveVolumes(false); ask("remove"); }}>Remove project</button>
+        <button type="button" className={styles.maintenanceRemove} disabled={busy} onClick={() => { if(menuRef.current) menuRef.current.open=false; onRemove(); }}>Remove project</button>
       </div></details>
     </div>
-    {confirm && <div className={styles.actionConfirm} role="group" aria-label={`Confirm ${confirm}`}><p>{confirm === "remove" ? "Remove" : confirm === "update" ? "Update images for" : confirm === "restart" ? "Restart" : "Stop"} <strong>{project.name}</strong>?</p>
+    {confirm && <div className={styles.actionConfirm} role="group" aria-label={`Confirm ${confirm}`}><p>{confirm === "update" ? "Update images for" : confirm === "restart" ? "Restart" : "Stop"} <strong>{project.name}</strong>?</p>
       {confirm === "update" && <p>Uses the saved source. Unchanged images preserve containers. Failed replacements restore the previous version; application data writes and migrations cannot be undone. Back up application data first.</p>}
-      {confirm === "remove" && <label><input type="checkbox" checked={removeVolumes} onChange={(event) => setRemoveVolumes(event.target.checked)} /> Delete project volumes</label>}
-      <div className={styles.actionRow}><button ref={cancelRef} type="button" className={styles.inspectButton} onClick={cancelConfirmation}>Cancel</button><button type="button" className={`${styles.inspectButton} ${confirm === "remove" ? styles.dangerAction : ""}`} disabled={busy} onClick={() => { void run(confirm); }}>Confirm {confirm}</button></div>
+      <div className={styles.actionRow}><button ref={cancelRef} type="button" className={styles.inspectButton} onClick={cancelConfirmation}>Cancel</button><button type="button" className={styles.inspectButton} disabled={busy} onClick={() => { void run(confirm); }}>Confirm {confirm}</button></div>
     </div>}
     {error && <p className={styles.inventoryError} role="alert">{error}</p>}
   </div>;
@@ -775,7 +780,7 @@ function LogsPanel({ project, preferredContainerID, onSelectContainer }: {
   </section>;
 }
 
-function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget, onRun, pullLabel, removeLabel, onPull, onRemove, hideActions = false }: {
+function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget, onRun, pullLabel, removeLabel, onPull, onRemove, onUpdate, onRecreate, hideActions = false }: {
   container: Container;
   csrfToken: string;
   busy: boolean;
@@ -786,6 +791,8 @@ function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget
   removeLabel: string;
   onPull: () => void;
   onRemove: () => void;
+  onUpdate?: () => void;
+  onRecreate?: () => void;
   hideActions?: boolean;
 }) {
   const revealController = useRef<AbortController | null>(null);
@@ -841,7 +848,7 @@ function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget
   }
 
   return <section className={styles.containerDetails} aria-label={`${container.service || container.name} details`}>
-    {!hideActions && <LifecycleControls name={container.service || container.name} state={container.state} selfTarget={selfTarget} helperTarget={helperTarget} busy={busy} onRun={onRun} pullLabel={pullLabel} removeLabel={removeLabel} onPull={onPull} onRemove={onRemove} />}
+    {!hideActions && <LifecycleControls name={container.service || container.name} state={container.state} selfTarget={selfTarget} helperTarget={helperTarget} busy={busy} onRun={onRun} pullLabel={pullLabel} removeLabel={removeLabel} onPull={onPull} onRemove={onRemove} onUpdate={onUpdate} onRecreate={onRecreate} />}
     <ContainerRow container={container} />
     {loading && <p className={styles.detailSummary} role="status">Loading container details…</p>}
     {detailError && <p className={styles.inventoryError} role="alert">{detailError}</p>}
@@ -855,7 +862,7 @@ function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget
   </section>;
 }
 
-function LifecycleControls({ name, state, selfTarget = false, helperTarget = false, busy, onRun, pullLabel, removeLabel, onPull, onRemove }: {
+function LifecycleControls({ name, state, selfTarget = false, helperTarget = false, busy, onRun, pullLabel, removeLabel, onPull, onRemove, onUpdate, onRecreate }: {
   name: string;
   state: string;
   selfTarget?: boolean;
@@ -866,6 +873,8 @@ function LifecycleControls({ name, state, selfTarget = false, helperTarget = fal
   removeLabel: string;
   onPull: () => void;
   onRemove: () => void;
+  onUpdate?: () => void;
+  onRecreate?: () => void;
 }) {
   const [confirming, setConfirming] = useState<"stop" | "restart" | null>(null);
   const running = state === "running" || state === "partial";
@@ -875,7 +884,7 @@ function LifecycleControls({ name, state, selfTarget = false, helperTarget = fal
       <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Start ${name}`} title={`Start ${name}`} disabled={busy || state === "running"} onClick={() => { void onRun("start"); }}><i className="ph-fill ph-play" aria-hidden="true" /></button>
       <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Stop ${name}`} title={`Stop ${name}`} disabled={busy || !running || selfTarget || helperTarget} onClick={() => setConfirming("stop")}><i className="ph-fill ph-stop" aria-hidden="true" /></button>
       <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Restart ${name}`} title={`Restart ${name}`} disabled={busy || !running || helperTarget} onClick={() => setConfirming("restart")}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
-      <MaintenanceMenu busy={busy} pullLabel={pullLabel} removeLabel={removeLabel} canPull={!helperTarget && !selfTarget} canRemove={!helperTarget && !selfTarget} onPull={onPull} onRemove={onRemove} />
+      <MaintenanceMenu busy={busy} pullLabel={pullLabel} removeLabel={removeLabel} canPull={!helperTarget && !selfTarget} canRemove={!helperTarget && !selfTarget} onPull={onPull} onRemove={onRemove} onUpdate={onUpdate} onRecreate={onRecreate} />
     </div>
     {selfTarget && <p className={styles.actionHint}>NoX Yard cannot stop or remove itself. Use Settings for self-update; restart uses a temporary helper.</p>}
     {helperTarget && <p className={styles.actionHint}>Maintenance helpers are managed automatically.</p>}
@@ -889,7 +898,7 @@ function LifecycleControls({ name, state, selfTarget = false, helperTarget = fal
   </div>;
 }
 
-function MaintenanceMenu({ busy, pullLabel, removeLabel, canPull, canRemove, onPull, onRemove }: {
+function MaintenanceMenu({ busy, pullLabel, removeLabel, canPull, canRemove, onPull, onRemove, onUpdate, onRecreate }: {
   busy: boolean;
   pullLabel: string;
   removeLabel: string;
@@ -897,6 +906,8 @@ function MaintenanceMenu({ busy, pullLabel, removeLabel, canPull, canRemove, onP
   canRemove: boolean;
   onPull: () => void;
   onRemove: () => void;
+  onUpdate?: () => void;
+  onRecreate?: () => void;
 }) {
   const ref = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
@@ -917,6 +928,8 @@ function MaintenanceMenu({ busy, pullLabel, removeLabel, canPull, canRemove, onP
   }}>
     <summary className={styles.inspectButton} aria-label="More actions" aria-disabled={busy} onClick={(event) => { if (busy) event.preventDefault(); }} title="More actions">···</summary>
     <div className={styles.maintenanceOptions}>
+      {onUpdate && <button type="button" disabled={busy || !canPull} onClick={() => { if(ref.current) ref.current.open=false; onUpdate(); }}>Update project images</button>}
+      {onRecreate && <button type="button" disabled={busy || !canPull} onClick={() => { if(ref.current) ref.current.open=false; onRecreate(); }}>Recreate project containers</button>}
       <button type="button" disabled={busy || !canPull} onClick={() => { if (ref.current) ref.current.open = false; onPull(); }}>{pullLabel}</button>
       <button type="button" className={styles.maintenanceRemove} disabled={busy || !canRemove} onClick={() => { if (ref.current) ref.current.open = false; onRemove(); }}>{removeLabel}</button>
     </div>
@@ -930,18 +943,27 @@ function RemoveConfirmation({ target, csrfToken, onClose, onChanged }: {
   onChanged: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const invoker = useRef<HTMLElement | null>(null);
   const titleID = useId();
   const [plan, setPlan] = useState<RemovalPlan | null>(null);
   const [report, setReport] = useState<RemovalReport | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [removeVolumes, setRemoveVolumes] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const volumeChoiceID = useId();
+  useEffect(() => { setRemoveVolumes(false); }, [target]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (target && !dialog.open) dialog.showModal();
-    if (!target && dialog.open) dialog.close();
+    if (target && !dialog.open) {
+      const active=document.activeElement;
+      invoker.current=active instanceof HTMLElement ? active.closest("details")?.querySelector("summary") ?? active : null;
+      dialog.showModal();
+    }
+    if (!target) { if(dialog.open) dialog.close(); invoker.current?.focus(); }
   }, [target]);
 
   useEffect(() => {
@@ -951,21 +973,25 @@ function RemoveConfirmation({ target, csrfToken, onClose, onChanged }: {
     setReport(null);
     setError("");
     setLoading(true);
-    const load = target.kind === "project" ? previewRemoveProject(target.id) : previewRemoveContainer(target.id);
+    const load = target.kind === "project" ? previewRemoveProject(target.id, removeVolumes) : previewRemoveContainer(target.id, removeVolumes);
     void load.then((result) => { if (current) setPlan(result); })
       .catch((cause: unknown) => { if (current) setError(cause instanceof Error ? cause.message : "Unable to inspect Docker resources."); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, [target]);
+  }, [target, removeVolumes, revision]);
 
   async function confirm() {
     if (!target || !plan || removing) return;
     setRemoving(true);
     setError("");
     try {
+      if (target.managedName) {
+        await runManagedOperation(target.managedName,"remove",removeVolumes,csrfToken,plan.fingerprint);
+        onChanged(); onClose(); return;
+      }
       const result = target.kind === "project"
-        ? await removeProject(target.id, plan.fingerprint, csrfToken)
-        : await removeContainer(target.id, plan.fingerprint, csrfToken);
+        ? await removeProject(target.id, plan.fingerprint, csrfToken, removeVolumes)
+        : await removeContainer(target.id, plan.fingerprint, csrfToken, removeVolumes);
       setReport(result);
       onChanged();
     } catch (cause) {
@@ -987,16 +1013,18 @@ function RemoveConfirmation({ target, csrfToken, onClose, onChanged }: {
       <p><strong>{target.name}</strong></p>
       {loading && <p role="status">Inspecting containers, volumes, networks, and images…</p>}
       {error && <p className={styles.inventoryError} role="alert">{error}</p>}
+      {!report && <label htmlFor={volumeChoiceID}><input id={volumeChoiceID} type="checkbox" checked={removeVolumes} disabled={removing} onChange={(event) => { setPlan(null); setRemoveVolumes(event.target.checked); }} /> Delete exclusive project volumes</label>}
       {plan && !report && <>
         <p>NoX Yard will stop and remove the selected containers, then attempt to delete the volumes, networks, and images marked "will remove" below. Items marked "will keep" remain on the host for the stated reason.</p>
         <RemovalItems items={plan.items.map((item) => ({ ...item, status: item.action === "remove" ? "will remove" : "will keep" }))} />
       </>}
       {report && <>
-        <p role="status">{failed || retained ? "Removal incomplete." : "Removal complete."} {removed} removed · {retained} retained · {failed} failed.</p>
+        <p role="status">{failed ? "Removal completed with failures." : "Selected resources removed."} {removed} removed · {retained} retained · {failed} failed.</p>
         <RemovalItems items={report.items} />
       </>}
       <div className={styles.confirmActions}>
         <button type="button" className={styles.inspectButton} autoFocus disabled={removing} onClick={onClose}>{report ? "Close report" : "Cancel"}</button>
+        {error && !report && <button type="button" className={styles.inspectButton} disabled={loading || removing} onClick={() => setRevision((value) => value + 1)}>Review again</button>}
         {plan && !report && <button type="button" className={`${styles.inspectButton} ${styles.dangerAction}`} disabled={loading || removing} onClick={() => { void confirm(); }}>{removing ? "Removing…" : `Remove ${target.kind}`}</button>}
       </div>
     </div>}

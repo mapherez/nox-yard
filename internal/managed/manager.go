@@ -16,6 +16,7 @@ import (
 
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/jobs"
+	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 )
@@ -373,6 +374,12 @@ func (m *Manager) Job(id string) (store.ManagedJob, bool, error) {
 }
 
 func (m *Manager) Operation(name, operation string, removeVolumes bool) (store.ManagedJob, error) {
+	return m.operation(name, operation, removeVolumes, "")
+}
+func (m *Manager) OperationWithPreview(name, operation string, removeVolumes bool, removalFingerprint string) (store.ManagedJob, error) {
+	return m.operation(name, operation, removeVolumes, removalFingerprint)
+}
+func (m *Manager) operation(name, operation string, removeVolumes bool, removalFingerprint string) (store.ManagedJob, error) {
 	if name == "nox-yard" {
 		return store.ManagedJob{}, fmt.Errorf("%w: NoX Yard cannot manage itself", ErrConflict)
 	}
@@ -389,7 +396,26 @@ func (m *Manager) Operation(name, operation string, removeVolumes bool) (store.M
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return m.enqueue(ctx, project, operation, workerPayload{Project: project, RemoveVolumes: removeVolumes})
+	if operation == "remove" {
+		engine, err := lifecycle.New()
+		if err != nil {
+			return store.Job{}, err
+		}
+		defer engine.Close()
+		engine.SetStore(m.data)
+		preview, err := engine.PreviewRemoval(ctx, "compose:"+name, removeVolumes)
+		if err != nil {
+			return store.Job{}, err
+		}
+		if removalFingerprint != "" && removalFingerprint != preview.Fingerprint {
+			return store.Job{}, fmt.Errorf("%w: removal preview changed; review again", ErrConflict)
+		}
+		// Older adapters omit a reviewed fingerprint. Preserve that input shape
+		// while still applying the same exclusive-resource assessment and fresh
+		// worker check instead of Compose down --volumes.
+		removalFingerprint = preview.Fingerprint
+	}
+	return m.enqueue(ctx, project, operation, workerPayload{Project: project, RemoveVolumes: removeVolumes, RemovalFingerprint: removalFingerprint})
 }
 
 func fingerprint(data []byte) string {

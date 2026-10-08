@@ -33,14 +33,16 @@ IDs must be copied from inventory: containers use full 64-character lowercase he
 | `yard_project_action` | `project action` | `id`, `action`: `start`, `stop`, `restart`. Shared Engine lifecycle. |
 | `yard_container_pull` | `container pull` | `id`. Pull configured images without recreating containers. |
 | `yard_project_pull` | `project pull` | `id`. Pull configured images without recreating containers. |
-| `yard_container_remove_preview` | `container remove preview` | `id`. Current removal plan and fingerprint. |
-| `yard_project_remove_preview` | `project remove preview` | `id`. Current removal plan and fingerprint. |
-| `yard_container_remove` | `container remove` | `id`, `confirm:true`, `fingerprint`. Revalidate and execute existing removal rules. |
-| `yard_project_remove` | `project remove` | `id`, `confirm:true`, `fingerprint`. Revalidate and execute existing removal rules. |
+| `yard_recreate_preview` | `recreate preview` | `id`, `operation`: `update` or `recreate`. Assess standalone/complete external Compose, returning secret-safe configuration/order and fingerprint. Read-only. |
+| `yard_recreate_submit` | `recreate submit` | Same fields plus `confirm:true`, `fingerprint`. Independent replacement job, unchanged detection, per-container results and rollback. |
+| `yard_container_remove_preview` | `container remove preview` | `id`, optional `removeVolumes` (default false). Current removal plan and choice fingerprint. |
+| `yard_project_remove_preview` | `project remove preview` | `id`, optional `removeVolumes` (default false). Current removal plan and choice fingerprint; supports empty saved managed projects. |
+| `yard_container_remove` | `container remove` | `id`, `confirm:true`, `fingerprint`, optional `removeVolumes` (default false). Revalidate and execute selected exclusive-resource rules. |
+| `yard_project_remove` | `project remove` | Same fields. Runtime-only removal; use Compose operation to delete managed metadata. |
 | `yard_compose_source` | `compose source` | Existing source fields: `kind`, optional `url`, `filename`, `yaml`. Inspect source and required variables/env files. |
 | `yard_compose_preview` | `compose preview` | Managed request: `name`, `source`, `variables`, `envFiles`, `mode`, optional `fingerprint` and adoption-only `projectDir`. Modes: `new`, `copy`, `sync`, `adopt`. Returns preview/fingerprint and inferred `adoptionDir` when available. |
 | `yard_compose_submit` | `compose submit` | Same managed request. Submission requires the current preview fingerprint and returns a job. Adoption resolves/rechecks the original directory and runtime/files before saving ownership; it does not recreate containers. |
-| `yard_compose_operation` | `compose operation` | `name`, `operation`, `removeVolumes`. Operations: `start`, `stop`, `restart`, `pull`, `update`, `remove`. Returns a job. |
+| `yard_compose_operation` | `compose operation` | `name`, `operation`, existing boolean `removeVolumes` (use false to retain), optional removal `fingerprint` from `yard_project_remove_preview`. Operations: `start`, `stop`, `restart`, `pull`, `update`, `remove`. Returns a job. Removal without a fingerprint retains the input shape but is assessed at submission and rechecked by the worker; shared volumes remain protected. |
 | `yard_compose_job` | `compose job` | `id`. Persisted job status. |
 | `yard_job` | `job get` | `id`. Typed operation status, stages, images, recovery and cleanup fields. |
 | `yard_job_history` | `job history` | `target`: `compose:NAME` or `container:FULL_ID`. Latest 30 contextual operations. |
@@ -59,7 +61,7 @@ All tools explicitly declare ReadOnly, Destructive and Idempotent through NoX MC
 
 The Yard configures the NoX MCP runtime with a global **60-second timeout**, 32 concurrent requests and an 8 MiB payload limit. Existing Compose source limits still apply. Neither the server's 130-second WriteTimeout nor the NoX MCP library's default timeout is changed.
 
-The catalog contains 28 tools. Managed Compose and Yard restart use independent durable workers; self-update retains its dedicated worker. Query job/history/status tools rather than treating an accepted response as completion. Engine pulls remain synchronous and can exceed the MCP timeout. Interrupted Engine responses persist recovery-required outcomes and hold resource reservations until reviewed. There are no automatic mutation retries. See [Durable operations](Operation-Jobs.md) for the additive fields and recovery procedure.
+The catalog contains 30 tools. Managed Compose, external update/recreate and Yard restart use independent durable workers; self-update retains its dedicated worker. Query job/history/status tools rather than treating an accepted response as completion. Engine pulls remain synchronous and can exceed the MCP timeout. Interrupted Engine responses persist recovery-required outcomes and hold resource reservations until reviewed. There are no automatic mutation retries. See [Durable operations](Operation-Jobs.md) for the additive fields and recovery procedure, and [External updates](External-Updates.md) for configuration limits and removal compatibility. Omitted volume choice now retains volumes, correcting the former Engine default.
 
 Container log snapshots share Docker opening and stdout/stderr/TTY decoding with browser SSE. The browser retains its 200-record initial tail and continuous stream. Long lines retain the existing 16 KiB segmentation, and snapshots keep at most 20 decoded records.
 

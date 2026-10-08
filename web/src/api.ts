@@ -81,7 +81,15 @@ export type ManagedPreview = {
   mode: ManagedRequest["mode"];
   fingerprint: string;
 };
-export type ImageIdentity = { service?: string; containerID?: string; imageID: string; platform?: string; startedAt?: string };
+export type ImageIdentity = { service?: string; containerID?: string; imageID: string; platform?: string; startedAt?: string; previousContainerID?: string; outcome?: string; state?: string };
+
+export type RecreatePreview = { fingerprint: string; items: { id: string; name: string; service?: string; image: string; imageID: string; running: boolean; preserved: string[]; environment: string[] }[]; order: string[] };
+export function previewRecreate(id: string, operation: "update" | "recreate", csrfToken: string): Promise<RecreatePreview> {
+  return request<RecreatePreview>("/api/recreate/preview", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ id, operation }) });
+}
+export function submitRecreate(id: string, operation: "update" | "recreate", fingerprint: string, csrfToken: string): Promise<ManagedJob> {
+  return trackInventoryAction(id, operation, () => request<ManagedJob>("/api/recreate/submit", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ id, operation, fingerprint, confirm: true }) }));
+}
 export type ManagedJob = { id: string; projectName: string; targetID: string; domain: string; operation: string; status: "running" | "succeeded" | "failed"; stage: string; outcome?: string; error?: string; cleanupError?: string; rollback?: string; createdAt: number; startedAt?: number; completedAt?: number; updatedAt: number; deadlineAt?: number; workerID?: string; sourceImages?: ImageIdentity[]; targetImages?: ImageIdentity[] };
 
 export type LifecycleAction = "start" | "stop" | "restart";
@@ -221,8 +229,8 @@ export function acknowledgeJobRecovery(job: ManagedJob, csrfToken: string): Prom
   return request<ManagedJob>(`/api/jobs/${encodeURIComponent(job.id)}/recovery`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ confirm: true, updatedAt: job.updatedAt }) });
 }
 
-export function runManagedOperation(name: string, operation: "start" | "stop" | "restart" | "pull" | "update" | "remove", removeVolumes: boolean, csrfToken: string): Promise<ManagedJob> {
-  return trackInventoryAction(`compose:${name}`, operation, () => request<ManagedJob>(`/api/managed/projects/${encodeURIComponent(name)}/operations`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ operation, removeVolumes }) }));
+export function runManagedOperation(name: string, operation: "start" | "stop" | "restart" | "pull" | "update" | "remove", removeVolumes: boolean, csrfToken: string, fingerprint?: string): Promise<ManagedJob> {
+  return trackInventoryAction(`compose:${name}`, operation, () => request<ManagedJob>(`/api/managed/projects/${encodeURIComponent(name)}/operations`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ operation, removeVolumes, fingerprint }) }));
 }
 
 export function getContainerInspection(id: string, signal?: AbortSignal): Promise<ContainerInspection> {
@@ -263,27 +271,27 @@ export function pullProjectImages(id: string, csrfToken: string): Promise<Mainte
   });
 }
 
-export function previewRemoveContainer(id: string): Promise<RemovalPlan> {
-  return request<RemovalPlan>(`/api/containers/${encodeURIComponent(id)}/remove/preview`);
+export function previewRemoveContainer(id: string, removeVolumes = false): Promise<RemovalPlan> {
+  return request<RemovalPlan>(`/api/containers/${encodeURIComponent(id)}/remove/preview?removeVolumes=${removeVolumes}`);
 }
 
-export function previewRemoveProject(id: string): Promise<RemovalPlan> {
-  return request<RemovalPlan>(`/api/projects/${encodeURIComponent(id)}/remove/preview`);
+export function previewRemoveProject(id: string, removeVolumes = false): Promise<RemovalPlan> {
+  return request<RemovalPlan>(`/api/projects/${encodeURIComponent(id)}/remove/preview?removeVolumes=${removeVolumes}`);
 }
 
-export function removeContainer(id: string, fingerprint: string, csrfToken: string): Promise<RemovalReport> {
+export function removeContainer(id: string, fingerprint: string, csrfToken: string, removeVolumes = false): Promise<RemovalReport> {
   return trackInventoryAction(`container:${id}`, "remove", () => request<RemovalReport>(`/api/containers/${encodeURIComponent(id)}/remove`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ confirm: true, fingerprint }),
+    body: JSON.stringify({ confirm: true, fingerprint, removeVolumes }),
   }));
 }
 
-export function removeProject(id: string, fingerprint: string, csrfToken: string): Promise<RemovalReport> {
+export function removeProject(id: string, fingerprint: string, csrfToken: string, removeVolumes = false): Promise<RemovalReport> {
   return trackInventoryAction(id, "remove", () => request<RemovalReport>(`/api/projects/${encodeURIComponent(id)}/remove`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ confirm: true, fingerprint }),
+    body: JSON.stringify({ confirm: true, fingerprint, removeVolumes }),
   }));
 }
 

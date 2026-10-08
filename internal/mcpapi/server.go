@@ -13,6 +13,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/application"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
+	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 )
@@ -43,6 +44,8 @@ var cliPaths = map[string]string{
 	"yard_project_remove_preview":       "project remove preview",
 	"yard_container_remove":             "container remove",
 	"yard_project_remove":               "project remove",
+	"yard_recreate_preview":             "recreate preview",
+	"yard_recreate_submit":              "recreate submit",
 	"yard_compose_source":               "compose source",
 	"yard_compose_preview":              "compose preview",
 	"yard_compose_submit":               "compose submit",
@@ -140,14 +143,21 @@ type actionInput struct {
 	Action lifecycle.Action `json:"action"`
 }
 type removalInput struct {
-	ID          string `json:"id"`
-	Confirm     bool   `json:"confirm"`
-	Fingerprint string `json:"fingerprint"`
+	ID            string `json:"id"`
+	Confirm       bool   `json:"confirm"`
+	Fingerprint   string `json:"fingerprint"`
+	RemoveVolumes bool   `json:"removeVolumes,omitempty"`
+}
+
+type removalPreviewInput struct {
+	ID            string `json:"id"`
+	RemoveVolumes bool   `json:"removeVolumes,omitempty"`
 }
 type composeOperation struct {
 	Name          string `json:"name"`
 	Operation     string `json:"operation"`
 	RemoveVolumes bool   `json:"removeVolumes"`
+	Fingerprint   string `json:"fingerprint,omitempty"`
 }
 type settingsInput struct {
 	ProjectsBase string `json:"projectsBase"`
@@ -261,17 +271,17 @@ func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 			}
 			return out, nil
 		})
-		register(b, "yard_"+kind+"_remove_preview", "Preview "+kind+" removal", "Read the current removal plan and fingerprint. This call does not remove resources.", read, func(ctx context.Context, in targetInput) (lifecycle.RemovalPlan, error) {
+		register(b, "yard_"+kind+"_remove_preview", "Preview "+kind+" removal", "Read the current removal plan and fingerprint. removeVolumes defaults to false; only selected exclusive volumes are eligible. This call does not remove resources.", read, func(ctx context.Context, in removalPreviewInput) (lifecycle.RemovalPlan, error) {
 			if err := target(in.ID, container); err != nil {
 				return lifecycle.RemovalPlan{}, err
 			}
-			return app.PreviewRemove(ctx, in.ID, container)
+			return app.PreviewRemoveWithOptions(ctx, in.ID, container, in.RemoveVolumes)
 		})
 		register(b, "yard_"+kind+"_remove", "Remove "+kind, "Remove resources using a confirmed current removal preview and fingerprint. Existing protection and changed-plan checks apply; shared resources and bind data retain their existing treatment.", write, func(ctx context.Context, in removalInput) (lifecycle.RemovalReport, error) {
 			if err := target(in.ID, container); err != nil {
 				return lifecycle.RemovalReport{}, err
 			}
-			out, err := app.Remove(ctx, in.ID, container, in.Confirm, in.Fingerprint)
+			out, err := app.RemoveWithOptions(ctx, in.ID, container, in.Confirm, in.Fingerprint, in.RemoveVolumes)
 			if err != nil {
 				_, p := application.ClassifyError(err, true)
 				return out, toolError(p, out)
@@ -284,11 +294,13 @@ func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 			return out, nil
 		})
 	}
+	register(b, "yard_recreate_preview", "Preview external update/recreate", "Assess a standalone or complete external Compose target and return a secret-safe fingerprint. operation update pulls latest images when submitted; recreate preserves current images. No containers or cache are changed by preview.", read, app.RecreatePreview)
+	register(b, "yard_recreate_submit", "Submit external update/recreate", "Submit a confirmed current preview. Uses an independent durable worker, retains originals until verification and restores originals on bounded failure. Returns a job; read yard_job/history for per-container outcomes. Runtime rollback does not undo shared data writes or migrations.", write, func(ctx context.Context, in recreate.Request) (store.Job, error) { return app.RecreateSubmit(ctx, in) })
 	register(b, "yard_compose_source", "Prepare Compose source", "Read and inspect a pasted, uploaded or public HTTPS Compose source, including interpolation variables and environment file requirements.", read, app.PrepareSource)
 	register(b, "yard_compose_preview", "Preview Compose project", "Validate the existing new, copy, sync or adopt request and return its preview/fingerprint. No deployment is submitted.", read, app.ComposePreview)
 	register(b, "yard_compose_submit", "Submit Compose project", "Submit a previously reviewed Compose request with its current fingerprint. May create, synchronize or adopt a project. Returns a job; query yard_compose_job for completion.", write, app.ComposeSubmit)
-	register(b, "yard_compose_operation", "Run Compose operation", "Submit start, stop, restart, pull, update or remove for a stored managed project. removeVolumes controls existing Compose volume removal. Returns a job, not completed work.", write, func(ctx context.Context, in composeOperation) (store.ManagedJob, error) {
-		return app.ComposeOperation(ctx, in.Name, in.Operation, in.RemoveVolumes)
+	register(b, "yard_compose_operation", "Run Compose operation", "Submit start, stop, restart, pull, update or remove for a stored managed project. Removal defaults to retaining volumes; removeVolumes true only permits exclusive identifiable resources. Supply a current yard_project_remove_preview fingerprint for reviewed removal. Older requests without it are assessed at submission and rechecked by the worker. Returns a job, not completed work.", write, func(ctx context.Context, in composeOperation) (store.ManagedJob, error) {
+		return app.ComposeOperationWithPreview(ctx, in.Name, in.Operation, in.RemoveVolumes, in.Fingerprint)
 	})
 	register(b, "yard_compose_job", "Compose job status", "Read the persisted state of an accepted Compose job.", read, func(ctx context.Context, in targetInput) (store.ManagedJob, error) {
 		job, found, err := app.ComposeJob(ctx, in.ID)

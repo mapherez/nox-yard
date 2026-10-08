@@ -33,7 +33,7 @@ export function OperationHistory({ history, error, loading, csrfToken, onRefresh
     {error && <p className={styles.inventoryError} role="alert">{error} <button type="button" className={styles.inspectButton} onClick={onRefresh}>Retry</button></p>}
     {recovery && <div className={styles.actionConfirm}>
       <p>{recovery.error}</p>
-      <p>Acknowledgement releases the reservation so you can retry. It does not restore or remove resources.</p>
+      <p>Acknowledgement releases the reservation so you can retry. It does not restore or remove application containers/files. Temporary rollback image references may be cleaned up.</p>
       <label htmlFor={`${heading}-review`}><input id={`${heading}-review`} type="checkbox" checked={reviewed === recovery.id} onChange={event => setReviewed(event.target.checked ? recovery.id : null)} /> I inspected the target and retained resources on the host.</label>
       <button type="button" className={styles.inspectButton} disabled={busy || loading || Boolean(error) || reviewed !== recovery.id} onClick={() => { void acknowledge(recovery); }}>Acknowledge recovery</button>
     </div>}
@@ -45,6 +45,9 @@ export function OperationHistory({ history, error, loading, csrfToken, onRefresh
         {job.error && <p>{job.error}</p>}
         {job.rollback && <p>Rollback: {job.rollback.replaceAll("_", " ")}</p>}
         {job.cleanupError && <p>Cleanup: {job.cleanupError}</p>}
+        {job.targetImages?.some(item => item.previousContainerID) && <ul aria-label="Container outcomes">{job.targetImages.map(item => <li key={item.previousContainerID || item.containerID}>
+          <code>{item.service || item.previousContainerID?.slice(0, 12)} → {item.containerID?.slice(0, 12)}</code> · {item.outcome?.replaceAll("_", " ")} · {item.state}
+        </li>)}</ul>}
       </li>)}
     </ol></details>}
   </section>;

@@ -20,6 +20,9 @@ func targetResources(ctx context.Context, target string) ([]string, error) {
 			return nil, err
 		}
 		if config := inspected.Container.Config; config != nil {
+			if root := config.Labels["nox-yard.target"]; strings.HasPrefix(root, "container:") && len(root) == 74 {
+				resources = append(resources, root)
+			}
 			if name := config.Labels["com.docker.compose.project"]; name != "" {
 				resources = append(resources, "compose:"+name)
 			}

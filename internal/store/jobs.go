@@ -16,11 +16,58 @@ var ErrOperationConflict = errors.New("target has an active operation or require
 var ErrJobChanged = errors.New("job ownership or recovery state changed")
 
 type ImageIdentity struct {
-	Service     string `json:"service,omitempty"`
-	ContainerID string `json:"containerID,omitempty"`
-	ImageID     string `json:"imageID"`
-	Platform    string `json:"platform,omitempty"`
-	StartedAt   string `json:"startedAt,omitempty"`
+	Service             string `json:"service,omitempty"`
+	ContainerID         string `json:"containerID,omitempty"`
+	ImageID             string `json:"imageID"`
+	Platform            string `json:"platform,omitempty"`
+	StartedAt           string `json:"startedAt,omitempty"`
+	PreviousContainerID string `json:"previousContainerID,omitempty"`
+	Outcome             string `json:"outcome,omitempty"`
+	State               string `json:"state,omitempty"`
+}
+
+// RetargetJob preserves old reservations/history while reserving replacements.
+func (s *Store) RetargetJob(id, owner, target string, resources []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	job, err := scanJob(tx.QueryRow("SELECT "+jobColumns+" FROM operation_jobs WHERE id=? AND owner=? AND status='running'", id, owner))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrJobChanged
+		}
+		return err
+	}
+	seen := map[string]bool{}
+	for _, key := range append(append(job.Resources, resources...), target) {
+		if key != "" {
+			seen[key] = true
+		}
+	}
+	keys := []string{}
+	for key := range seen {
+		var holder string
+		err := tx.QueryRow("SELECT job_id FROM operation_locks WHERE resource=?", key).Scan(&holder)
+		if err == nil && holder != id {
+			return ErrOperationConflict
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if _, err := tx.Exec("INSERT OR IGNORE INTO operation_locks(resource,job_id) VALUES (?,?)", key, id); err != nil {
+			return err
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	encoded, _ := json.Marshal(keys)
+	result, err := tx.Exec("UPDATE operation_jobs SET target_id=?,resources_json=?,updated_at=? WHERE id=? AND owner=? AND status='running'", target, string(encoded), time.Now().Unix(), id, owner)
+	if err := changed(result, err); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Job is the additive public operation contract. Payload and execution ownership
@@ -179,7 +226,16 @@ func (s *Store) Job(id string) (Job, bool, error) {
 }
 
 func (s *Store) Jobs(ctx context.Context, target string, active bool) ([]Job, error) {
-	query := "SELECT " + jobColumns + " FROM operation_jobs WHERE (? = '' OR target_id = ? OR EXISTS (SELECT 1 FROM json_each(resources_json) WHERE value = ?))"
+	// Follow only standalone Engine replacement identities, never arbitrary
+	// shared resources or Compose membership. This keeps earlier history visible
+	// after a second replacement, including when Docker is disconnected.
+	query := `WITH RECURSIVE target_aliases(value) AS (
+SELECT ? UNION
+SELECT related.value FROM target_aliases a
+JOIN operation_jobs j ON j.domain='engine' AND j.operation IN ('update','recreate') AND substr(j.target_id,1,10)='container:'
+JOIN json_each(j.resources_json) matched ON matched.value=a.value
+JOIN json_each(j.resources_json) related ON substr(related.value,1,10)='container:'
+) SELECT ` + jobColumns + ` FROM operation_jobs WHERE (? = '' OR target_id IN (SELECT value FROM target_aliases) OR EXISTS (SELECT 1 FROM json_each(resources_json) WHERE value IN (SELECT value FROM target_aliases)))`
 	if active {
 		query += " AND (status = 'running' OR outcome = 'recovery_required')"
 	}
@@ -187,7 +243,7 @@ func (s *Store) Jobs(ctx context.Context, target string, active bool) ([]Job, er
 	if !active {
 		query += " LIMIT 30"
 	}
-	rows, err := s.db.QueryContext(ctx, query, target, target, target)
+	rows, err := s.db.QueryContext(ctx, query, target, target)
 	if err != nil {
 		return nil, err
 	}
@@ -288,8 +344,9 @@ func (s *Store) WorkersForCleanup(ctx context.Context) ([]Job, error) {
 	}
 	return result, rows.Err()
 }
-func (s *Store) WorkerCleaned(id string) error {
-	_, err := s.db.Exec("UPDATE operation_jobs SET worker_cleaned_at=?,cleanup_error='' WHERE id=?", time.Now().Unix(), id)
+func (s *Store) WorkerCleaned(id string, clear ...bool) error {
+	clearError := len(clear) == 0 || clear[0]
+	_, err := s.db.Exec("UPDATE operation_jobs SET worker_cleaned_at=?,cleanup_error=CASE WHEN ? THEN '' ELSE cleanup_error END WHERE id=?", time.Now().Unix(), clearError, id)
 	return err
 }
 func (s *Store) AcknowledgeRecovery(id string, updatedAt int64) error {
