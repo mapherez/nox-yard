@@ -104,7 +104,7 @@ func TestMetricsExpireAndLifecycleInvalidatesSamples(t *testing.T) {
 }
 
 func TestLifecycleDiscardsInflightMetricsAndInspection(t *testing.T) {
-	for _, kind := range []string{"stats", "inspect"} {
+	for _, kind := range []string{"stats", "inspect", "uptime"} {
 		t.Run(kind, func(t *testing.T) {
 			entered, release := make(chan struct{}), make(chan struct{})
 			reader := dockerTestReader(t, func(w http.ResponseWriter, r *http.Request) {
@@ -131,8 +131,10 @@ func TestLifecycleDiscardsInflightMetricsAndInspection(t *testing.T) {
 				defer close(done)
 				if kind == "stats" {
 					reader.collectMetrics(ctx)
-				} else {
+				} else if kind == "inspect" {
 					_, _ = reader.InspectContainer(ctx, "a", false)
+				} else {
+					reader.collectUptimes(ctx, uptimeBatch{ids: []string{"a"}}, func(Change) {})
 				}
 			}()
 			select {
@@ -147,6 +149,79 @@ func TestLifecycleDiscardsInflightMetricsAndInspection(t *testing.T) {
 				t.Fatal("response predating destroy restored stale data")
 			}
 		})
+	}
+}
+
+func TestColdUptimeBackfillDoesNotWaitForStatsAndIsCached(t *testing.T) {
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	var inspections atomic.Int32
+	started := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339Nano)
+	reader := dockerTestReader(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/containers/json"):
+			_, _ = fmt.Fprint(w, `[{"Id":"a","State":"running"}]`)
+		case strings.HasSuffix(r.URL.Path, "/a/json"):
+			inspections.Add(1)
+			_, _ = fmt.Fprintf(w, `{"Id":"a","State":{"Running":true,"StartedAt":%q}}`, started)
+		case strings.HasSuffix(r.URL.Path, "/stats"):
+			select {
+			case entered <- struct{}{}:
+			default:
+			}
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+			_, _ = fmt.Fprint(w, `{"memory_stats":{"usage":1000}}`)
+		default:
+			t.Errorf("unexpected Docker request %s", r.URL.Path)
+		}
+	})
+	reader.uptimeRequests = make(chan uptimeBatch, 1)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { reader.collectMetrics(ctx); close(done) }()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("stats did not start")
+	}
+	var batch uptimeBatch
+	select {
+	case batch = <-reader.uptimeRequests:
+	case <-ctx.Done():
+		t.Fatal("missing cold-start batch")
+	}
+	notifications := 0
+	reader.collectUptimes(ctx, batch, func(change Change) {
+		if !change.Metrics || change.Inventory {
+			t.Error("uptime requested a full inventory reload")
+		}
+		notifications++
+	})
+	quick, stop := context.WithTimeout(ctx, 500*time.Millisecond)
+	snapshot, err := reader.Snapshot(quick)
+	stop()
+	close(release)
+	<-done
+	if err != nil || len(snapshot.Projects) != 1 {
+		t.Fatal("inventory waited for stats", snapshot, err)
+	}
+	project := snapshot.Projects[0]
+	if project.UptimeSeconds == nil || *project.UptimeSeconds < 7200 || *project.UptimeSeconds > 7203 || project.CPUPercent != nil {
+		t.Fatal("uptime was not available while stats were blocked", project)
+	}
+	reader.collectUptimes(ctx, batch, func(Change) { t.Error("known uptime was reloaded") })
+	reader.collectMetrics(ctx)
+	select {
+	case <-reader.uptimeRequests:
+		t.Fatal("known start time queued again")
+	default:
+	}
+	if inspections.Load() != 1 || notifications != 1 {
+		t.Fatal("uptime was not cached", inspections.Load(), notifications)
 	}
 }
 

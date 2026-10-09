@@ -98,15 +98,16 @@ type Container struct {
 }
 
 type DockerReader struct {
-	client     *client.Client
-	mu         sync.RWMutex
-	metrics    map[string]Metrics
-	started    map[string]time.Time
-	shells     map[string]shellEntry
-	generation uint64
-	once       sync.Once
-	cancel     context.CancelFunc
-	workers    sync.WaitGroup
+	client         *client.Client
+	mu             sync.RWMutex
+	metrics        map[string]Metrics
+	started        map[string]time.Time
+	uptimeRequests chan uptimeBatch
+	shells         map[string]shellEntry
+	generation     uint64
+	once           sync.Once
+	cancel         context.CancelFunc
+	workers        sync.WaitGroup
 }
 
 func NewDockerReader() (*DockerReader, error) {

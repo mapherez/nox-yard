@@ -12,6 +12,17 @@ import (
 func (r *DockerReader) Start(ctx context.Context, notify func(Change)) {
 	r.once.Do(func() {
 		ctx, r.cancel = context.WithCancel(ctx)
+		r.uptimeRequests = make(chan uptimeBatch, 1)
+		r.workers.Go(func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case batch := <-r.uptimeRequests:
+					r.collectUptimes(ctx, batch, notify)
+				}
+			}
+		})
 		r.workers.Go(func() {
 			for {
 				r.collectMetrics(ctx)

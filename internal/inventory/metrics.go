@@ -65,10 +65,16 @@ func (r *DockerReader) collectMetrics(ctx context.Context) {
 		}
 	}
 	r.mu.Lock()
+	missingStarts := []string{}
 	if r.metrics == nil {
 		r.metrics = make(map[string]Metrics)
 	}
 	if generation == r.generation {
+		for id := range live {
+			if _, known := r.started[id]; !known {
+				missingStarts = append(missingStarts, id)
+			}
+		}
 		for id := range r.metrics {
 			if !live[id] {
 				delete(r.metrics, id)
@@ -86,6 +92,13 @@ func (r *DockerReader) collectMetrics(ctx context.Context) {
 		}
 	}
 	r.mu.Unlock()
+	// Backfill start times independently; slow stats cannot delay uptime.
+	if len(missingStarts) > 0 {
+		select {
+		case r.uptimeRequests <- uptimeBatch{generation: generation, ids: missingStarts}:
+		default:
+		}
+	}
 	jobs := make(chan string)
 	var workers sync.WaitGroup
 	for range min(maxWorkers, len(live)) {
