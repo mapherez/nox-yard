@@ -83,6 +83,43 @@ func TestRestartCoalescesMissesAndCivilDateNeverRepeats(t *testing.T) {
 		t.Fatal("multiple catchup jobs", jobs)
 	}
 }
+
+func TestDueScheduleSurvivesTimezoneChange(t *testing.T) {
+	loc, err := Location("Europe/Lisbon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	key := "compose:nginx-proxy-manager"
+	// A schedule saved at 03:00 UTC appears as 04:00 in Lisbon on this date.
+	enabledAt := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
+	due := Next(enabledAt, time.UTC)
+	if _, err := data.SetProjectSchedule(t.Context(), key, key, true, due.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 9, 15, 53, 0, 0, loc)
+	m := &Manager{Data: data, Location: loc, Run: func(ctx context.Context, row store.ProjectSchedule, occ store.ScheduleOccurrence) error {
+		return data.SkipSchedule(ctx, row, occ, "No image changes.")
+	}}
+	for _, at := range []time.Time{now, now.Add(time.Minute)} {
+		if err := m.Tick(t.Context(), at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	jobs, err := data.Jobs(t.Context(), key, false)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("overdue schedule was not consumed exactly once: jobs=%v error=%v", jobs, err)
+	}
+	row, _, err := data.ProjectSchedule(t.Context(), key)
+	wantNext := time.Date(2026, 10, 10, 3, 0, 0, 0, loc)
+	if err != nil || row.LastOutcome != "skipped" || row.NextAt != wantNext.Unix() || jobs[0].ScheduledFor != due.Unix() {
+		t.Fatalf("schedule did not recover in the configured timezone: row=%+v jobs=%v error=%v", row, jobs, err)
+	}
+}
 func TestAutomaticGlobalReservationDefersOtherProjects(t *testing.T) {
 	data, err := store.Open(t.TempDir())
 	if err != nil {

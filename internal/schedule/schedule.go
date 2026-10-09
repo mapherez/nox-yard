@@ -78,7 +78,10 @@ func (m *Manager) Tick(ctx context.Context, now time.Time) error {
 	}
 	for _, row := range due {
 		slot := Slot(now, m.Location)
-		occurrence := store.ScheduleOccurrence{Key: row.Key, DueAt: slot.Unix(), Date: slot.In(m.Location).Format("2006-01-02"), NextAt: Next(now, m.Location).Unix()}
+		// A persisted check may be later than today's civil slot after a timezone
+		// change. It is already due, so do not reject it using the earlier slot.
+		dueAt := max(slot.Unix(), row.NextAt)
+		occurrence := store.ScheduleOccurrence{Key: row.Key, DueAt: dueAt, Date: slot.In(m.Location).Format("2006-01-02"), NextAt: Next(now, m.Location).Unix()}
 		attempt, cancel := context.WithTimeout(ctx, 30*time.Second)
 		err := m.Run(attempt, row, occurrence)
 		cancel()
