@@ -19,6 +19,7 @@ type ProjectSchedule struct {
 	Key               string `json:"-"`
 	TargetID          string `json:"targetID"`
 	Enabled           bool   `json:"enabled"`
+	Time              string `json:"time"`
 	NextAt            int64  `json:"nextAt,omitempty"`
 	LastAt            int64  `json:"lastAt,omitempty"`
 	LastOutcome       string `json:"lastOutcome,omitempty"`
@@ -67,22 +68,47 @@ func migrateSchedules(db *sql.DB) error {
 	return tx.Commit()
 }
 
-const scheduleColumns = `key,target_id,enabled,next_at,last_at,last_outcome,last_reason,last_job_id,failed_fingerprint`
+func migrateScheduleTimes(db *sql.DB) error {
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
+	if version == 9 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`ALTER TABLE project_schedules ADD COLUMN daily_time TEXT NOT NULL DEFAULT '03:00' CHECK(daily_time GLOB '[0-2][0-9]:[0-5][0-9]' AND daily_time <= '23:59')`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("PRAGMA user_version = 9"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+const scheduleColumns = `key,target_id,enabled,next_at,last_at,last_outcome,last_reason,last_job_id,failed_fingerprint,daily_time`
 
 func scanSchedule(row interface{ Scan(...any) error }) (ProjectSchedule, error) {
 	var value ProjectSchedule
-	err := row.Scan(&value.Key, &value.TargetID, &value.Enabled, &value.NextAt, &value.LastAt, &value.LastOutcome, &value.LastReason, &value.LastJobID, &value.FailedFingerprint)
+	err := row.Scan(&value.Key, &value.TargetID, &value.Enabled, &value.NextAt, &value.LastAt, &value.LastOutcome, &value.LastReason, &value.LastJobID, &value.FailedFingerprint, &value.Time)
 	return value, err
 }
 func (s *Store) ProjectSchedule(ctx context.Context, target string) (ProjectSchedule, bool, error) {
 	value, err := scanSchedule(s.db.QueryRowContext(ctx, "SELECT "+scheduleColumns+" FROM project_schedules WHERE key=? OR target_id=?", target, target))
 	if errors.Is(err, sql.ErrNoRows) {
-		return ProjectSchedule{Key: target, TargetID: target}, false, nil
+		return ProjectSchedule{Key: target, TargetID: target, Time: "03:00"}, false, nil
 	}
 	return value, err == nil, err
 }
 func (s *Store) SetProjectSchedule(ctx context.Context, key, target string, enabled bool, next int64) (ProjectSchedule, error) {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO project_schedules(key,target_id,enabled,next_at) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET target_id=excluded.target_id,enabled=excluded.enabled,next_at=CASE WHEN project_schedules.enabled=excluded.enabled THEN project_schedules.next_at ELSE excluded.next_at END`, key, target, enabled, next)
+	return s.SetProjectScheduleAt(ctx, key, target, enabled, next, "03:00")
+}
+func (s *Store) SetProjectScheduleAt(ctx context.Context, key, target string, enabled bool, next int64, at string) (ProjectSchedule, error) {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO project_schedules(key,target_id,enabled,next_at,daily_time) VALUES(?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET target_id=excluded.target_id,enabled=excluded.enabled,daily_time=excluded.daily_time,next_at=CASE WHEN project_schedules.enabled=excluded.enabled AND project_schedules.daily_time=excluded.daily_time THEN project_schedules.next_at ELSE excluded.next_at END`, key, target, enabled, next, at)
 	if err != nil {
 		return ProjectSchedule{}, err
 	}

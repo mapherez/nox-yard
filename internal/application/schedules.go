@@ -15,7 +15,6 @@ import (
 type ScheduleStatus struct {
 	store.ProjectSchedule
 	Timezone string `json:"timezone"`
-	Time     string `json:"time"`
 	Eligible bool   `json:"eligible"`
 	Reason   string `json:"reason,omitempty"`
 }
@@ -56,7 +55,7 @@ func (s *Service) ProjectSchedule(ctx context.Context, target string) (ScheduleS
 	if err != nil {
 		return ScheduleStatus{}, err
 	}
-	result := ScheduleStatus{ProjectSchedule: row, Timezone: s.Scheduler.Location.String(), Time: "03:00", Eligible: true}
+	result := ScheduleStatus{ProjectSchedule: row, Timezone: s.Scheduler.Location.String(), Eligible: true}
 	project, err := s.scheduleProject(ctx, target)
 	if err != nil {
 		result.Eligible = false
@@ -70,6 +69,12 @@ func (s *Service) ProjectSchedule(ctx context.Context, target string) (ScheduleS
 	return result, nil
 }
 func (s *Service) SetProjectSchedule(ctx context.Context, target string, enabled bool) (ScheduleStatus, error) {
+	return s.setProjectSchedule(ctx, target, enabled, nil)
+}
+func (s *Service) SetProjectScheduleTime(ctx context.Context, target string, enabled bool, at string) (ScheduleStatus, error) {
+	return s.setProjectSchedule(ctx, target, enabled, &at)
+}
+func (s *Service) setProjectSchedule(ctx context.Context, target string, enabled bool, at *string) (ScheduleStatus, error) {
 	if !ValidTarget(target, false) {
 		return ScheduleStatus{}, ErrInvalidRemoval
 	}
@@ -77,6 +82,14 @@ func (s *Service) SetProjectSchedule(ctx context.Context, target string, enabled
 		return ScheduleStatus{}, ErrUnavailable
 	}
 	row, found, err := s.Store.ProjectSchedule(ctx, target)
+	if err != nil {
+		return ScheduleStatus{}, err
+	}
+	checkTime := row.Time
+	if at != nil {
+		checkTime = *at
+	}
+	hour, minute, err := schedule.ParseTime(checkTime)
 	if err != nil {
 		return ScheduleStatus{}, err
 	}
@@ -116,9 +129,9 @@ func (s *Service) SetProjectSchedule(ctx context.Context, target string, enabled
 	}
 	next := int64(0)
 	if enabled {
-		next = schedule.Next(time.Now(), s.Scheduler.Location).Unix()
+		next = schedule.NextAt(time.Now(), s.Scheduler.Location, hour, minute).Unix()
 	}
-	if _, err := s.Store.SetProjectSchedule(ctx, key, target, enabled, next); err != nil {
+	if _, err := s.Store.SetProjectScheduleAt(ctx, key, target, enabled, next, checkTime); err != nil {
 		return ScheduleStatus{}, err
 	}
 	s.Changes.Notify(inventory.Change{Inventory: true})

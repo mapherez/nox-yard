@@ -3,6 +3,8 @@
 .panel p { font-size: .85rem; line-height: 1.5; }
 .choice { display: flex; align-items: center; gap: .65rem; min-block-size: 2.75rem; font-size: .85rem; }
 .choice input { flex: none; min-inline-size: 1.5rem; min-block-size: 1.5rem; accent-color: var(--color-accent); }
+.timeField { display: grid; gap: .4rem; margin-block: .75rem; font-size: .85rem; }
+.timeField input { box-sizing: border-box; inline-size: 10rem; max-inline-size: 100%; min-block-size: 3rem; padding: .5rem .75rem; border: 1px solid var(--color-border); border-radius: .45rem; background: var(--color-surface-2); color: inherit; color-scheme: dark; font: inherit; font-size: 1rem; }
 .panel button { min-block-size: 2.75rem; border: 1px solid var(--color-border); border-radius: .45rem; padding: .5rem .75rem; background: var(--color-surface-2); color: inherit; cursor: pointer; }
 .panel button:disabled { opacity: .55; cursor: default; }
 .panel :is(input, button):focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }

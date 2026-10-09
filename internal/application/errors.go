@@ -10,6 +10,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/recreate"
+	"github.com/mapherez/nox-yard/internal/schedule"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/client"
@@ -24,6 +25,8 @@ func ClassifyError(err error, execution bool) (int, Problem) {
 	var storage ManagedReadError
 	var network net.Error
 	switch {
+	case errors.Is(err, schedule.ErrInvalidTime):
+		return 400, Problem{Code: "INVALID_PAYLOAD", Message: err.Error()}
 	case errors.Is(err, ErrScheduleUnsupported):
 		return 400, Problem{Code: "UNSUPPORTED_CONFIGURATION", Message: err.Error()}
 	case errors.Is(err, recreate.ErrUnsupported):

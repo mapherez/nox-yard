@@ -232,6 +232,18 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 	if !resultMissing.IsError {
 		t.Fatal("missing schedule enable flag accepted")
 	}
+	custom := call(t, session, "yard_project_schedule_set", map[string]any{"id": "container:" + id, "enabled": false, "time": "06:45"})
+	if custom.IsError || !strings.Contains(text(custom), `"time":"06:45"`) {
+		t.Fatal("custom MCP schedule time", text(custom))
+	}
+	legacy := call(t, session, "yard_project_schedule_set", map[string]any{"id": "container:" + id, "enabled": false})
+	if legacy.IsError || !strings.Contains(text(legacy), `"time":"06:45"`) {
+		t.Fatal("legacy MCP save lost custom time", text(legacy))
+	}
+	invalid := call(t, session, "yard_project_schedule_set", map[string]any{"id": "container:" + id, "enabled": false, "time": "24:00"})
+	if !invalid.IsError {
+		t.Fatal("invalid MCP schedule time accepted")
+	}
 	seenCLIPaths := map[string]string{}
 	writes := map[string]bool{}
 	for _, kind := range []string{"container", "project"} {

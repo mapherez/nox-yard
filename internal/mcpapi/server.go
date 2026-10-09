@@ -141,8 +141,9 @@ type targetInput struct {
 	ID string `json:"id"`
 }
 type scheduleInput struct {
-	ID      string `json:"id"`
-	Enabled bool   `json:"enabled"`
+	ID      string  `json:"id"`
+	Enabled bool    `json:"enabled"`
+	Time    *string `json:"time,omitempty"`
 }
 type actionInput struct {
 	ID     string           `json:"id"`
@@ -220,9 +221,12 @@ func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 		}
 		return app.ProjectSchedule(ctx, in.ID)
 	})
-	register(b, "yard_project_schedule_set", "Set project automatic updates", "Explicitly enable or disable daily updates at 03:00 in the server timezone. Enabling requires a supported running project and may replace its containers on future occurrences. Never starts stopped projects. Disabled by default.", setting, func(ctx context.Context, in scheduleInput) (application.ScheduleStatus, error) {
+	register(b, "yard_project_schedule_set", "Set project automatic updates", "Explicitly enable or disable daily updates in the server timezone. Optional time selects HH:MM; omitting it preserves the saved time (03:00 for new projects). Enabling requires a supported running project and may replace its containers on future occurrences. Never starts stopped projects. Disabled by default.", setting, func(ctx context.Context, in scheduleInput) (application.ScheduleStatus, error) {
 		if err := target(in.ID, false); err != nil {
 			return application.ScheduleStatus{}, err
+		}
+		if in.Time != nil {
+			return app.SetProjectScheduleTime(ctx, in.ID, in.Enabled, *in.Time)
 		}
 		return app.SetProjectSchedule(ctx, in.ID, in.Enabled)
 	})

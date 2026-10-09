@@ -172,7 +172,7 @@ try:
     outcome = until(lambda: completed_job(updated["id"]), "upgraded unchanged update")
     assert outcome["status"] == "succeeded" and outcome["outcome"] == "unchanged"
     assert_data()
-    print("PASS: schema 6 to 8, account/session/project/history persistence, interrupted-job recovery, missing-directory refusal, default-off and unchanged update", flush=True)
+    print("PASS: schema 6 to 9, account/session/project/history persistence, interrupted-job recovery, missing-directory refusal, default-off and unchanged update", flush=True)
     # CLI must refuse piped credentials without modifying authentication state.
     denied = subprocess.run(["docker", "run", "--rm", "--mount", "type=volume,source=" + state + ",target=/data", args.image, "nox-yard", "reset-admin-password"], text=True, capture_output=True)
     assert denied.returncode != 0 and "interactive terminal" in denied.stderr
@@ -219,7 +219,7 @@ finally:
     csrf = request("/api/login", {"username": "owner", "password": password}, authenticated=False)["csrfToken"]
     assert request("/api/bootstrap")["authenticated"]
     assert_data()
-    helper("import sqlite3; db=sqlite3.connect('/data/nox-yard.sqlite'); assert db.execute('PRAGMA user_version').fetchone()[0]==8; assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'; db.close()")
+    helper("import sqlite3; db=sqlite3.connect('/data/nox-yard.sqlite'); assert db.execute('PRAGMA user_version').fetchone()[0]==9; assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'; db.close()")
     print("PASS: restore of baseline database, source/env files, relative bind and named-volume data; repeat migration and original credentials", flush=True)
 finally:
     for identifier in workers:

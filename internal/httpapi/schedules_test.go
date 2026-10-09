@@ -35,6 +35,9 @@ func TestScheduleRoutesRequireSessionOriginCSRFAndExplicitFlag(t *testing.T) {
 		{"PUT", `{"enabled":false}`, "http://yard.test", "", 403},
 		{"PUT", `{}`, "http://yard.test", session.CSRFToken, 400},
 		{"PUT", `{"enabled":false}`, "http://yard.test", session.CSRFToken, 200},
+		{"PUT", `{"enabled":false,"time":"06:45"}`, "http://yard.test", session.CSRFToken, 200},
+		{"PUT", `{"enabled":false,"time":"24:00"}`, "http://yard.test", session.CSRFToken, 400},
+		{"PUT", `{"enabled":false,"time":""}`, "http://yard.test", session.CSRFToken, 400},
 		{"PUT", `{"enabled":true}`, "http://yard.test", session.CSRFToken, 400},
 	} {
 		r := httptest.NewRequest(test.method, url, strings.NewReader(test.body))
@@ -52,7 +55,7 @@ func TestScheduleRoutesRequireSessionOriginCSRFAndExplicitFlag(t *testing.T) {
 		}
 	}
 	row, _, _ := data.ProjectSchedule(t.Context(), "compose:yard")
-	if row.Enabled {
-		t.Fatal("unsupported project enabled")
+	if row.Enabled || row.Time != "06:45" {
+		t.Fatal("unsupported project enabled or saved time lost", row)
 	}
 }

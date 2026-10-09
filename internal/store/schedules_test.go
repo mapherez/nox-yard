@@ -204,6 +204,63 @@ func TestScheduleSchemaSevenMigrationPreservesHistory(t *testing.T) {
 	}
 }
 
+func TestScheduleTimesMigrateAndPersistIndependently(t *testing.T) {
+	dir := t.TempDir()
+	data, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { data.Close() })
+	ctx := t.Context()
+	if _, err := data.SetProjectSchedule(ctx, "compose:old", "compose:old", true, 100); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{"ALTER TABLE project_schedules DROP COLUMN daily_time", "PRAGMA user_version=8"} {
+		if _, err := data.db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data.Close()
+	data, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, found, err := data.ProjectSchedule(ctx, "compose:old")
+	if err != nil || !found || !row.Enabled || row.Time != "03:00" || row.NextAt != 100 {
+		t.Fatal("migration changed existing schedule", row, err)
+	}
+	for _, value := range []struct {
+		key, at string
+		next    int64
+	}{{"compose:old", "06:45", 200}, {"compose:other", "22:10", 300}} {
+		row, err := data.SetProjectScheduleAt(ctx, value.key, value.key, true, value.next, value.at)
+		if err != nil || row.Time != value.at || row.NextAt != value.next {
+			t.Fatal("custom time was not saved", row, err)
+		}
+	}
+	row, err = data.SetProjectScheduleAt(ctx, "compose:old", "compose:old", true, 999, "06:45")
+	if err != nil || row.NextAt != 200 {
+		t.Fatal("unchanged save moved next check", row, err)
+	}
+	if _, err := data.SetProjectScheduleAt(ctx, "compose:old", "compose:old", true, 400, "24:00"); err == nil {
+		t.Fatal("invalid time accepted")
+	}
+	data.Close()
+	data, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []struct {
+		key, at string
+		next    int64
+	}{{"compose:old", "06:45", 200}, {"compose:other", "22:10", 300}} {
+		row, _, err := data.ProjectSchedule(ctx, value.key)
+		if err != nil || row.Time != value.at || row.NextAt != value.next {
+			t.Fatal("restart lost custom time", row, err)
+		}
+	}
+}
+
 func TestAutomaticAdmissionWaitsForFinishedWorkerCleanupAtomically(t *testing.T) {
 	data := scheduleStore(t)
 	ctx := t.Context()

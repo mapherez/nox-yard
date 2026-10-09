@@ -19,7 +19,8 @@ func (s *Server) projectSchedule(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if write {
 		var input struct {
-			Enabled *bool `json:"enabled"`
+			Enabled *bool   `json:"enabled"`
+			Time    *string `json:"time"`
 		}
 		if !decodeJSON(w, r, &input) {
 			return
@@ -28,7 +29,11 @@ func (s *Server) projectSchedule(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Choose whether automatic updates are enabled.")
 			return
 		}
-		result, err = s.application.SetProjectSchedule(ctx, r.PathValue("id"), *input.Enabled)
+		if input.Time == nil {
+			result, err = s.application.SetProjectSchedule(ctx, r.PathValue("id"), *input.Enabled)
+		} else {
+			result, err = s.application.SetProjectScheduleTime(ctx, r.PathValue("id"), *input.Enabled, *input.Time)
+		}
 	} else {
 		result, err = s.application.ProjectSchedule(ctx, r.PathValue("id"))
 	}

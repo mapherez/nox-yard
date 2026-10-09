@@ -69,14 +69,21 @@ func Open(dataDir string) (*Store, error) {
 }
 
 func migrate(db *sql.DB) error {
+	if err := migrateBase(db); err != nil {
+		return err
+	}
+	return migrateScheduleTimes(db)
+}
+
+func migrateBase(db *sql.DB) error {
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read schema version: %w", err)
 	}
-	if version > 8 {
+	if version > 9 {
 		return fmt.Errorf("database schema version %d is newer than this application", version)
 	}
-	if version == 8 {
+	if version >= 8 {
 		return nil
 	}
 	if version == 7 {

@@ -1,12 +1,12 @@
 # Project automatic image updates
 
-Project schedules are disabled by default and independent of Yard self-update. In the project's Details drawer, select **Enable automatic updates for this project** and **Save automatic updates**. Enabling requires a supported healthy running project; unsupported or stopped projects must be reviewed through the manual update path. Back up application data before enabling.
+Project schedules are disabled by default and independent of Yard self-update. In the project's Details drawer, select **Enable automatic updates for this project**, choose **Daily check time**, and select **Save automatic updates**. Enabling requires a supported healthy running project; unsupported or stopped projects must be reviewed through the manual update path. Back up application data before enabling.
 
 ## Time and missed checks
 
-Checks run daily at **03:00 in the server timezone**. Compose maps `.env`'s `NOX_TIMEZONE` to the backend's `TZ`; both installation and development default to `Etc/UTC`. Use an IANA name such as `Europe/Lisbon`; an invalid name prevents backend startup. Direct local runs use `TZ`, defaulting to UTC. The drawer and adapters show the effective timezone, next due check and last result; browser time does not define the schedule. DST uses civil dates rather than an elapsed 24 hours. Timezone changes apply after server restart.
+Checks run daily at **the time selected for each project, in the server timezone**. The default is 03:00; existing schedules retain that time on migration. Times use HH:MM, from 00:00 to 23:59, and persist across restarts. A Compose project uses one schedule for all its containers; standalone containers have independent schedules. Compose maps `.env`'s `NOX_TIMEZONE` to the backend's `TZ`; both installation and development default to `Etc/UTC`. Use an IANA name such as `Europe/Lisbon`; an invalid name prevents backend startup. Direct local runs use `TZ`, defaulting to UTC. The drawer and adapters show the effective timezone, next due check and last result; browser time does not define the schedule. DST uses civil dates rather than an elapsed 24 hours. A nonexistent spring time moves forward by the DST gap; a repeated autumn time uses its first occurrence and runs at most once for that civil date. Timezone changes apply after server restart.
 
-The server checks due schedules at startup and every minute after its previous check. 03:00 is the due time, not a promise of simultaneous replacement. SQLite schema 8 keeps project settings and unique `(schedule key, civil date)` occurrences. Occurrence consumption, existing update job creation and resource reservations commit together. Restart and clock movement cannot repeat a recorded civil date. Missed days coalesce into one check for the latest passed 03:00 slot per project, rather than replaying every missed day. Enabling starts at the next future slot; repeated saves preserve the current next occurrence.
+The server checks due schedules at startup and every minute after its previous check. The selected time is the due time, not a promise of simultaneous replacement. SQLite schema 9 keeps project settings and unique `(schedule key, civil date)` occurrences. Occurrence consumption, existing update job creation and resource reservations commit together. Restart and clock movement cannot repeat a recorded civil date. Missed days coalesce into one check for the latest passed configured slot per project, rather than replaying every missed day. Enabling starts at the next future slot; changing the time recalculates the next future slot, while unchanged saves preserve the current next occurrence. Changing the time does not repeat a civil date already consumed.
 
 ## Execution and failures
 
@@ -23,8 +23,8 @@ Rollback restores the supported container/configuration state, not application w
 ## Adapters and history
 
 - `GET /api/projects/{id}/schedule` requires a browser session.
-- `PUT /api/projects/{id}/schedule` requires session, exact Origin, CSRF and `{ "enabled": true|false }`; the flag is required.
-- MCP tools `yard_project_schedule_get` and `yard_project_schedule_set` expose the same setting/status, with required `id` and set's `enabled` flag. Existing MCP access rules apply.
+- `PUT /api/projects/{id}/schedule` requires session, exact Origin, CSRF and `{ "enabled": true|false, "time": "06:45" }`; the flag is required, and omitting `time` preserves the saved time.
+- MCP tools `yard_project_schedule_get` and `yard_project_schedule_set` expose the same setting/status, with required `id` and set's `enabled` flag, plus optional `time` in HH:MM. Existing MCP access rules apply.
 - Control API v1 is unchanged. Yard self-update settings are separate.
 
 IDs are `compose:NAME` or `container:FULL_ID`. Status includes `targetID`, `enabled`, `time`, `timezone`, `eligible`, optional availability/protection `reason`, and persisted `nextAt`, `lastAt`, `lastOutcome`, `lastReason`, `lastJobID`. Times are Unix seconds. For an admitted check, `lastAt` identifies its due slot; job execution timestamps record when work actually ran. A deferral records the time of its first check. Eligibility indicates availability/protection; enabling also performs full runtime/source assessment. Missing rows read disabled without creating a schedule.

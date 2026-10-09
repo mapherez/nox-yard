@@ -361,6 +361,6 @@ export type ProjectScheduleStatus = { targetID: string; enabled: boolean; timezo
 export function getProjectSchedule(target: string): Promise<ProjectScheduleStatus> {
   return request<ProjectScheduleStatus>(`/api/projects/${encodeURIComponent(target)}/schedule`);
 }
-export function setProjectSchedule(target: string, enabled: boolean, csrfToken: string): Promise<ProjectScheduleStatus> {
-  return request<ProjectScheduleStatus>(`/api/projects/${encodeURIComponent(target)}/schedule`, { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ enabled }) });
+export function setProjectSchedule(target: string, enabled: boolean, time: string, csrfToken: string): Promise<ProjectScheduleStatus> {
+  return request<ProjectScheduleStatus>(`/api/projects/${encodeURIComponent(target)}/schedule`, { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ enabled, time }) });
 }
