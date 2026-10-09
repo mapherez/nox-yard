@@ -112,6 +112,7 @@ jobs:
         with:
           name: acceptance-${{ matrix.group }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: .tmp/acceptance-${{ matrix.group }}.json
+          include-hidden-files: true
           retention-days: 14
           if-no-files-found: warn
 

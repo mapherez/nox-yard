@@ -171,6 +171,7 @@ jobs:
         with:
           name: image-${{ github.run_id }}-${{ matrix.architecture }}-${{ github.run_attempt }}
           path: .ci-images/
+          include-hidden-files: true
           retention-days: 7
           compression-level: 0
           if-no-files-found: error
