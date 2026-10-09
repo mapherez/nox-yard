@@ -219,6 +219,11 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 			if err != nil {
 				outcome, rollback = "recovery_required", "failed"
 				message += " Original containers could not be fully restored; inspect retained originals and replacements before acknowledging recovery."
+				var preserved preservationError
+				if errors.As(err, &preserved) {
+					// Field names are safe diagnostics; never expose snapshot/env values.
+					message += " " + preserved.Error()
+				}
 			} else {
 				outcome, rollback = "rolled_back", "restored"
 				message += " Original containers, names, configuration and running/stopped state were restored. Application data writes were not undone."
@@ -564,8 +569,19 @@ func (m *Manager) rollback(ctx context.Context, job store.Job, state *journal) e
 		if err != nil {
 			return err
 		}
-		if actual.Container.Image != target.Old.Image || !reflect.DeepEqual(actual.Container.Config, target.Old.Config) || !reflect.DeepEqual(actual.Container.HostConfig, target.Old.HostConfig) || !reflect.DeepEqual(endpoints(actual.Container), endpoints(target.Old)) {
-			return store.ErrJobChanged
+		// Use the same effective-configuration comparison as successful replacement.
+		// Docker can encode unset collections/default pointers differently on restart.
+		if actual.Container.Image != target.Old.Image {
+			return preservationError{"Restored original image differs."}
+		}
+		if !equivalent(actual.Container.Config, target.Old.Config) || !equivalent(normalizeHost(actual.Container.HostConfig), normalizeHost(target.Old.HostConfig)) {
+			return preservationError{fmt.Sprintf("Restored original configuration differs (%s; %s).", differing(actual.Container.Config, target.Old.Config), differing(normalizeHost(actual.Container.HostConfig), normalizeHost(target.Old.HostConfig)))}
+		}
+		if !equivalent(endpoints(actual.Container), endpoints(target.Old)) {
+			return preservationError{"Restored original network endpoint settings differ."}
+		}
+		if !equivalent(mountIdentities(actual.Container), mountIdentities(target.Old)) {
+			return preservationError{"Restored original mount sources, access or propagation differ."}
 		}
 	}
 	return m.data.RetargetJob(job.ID, job.Owner, state.Request.ID, nil)
