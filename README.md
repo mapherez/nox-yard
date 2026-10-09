@@ -10,7 +10,7 @@ NoX Yard is a lightweight, self-hosted Docker management web application for a p
 
 ## CI and image publication
 
-Push and release need Git, Node.js 24 and Go 1.26.6; Docker Desktop, frontend dependencies and Chrome are not required. Install or upgrade the lightweight hook in each clone with `npm run hooks:install`. It checks the pushed Git snapshots for whitespace, changed Go formatting, JavaScript syntax and package/lock consistency. It does not build, test, install dependencies or access the network.
+Push and release need Git, Node.js 24 and Go 1.26.9; Docker Desktop, frontend dependencies and Chrome are not required. Install or upgrade the lightweight hook in each clone with `npm run hooks:install`. It checks the pushed Git snapshots for whitespace, changed Go formatting, JavaScript syntax and package/lock consistency. It does not build, test, install dependencies or access the network.
 
 A single GitHub pipeline handles pushes to `master` and pull requests. CI runs Go analysis/tests, delivery-tooling tests, Linux vulnerability analysis, frontend build/browser regressions, Compose validation and AMD64/ARM64 image health checks. Documentation-only changes skip builds. Nothing is published by a normal push or PR.
 
@@ -62,7 +62,7 @@ docker compose -f compose.dev.yaml up -d --build
 
 Open `http://127.0.0.1:5173`. Compose runs a Go API container and a Vite container that proxies `/api` to it. Frontend edits reload without a Docker build or a GitHub push. See the [development guide](Documentation/Developer/Development.md) for backend rebuilds and shutdown.
 
-To run the Go server directly instead, install Go 1.26.6 or a later patch and Node.js 24. From `web/`, run `npm ci` and `npm run build`. Then, from the repository root, run:
+To run the Go server directly instead, install Go 1.26.9 or a later patch and Node.js 24. From `web/`, run `npm ci` and `npm run build`. Then, from the repository root, run:
 
 ```sh
 NOX_LISTEN_ADDR=127.0.0.1:8080 go run ./cmd/nox-yard

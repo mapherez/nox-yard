@@ -6,7 +6,7 @@ Run from a completely clean repository root on `master`:
 npm run release -- 1.2.0
 ```
 
-Git, Node.js 24 and Go 1.26.6 are the only local prerequisites. No Docker Desktop, Buildx, Compose, frontend `npm ci` or browser is needed. Install the lightweight hook with `npm run hooks:install`; custom hooks are preserved. The release preflight still validates when the hook is absent.
+Git, Node.js 24 and Go 1.26.9 are the only local prerequisites. No Docker Desktop, Buildx, Compose, frontend `npm ci` or browser is needed. Install the lightweight hook with `npm run hooks:install`; custom hooks are preserved. The release preflight still validates when the hook is absent.
 
 The version accepts an optional `v` prefix and SemVer prereleases, but not build metadata (`+...`). Root `package.json` is the version source; there is no VERSION file. The command rejects other branches, detached HEAD, any tracked/staged/untracked changes, missing Git identity, unchanged version and existing local/remote tags. Inaccessible remotes abort.
 

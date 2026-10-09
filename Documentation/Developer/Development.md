@@ -2,7 +2,7 @@
 
 ## Toolchains
 
-- Go 1.26.6 or later in the 1.26 series for the root module `github.com/mapherez/nox-yard`; this patch floor addresses the standard-library advisories identified by the completion baseline scan.
+- Go 1.26.9 or later in the 1.26 series for the root module `github.com/mapherez/nox-yard`; this patch floor addresses the standard-library advisories reported by the CI vulnerability scanner on 2026-10-09.
 - Node.js 24 for `web/` (`.nvmrc`), with npm and the committed `web/package-lock.json`.
 - Docker Engine and the Compose plugin on a Linux integration host. Raspberry Pi 5 (`linux/arm64`) is the primary release target; `linux/amd64` is also intended.
 
@@ -58,7 +58,7 @@ Managed mutations and durable Yard restart require the container backend, its ex
 
 ## Local validation and pre-push
 
-Install Git, Node.js 24 and Go 1.26.6. Push and release require neither Docker Desktop, frontend dependencies nor Chrome. From the repository root:
+Install Git, Node.js 24 and Go 1.26.9. Push and release require neither Docker Desktop, frontend dependencies nor Chrome. From the repository root:
 
 ```sh
 npm run hooks:install
