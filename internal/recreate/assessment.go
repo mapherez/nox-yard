@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -326,13 +327,16 @@ func fingerprint(state *journal) string {
 	values := []any{state.Request.ID, state.Request.Operation}
 	for _, target := range state.Entries {
 		item := target.Old
+		// Inspect mount order varies between daemon responses; keep the journal intact.
+		mounts := slices.Clone(item.Mounts)
+		sort.Slice(mounts, func(i, j int) bool { return mounts[i].Destination < mounts[j].Destination })
 		networkIDs := map[string]string{}
 		if item.NetworkSettings != nil {
 			for name, endpoint := range item.NetworkSettings.Networks {
 				networkIDs[name] = endpoint.NetworkID
 			}
 		}
-		values = append(values, []any{item.ID, item.Name, item.Image, item.Config, item.HostConfig, item.Mounts, endpoints(item), item.State.Running, item.State.Status, item.State.ExitCode, item.State.Paused, item.State.Restarting, item.State.StartedAt})
+		values = append(values, []any{item.ID, item.Name, item.Image, item.Config, item.HostConfig, mounts, endpoints(item), item.State.Running, item.State.Status, item.State.ExitCode, item.State.Paused, item.State.Restarting, item.State.StartedAt})
 		values = append(values, networkIDs)
 	}
 	encoded, _ := json.Marshal(values)

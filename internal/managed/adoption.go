@@ -63,6 +63,9 @@ func adoptionRuntimeFingerprint(items []container.InspectResponse) string {
 	values := make([]state, 0, len(items))
 	for _, item := range items {
 		value := state{ID: item.ID, Image: item.Image, Config: item.Config, HostConfig: item.HostConfig, Mounts: item.Mounts}
+		// Inspect mount order varies between daemon responses; preserve every field.
+		value.Mounts = slices.Clone(item.Mounts)
+		sort.Slice(value.Mounts, func(i, j int) bool { return value.Mounts[i].Destination < value.Mounts[j].Destination })
 		if item.NetworkSettings != nil {
 			value.Networks = item.NetworkSettings.Networks
 		}

@@ -102,6 +102,10 @@ func TestRecreateDockerAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	docker("network", "create", "--label", "nox-yard.acceptance="+name, name+"-net")
+	// Let Docker allocate a free subnet, then declare it explicitly for static IPs.
+	subnet := docker("network", "inspect", "--format", "{{(index .IPAM.Config 0).Subnet}}", name+"-net")
+	docker("network", "rm", name+"-net")
+	docker("network", "create", "--subnet", subnet, "--label", "nox-yard.acceptance="+name, name+"-net")
 	gateway := docker("network", "inspect", "--format", "{{(index .IPAM.Config 0).Gateway}}", name+"-net")
 	staticIP := gateway[:strings.LastIndex(gateway, ".")] + ".10"
 	docker("volume", "create", "--label", "nox-yard.acceptance="+name, name+"-data")

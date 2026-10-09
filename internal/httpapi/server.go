@@ -629,25 +629,46 @@ func (s *Server) checkOrigin(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (s *Server) staticHandler() http.Handler {
-	files := http.FileServer(http.Dir(s.webDir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			writeError(w, http.StatusNotFound, "Not found.")
 			return
 		}
-		indexPath := filepath.Join(s.webDir, "index.html")
-		if _, err := os.Stat(indexPath); err != nil {
-			http.Error(w, "Web application is not built.", http.StatusServiceUnavailable)
-			return
-		}
-		if r.URL.Path != "/" {
-			path := filepath.Join(s.webDir, filepath.FromSlash(strings.TrimPrefix(r.URL.Path, "/")))
-			if info, err := os.Stat(path); err == nil && !info.IsDir() {
-				files.ServeHTTP(w, r)
+		// Public assets must never expose environment files or hidden directories.
+		for _, part := range strings.Split(r.URL.Path, "/") {
+			name := strings.ToLower(part)
+			if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".env") || strings.Contains(name, ".env.") || strings.Contains(name, `\`) {
+				http.NotFound(w, r)
 				return
 			}
 		}
-		http.ServeFile(w, r, indexPath)
+		index, err := os.OpenInRoot(s.webDir, "index.html")
+		if err != nil {
+			http.Error(w, "Web application is not built.", http.StatusServiceUnavailable)
+			return
+		}
+		defer index.Close()
+		if r.URL.Path != "/" {
+			name := filepath.FromSlash(strings.TrimPrefix(r.URL.Path, "/"))
+			// OpenInRoot also prevents symlinks from escaping the asset directory.
+			asset, err := os.OpenInRoot(s.webDir, name)
+			if err == nil {
+				defer asset.Close()
+				if info, err := asset.Stat(); err == nil && info.Mode().IsRegular() {
+					http.ServeContent(w, r, info.Name(), info.ModTime(), asset)
+					return
+				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		info, err := index.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			http.Error(w, "Web application is not built.", http.StatusServiceUnavailable)
+			return
+		}
+		http.ServeContent(w, r, "index.html", info.ModTime(), index)
 	})
 }
 

@@ -52,7 +52,8 @@ with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as packed:
             continue
         if not source.resolve().is_relative_to(root):
             raise SystemExit("Source archive cannot include a symlink outside the repository")
-        if source.name.startswith(".env") and source.name != ".env.example":
+        name = source.name.lower()
+        if (name.startswith(".env") or name.endswith(".env") or ".env." in name) and not name.endswith(".env.example"):
             continue
         if source.suffix in {".key", ".pem", ".sqlite", ".db"}:
             continue

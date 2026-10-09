@@ -170,7 +170,7 @@ try:
     assert not schedule["enabled"], "Upgrade enabled automatic updates"
     updated = request("/api/managed/projects/" + name + "/operations", {"operation": "update", "removeVolumes": False}, expected=202)
     outcome = until(lambda: completed_job(updated["id"]), "upgraded unchanged update")
-    assert outcome["status"] == "succeeded" and outcome["outcome"] == "unchanged"
+    assert outcome["status"] == "succeeded" and outcome["outcome"] == "unchanged", "Upgraded update failed: " + json.dumps({key: outcome.get(key) for key in ("status", "stage", "outcome", "error")})
     assert_data()
     print("PASS: schema 6 to 9, account/session/project/history persistence, interrupted-job recovery, missing-directory refusal, default-off and unchanged update", flush=True)
     # CLI must refuse piped credentials without modifying authentication state.

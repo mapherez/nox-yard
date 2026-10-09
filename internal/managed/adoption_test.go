@@ -152,6 +152,31 @@ func TestAdoptionFingerprintIgnoresTransientStateButDetectsConfigurationAndRepla
 	}
 }
 
+func TestAdoptionFingerprintIgnoresMountOrderButDetectsMountChanges(t *testing.T) {
+	_, item, _ := adoptionSample(t)
+	before := adoptionRuntimeFingerprint([]container.InspectResponse{item})
+	item.Mounts[0], item.Mounts[1] = item.Mounts[1], item.Mounts[0]
+	if before != adoptionRuntimeFingerprint([]container.InspectResponse{item}) {
+		t.Fatal("Docker mount ordering invalidated unchanged runtime")
+	}
+	if item.Mounts[0].Destination != "/files" {
+		t.Fatal("fingerprinting mutated the runtime snapshot")
+	}
+	for _, change := range []func(*container.MountPoint){
+		func(m *container.MountPoint) { m.Name = "different-volume" },
+		func(m *container.MountPoint) { m.Source = "/different/source" },
+		func(m *container.MountPoint) { m.RW = !m.RW },
+		func(m *container.MountPoint) { m.Destination = "/different/target" },
+	} {
+		changed := item
+		changed.Mounts = append([]container.MountPoint{}, item.Mounts...)
+		change(&changed.Mounts[0])
+		if before == adoptionRuntimeFingerprint([]container.InspectResponse{changed}) {
+			t.Fatal("real mount change ignored")
+		}
+	}
+}
+
 func TestHealthcheckDefaultsAndPrivatePreviewModel(t *testing.T) {
 	base := &container.HealthConfig{Test: []string{"CMD", "true"}, Timeout: time.Second}
 	got, err := desiredHealthcheck(base, &modelHealthcheck{Interval: "2s", Retries: new(2)})

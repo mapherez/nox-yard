@@ -93,6 +93,27 @@ func TestRestartInvalidatesConfirmation(t *testing.T) {
 		t.Fatal("external restart ignored")
 	}
 }
+
+func TestFingerprintIgnoresMountOrderButDetectsMountChanges(t *testing.T) {
+	item := assessed("a", "web")
+	item.Mounts = []container.MountPoint{
+		{Type: mount.TypeBind, Source: "/source", Destination: "/bind", RW: true},
+		{Type: mount.TypeVolume, Name: "volume", Destination: "/data", RW: true},
+	}
+	state := &journal{Request: Request{ID: "container:test", Operation: "update"}, Entries: []*entry{{Old: item}}}
+	before := fingerprint(state)
+	item.Mounts[0], item.Mounts[1] = item.Mounts[1], item.Mounts[0]
+	if before != fingerprint(state) {
+		t.Fatal("Docker mount ordering invalidated unchanged runtime")
+	}
+	if item.Mounts[0].Destination != "/data" {
+		t.Fatal("fingerprinting mutated the runtime snapshot")
+	}
+	item.Mounts[0].Name = "different-volume"
+	if before == fingerprint(state) {
+		t.Fatal("real mount change ignored")
+	}
+}
 func TestAssessmentRejectsUnpreservableSettingsAndState(t *testing.T) {
 	for _, change := range []func(*container.InspectResponse){
 		func(item *container.InspectResponse) { item.HostConfig.AutoRemove = true },

@@ -45,6 +45,7 @@ func TestScheduleDockerAcceptance(t *testing.T) {
 	var reader *inventory.DockerReader
 	var engine *recreate.Manager
 	var compose *managed.Manager
+	var stopObserver func()
 	open := func() {
 		var err error
 		data, err = store.Open("/data")
@@ -81,8 +82,9 @@ func TestScheduleDockerAcceptance(t *testing.T) {
 		}}
 		app.Scheduler = &schedule.Manager{Data: data, Location: time.UTC, Run: app.RunScheduledUpdate, Reconcile: observer.Reconcile}
 		app.JobObserver = observer
+		stopObserver = observer.Start(ctx)
 	}
-	close := func() { engine.Close(); reader.Close(); data.Close() }
+	close := func() { stopObserver(); engine.Close(); reader.Close(); data.Close() }
 	open()
 	defer func() { close() }()
 	recordVolumes := func() {
@@ -109,14 +111,29 @@ func TestScheduleDockerAcceptance(t *testing.T) {
 	}
 	wait := func(id, want string) store.Job {
 		t.Helper()
+		var last store.Job
+		diagnose := func() {
+			t.Logf("scheduled job: status=%s stage=%s outcome=%s error=%s", last.Status, last.Stage, last.Outcome, last.Error)
+			if last.WorkerID != "" {
+				for _, command := range [][]string{
+					{"inspect", "--format", "{{json .State}}", last.WorkerID},
+					{"logs", "--tail", "40", last.WorkerID},
+				} {
+					out, err := exec.CommandContext(ctx, "docker", command...).CombinedOutput()
+					t.Logf("fixture worker %s: %s (%v)", command[0], strings.TrimSpace(string(out)), err)
+				}
+			}
+		}
 		deadline := time.Now().Add(100 * time.Second)
 		for time.Now().Before(deadline) {
 			j, found, err := data.Job(id)
 			if err != nil || !found {
 				t.Fatal(err)
 			}
+			last = j
 			if j.Status != "running" {
 				if j.Outcome != want {
+					diagnose()
 					t.Fatalf("wrong scheduled result %s/%s: %s", j.Status, j.Outcome, j.Error)
 				}
 				recordVolumes()
@@ -135,6 +152,7 @@ func TestScheduleDockerAcceptance(t *testing.T) {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
+		diagnose()
 		t.Fatal("job did not finish")
 		return store.Job{}
 	}
