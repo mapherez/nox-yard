@@ -1,87 +1,199 @@
 name: CI
 
 on:
-  pull_request:
-    branches:
-      - master
-  push:
-    branches:
-      - master
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      created:
+        type: string
+        required: true
+      retain_images:
+        description: Keep tested image archives for downstream release jobs
+        type: boolean
+        default: false
+    outputs:
+      images:
+        description: Tested image artifact IDs for this workflow run
+        value: ${{ jobs.artifacts.outputs.images }}
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  validate:
-    name: Source validation
+  backend:
+    name: Go and delivery validation
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      artifact: ${{ steps.bundle.outputs.artifact }}
+    env:
+      BUILD_VERSION: ${{ inputs.version }}
+      NOX_SCANNER_CACHE: .tmp/govulncheck-v1.8.0
     steps:
-      - name: Check out source
-        uses: actions/checkout@v6
-      - name: Set up Go
-        uses: actions/setup-go@v7
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.NOX_SCANNER_CACHE }}
+          key: govulncheck-v1.8.0-${{ runner.os }}-${{ hashFiles('go.mod') }}
+      - name: Static Go and Compose validation
+        run: sh scripts/check.sh
+      - name: Go regressions
+        run: go test ./...
+      - name: Delivery policy and release regressions
+        run: node --test scripts/*.test.mjs
+      - name: Acceptance runner selection/report regressions (no Docker)
+        run: python3 -m unittest discover -s scripts -p acceptance_test.py
+      - name: Linux amd64/arm64 vulnerability analysis
+        run: sh scripts/security.sh
+      - name: Compile production binaries once per architecture
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+        run: |
+          for arch in amd64 arm64; do
+            mkdir -p ".ci-build/bin/$arch"
+            GOARCH="$arch" go build -trimpath -ldflags="-s -w -X main.buildSHA=$GITHUB_SHA -X main.buildVersion=$BUILD_VERSION" -o ".ci-build/bin/$arch/nox-yard" ./cmd/nox-yard
+            go version -m ".ci-build/bin/$arch/nox-yard" | grep -Eq "GOARCH=$arch$"
+          done
+      - name: Bundle executable permissions
+        id: bundle
+        run: |
+          tar -C .ci-build -cf "$RUNNER_TEMP/backend.tar" bin
+          echo "artifact=backend-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.bundle.outputs.artifact }}
+          path: ${{ runner.temp }}/backend.tar
+          retention-days: ${{ inputs.retain_images && 7 || 1 }}
+          compression-level: 0
+          if-no-files-found: error
+
+  frontend:
+    name: Frontend validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      artifact: ${{ steps.bundle.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Install frontend dependencies
-        run: npm ci --prefix web
-      - name: Install Chrome for frontend regressions
+      - run: npm ci --prefix web
+      - name: Typecheck and build production assets once
+        run: npm run build --prefix web
+      - name: Install Chrome for browser regressions
         run: npx --yes --package @playwright/cli@0.1.22 playwright-cli install-browser chrome
-      - name: Run shared source checks
-        run: sh scripts/ci-local.sh
+      - name: Browser regressions against the production assets
+        run: npm test --prefix web
+      - id: bundle
+        run: echo "artifact=frontend-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.bundle.outputs.artifact }}
+          path: web/dist/
+          retention-days: ${{ inputs.retain_images && 7 || 1 }}
+          if-no-files-found: error
 
   docker:
-    name: Docker builds and ARM64 smoke test
-    needs: validate
+    name: Image ${{ matrix.architecture }}
+    needs: [backend, frontend]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+    env:
+      BUILD_VERSION: ${{ inputs.version }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
-      - name: Resolve application build version
-        id: metadata
-        run: |
-          version=$(sh scripts/build-version.sh "$GITHUB_SHA")
-          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.backend.outputs.artifact }}
+          path: .ci-build/
+      - run: tar -C .ci-build -xf .ci-build/backend.tar
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.frontend.outputs.artifact }}
+          path: .ci-build/web/
+      - uses: docker/setup-qemu-action@v4
+        if: matrix.architecture == 'arm64'
         with:
           platforms: arm64
-          cache-image: false
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-      - name: Build linux/amd64 image
+      - uses: docker/setup-buildx-action@v4
+      - run: mkdir -p .ci-images
+      - name: Package the already tested binaries and frontend
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64
-          load: true
-          push: false
-          tags: nox-yard:ci-amd64
-          build-args: |
-            BUILD_SHA=${{ github.sha }}
-            BUILD_VERSION=${{ steps.metadata.outputs.version }}
-      - name: Build linux/arm64 image
-        uses: docker/build-push-action@v7
+          target: runtime-ci
+          platforms: linux/${{ matrix.architecture }}
+          tags: nox-yard:ci-${{ matrix.architecture }}
+          outputs: type=docker,dest=.ci-images/${{ matrix.architecture }}.tar
+          provenance: false
+          cache-from: type=gha,scope=runtime-${{ matrix.architecture }}
+          cache-to: type=gha,scope=runtime-${{ matrix.architecture }},mode=max
+          labels: |
+            org.opencontainers.image.version=${{ inputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/mapherez/nox-yard
+            org.opencontainers.image.created=${{ inputs.created }}
+      - name: Load and verify executable architecture/runtime health
+        env:
+          ARCH: ${{ matrix.architecture }}
+        run: |
+          docker load --input ".ci-images/$ARCH.tar"
+          sh scripts/smoke-arm64.sh "nox-yard:ci-$ARCH" "$ARCH"
+          node scripts/image-artifact.mjs capture .ci-images "$ARCH"
+      - uses: actions/upload-artifact@v4
+        if: inputs.retain_images
         with:
-          context: .
-          platforms: linux/arm64
-          load: true
-          push: false
-          tags: nox-yard:ci-arm64
-          build-args: |
-            BUILD_SHA=${{ github.sha }}
-            BUILD_VERSION=${{ steps.metadata.outputs.version }}
-      - name: Check ARM64 executable and runtime health
-        run: sh scripts/smoke-arm64.sh nox-yard:ci-arm64
+          name: image-${{ github.run_id }}-${{ matrix.architecture }}-${{ github.run_attempt }}
+          path: .ci-images/
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+
+  artifacts:
+    name: Tested image artifacts
+    needs: docker
+    if: inputs.retain_images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      images: ${{ steps.images.outputs.images }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - id: images
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const { imageArtifacts } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/delivery.mjs`).href);
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, { ...context.repo, run_id: context.runId, per_page: 100 });
+            core.setOutput('images', JSON.stringify(imageArtifacts(artifacts, context.runId)));

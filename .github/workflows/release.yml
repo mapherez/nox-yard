@@ -1,107 +1,186 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      created:
+        type: string
+        required: true
+      groups:
+        type: string
+        required: true
 
 permissions:
-  contents: write
-  packages: write
-
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  contents: read
+  actions: read
 
 jobs:
-  release:
-    name: Validate and publish release
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    with:
+      version: ${{ inputs.tag }}
+      retain_images: true
+      created: ${{ inputs.created }}
+
+  acceptance:
+    name: Acceptance ${{ matrix.group }}
+    needs: ci
+    if: inputs.groups != '[]'
     runs-on: ubuntu-latest
-    # Serialize official publication so two stable tags cannot race to replace latest.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(inputs.groups) }}
+    env:
+      BUILD_VERSION: ${{ inputs.tag }}
+      ACCEPTANCE_GROUP: ${{ matrix.group }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Share cached Go dependencies with fixture runners
+        run: |
+          mkdir -p "$(go env GOPATH)/pkg" "$(go env GOCACHE)"
+          docker volume create --driver local --opt type=none --opt o=bind --opt "device=$(go env GOPATH)/pkg" nox-yard-c2-go-cache
+          docker volume create --driver local --opt type=none --opt o=bind --opt "device=$(go env GOCACHE)" nox-yard-c2-build-cache
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ fromJSON(needs.ci.outputs.images)[0].id }}
+          path: .ci-images/
+      - name: Validate and load tested amd64 image
+        run: node scripts/image-artifact.mjs load .ci-images amd64
+      - name: Extract historical upgrade source
+        if: matrix.group == 'upgrade'
+        id: legacy
+        run: |
+          mkdir -p .tmp/legacy
+          legacy_sha=$(git rev-parse 'v1.0.1^{commit}')
+          git archive "$legacy_sha" | tar -x -C .tmp/legacy
+          echo "sha=$legacy_sha" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+        if: matrix.group == 'upgrade'
+      - name: Build historical image only for upgrade acceptance
+        if: matrix.group == 'upgrade'
+        uses: docker/build-push-action@v7
+        with:
+          context: .tmp/legacy
+          platforms: linux/amd64
+          load: true
+          tags: nox-yard:legacy-acceptance
+          build-args: |
+            BUILD_SHA=${{ steps.legacy.outputs.sha }}
+            BUILD_VERSION=v1.0.1
+          cache-from: type=gha,scope=legacy-${{ steps.legacy.outputs.sha }}
+          cache-to: type=gha,scope=legacy-${{ steps.legacy.outputs.sha }},mode=max
+      # Real fixtures create root-owned 0700 state/journals; cleanup needs the same UID.
+      - name: Run selected isolated acceptance group
+        run: |
+          if [ "$ACCEPTANCE_GROUP" = upgrade ]; then
+            sudo python3 -u scripts/acceptance.py --image nox-yard:ci-amd64 --groups upgrade --legacy-image nox-yard:legacy-acceptance --report .tmp/acceptance-upgrade.json
+          else
+            sudo python3 -u scripts/acceptance.py --image nox-yard:ci-amd64 --groups "$ACCEPTANCE_GROUP" --report ".tmp/acceptance-$ACCEPTANCE_GROUP.json"
+          fi
+      - name: Record acceptance duration and result
+        if: always()
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, pathlib
+          path = pathlib.Path('.tmp/acceptance-' + os.environ['ACCEPTANCE_GROUP'] + '.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              if not path.exists():
+                  summary.write('Acceptance did not produce a report.\n')
+              else:
+                  report = json.loads(path.read_text())
+                  for check in report['checks']:
+                      summary.write(f"{check['name']}: {'PASS' if check['passed'] else 'FAIL'}, {check['seconds']:.1f}s\n\n")
+          PYTHON
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acceptance-${{ matrix.group }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .tmp/acceptance-${{ matrix.group }}.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  publish:
+    name: Publish validated images
+    needs: [ci, acceptance]
+    if: always() && needs.ci.result == 'success' && (needs.acceptance.result == 'success' || needs.acceptance.result == 'skipped') && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: write
+      actions: read
     concurrency:
       group: nox-yard-official-publisher
       cancel-in-progress: false
+      queue: max
+    env:
+      BUILD_VERSION: ${{ inputs.tag }}
+      RELEASE_TAG: ${{ inputs.tag }}
     steps:
-      - name: Check out tagged source
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Validate tag against package.json
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node scripts/check-release-version.mjs "$RELEASE_TAG"
-      - name: Generate release metadata
-        id: metadata
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node scripts/release-metadata.mjs "$RELEASE_TAG" "$GITHUB_SHA"
-      - name: Refuse existing releases or an older stable version
+      - name: Check release identity and current remote tag
+        run: |
+          node scripts/check-release-version.mjs "$RELEASE_TAG"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/master
+          remote_sha=$(git ls-remote origin "refs/tags/$RELEASE_TAG^{}" | cut -f1)
+          test "$remote_sha" = "$GITHUB_SHA"
+      - name: Prevent older stable publication
         uses: actions/github-script@v8
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         with:
           script: |
             const { pathToFileURL } = require('node:url');
             const { assertLatestStable } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-version.mjs`).href);
             const releases = await github.paginate(github.rest.repos.listReleases, { ...context.repo, per_page: 100 });
-            if (releases.some(release => release.tag_name === process.env.RELEASE_TAG)) {
-              throw new Error(`GitHub Release ${process.env.RELEASE_TAG} already exists; refusing to replace it.`);
-            }
-            assertLatestStable(process.env.RELEASE_TAG, releases.filter(release => !release.draft && !release.prerelease).map(release => release.tag_name));
-      - name: Set up Go
-        uses: actions/setup-go@v7
+            assertLatestStable(process.env.RELEASE_TAG, releases.filter(r => !r.draft && !r.prerelease).map(r => r.tag_name));
+      - uses: actions/download-artifact@v4
         with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - name: Install frontend dependencies
-        run: npm ci --prefix web
-      - name: Install Chrome for frontend regressions
-        run: npx --yes --package @playwright/cli@0.1.22 playwright-cli install-browser chrome
-      - name: Validate tagged source
-        run: sh scripts/ci-local.sh
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-        with:
-          platforms: arm64
-          cache-image: false
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
+          artifact-ids: ${{ join(fromJSON(needs.ci.outputs.images).*.id, ',') }}
+          path: .ci-images/
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and publish release image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
-          build-args: |
-            BUILD_SHA=${{ github.sha }}
-            BUILD_VERSION=${{ github.ref_name }}
-      - name: Create GitHub Release with generated notes
+      - name: Publish tested image artifacts without rebuilding
+        run: node scripts/image-artifact.mjs publish .ci-images
+      - name: Create GitHub Release after registry verification
         uses: actions/github-script@v8
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          RELEASE_PRERELEASE: ${{ steps.metadata.outputs.prerelease }}
         with:
           script: |
-            await github.rest.repos.createRelease({
-              ...context.repo,
-              tag_name: process.env.RELEASE_TAG,
-              name: process.env.RELEASE_TAG,
-              generate_release_notes: true,
-              draft: false,
-              prerelease: process.env.RELEASE_PRERELEASE === 'true',
-              make_latest: process.env.RELEASE_PRERELEASE === 'true' ? 'false' : 'true',
-            });
+            const { pathToFileURL } = require('node:url');
+            const { parseVersion } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-version.mjs`).href);
+            const { prerelease } = parseVersion(process.env.RELEASE_TAG);
+            const releases = await github.paginate(github.rest.repos.listReleases, { ...context.repo, per_page: 100 });
+            const existing = releases.find(r => r.tag_name === process.env.RELEASE_TAG);
+            if (existing) {
+              if (existing.draft || existing.prerelease !== prerelease) throw new Error('Existing release classification differs; refusing to replace it.');
+              core.info('Matching images and GitHub Release already exist; publication is complete.');
+            } else {
+              await github.rest.repos.createRelease({ ...context.repo, tag_name: process.env.RELEASE_TAG,
+                name: process.env.RELEASE_TAG, generate_release_notes: true, prerelease,
+                make_latest: prerelease ? 'false' : 'true' });
+            }

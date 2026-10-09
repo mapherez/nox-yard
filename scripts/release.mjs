@@ -7,9 +7,9 @@ import { isMain, parseVersion, readVersion } from './release-version.mjs';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export function commandRunner(cwd) {
-  return (command, args, { inherit = false } = {}) => {
+  return (command, args, { inherit = false, env = process.env } = {}) => {
     const result = spawnSync(command, args, {
-      cwd, encoding: 'utf8', stdio: inherit ? 'inherit' : 'pipe',
+      cwd, env, encoding: 'utf8', stdio: inherit ? 'inherit' : 'pipe',
       maxBuffer: 16 * 1024 * 1024,
     });
     if (result.error || result.status !== 0) {
@@ -54,6 +54,7 @@ export function release(argv, {
   let branch;
   try { branch = git('symbolic-ref', '--quiet', '--short', 'HEAD'); }
   catch { throw new Error('Cannot release from detached HEAD. Check out a branch first.'); }
+  if (branch !== 'master') throw new Error('Official releases are only allowed from master.');
   git('-c', 'user.useConfigOnly=true', 'var', 'GIT_AUTHOR_IDENT');
   git('-c', 'user.useConfigOnly=true', 'var', 'GIT_COMMITTER_IDENT');
   const originalHead = git('rev-parse', '--verify', 'HEAD^{commit}');
@@ -65,6 +66,8 @@ export function release(argv, {
   // A failed lookup throws. An inaccessible origin is never treated as an absent tag.
   const remoteTags = git('ls-remote', '--tags', 'origin', `refs/tags/${tag}`, `refs/tags/${tag}^{}`);
   if (remoteTags) throw new Error(`Tag ${tag} already exists on origin.`);
+  const remoteBranch = git('ls-remote', '--heads', 'origin', 'refs/heads/master');
+  const remoteBase = remoteBranch ? remoteBranch.split(/\s+/)[0] : '0'.repeat(originalHead.length);
 
   const branchRef = `refs/heads/${branch}`;
   const tagRef = `refs/tags/${tag}`;
@@ -81,11 +84,8 @@ export function release(argv, {
     (original.toString('utf8').endsWith('\n') ? newline : ''));
   try {
     writeFileSync(versionPath, updated);
-    log(`Validating release ${tag}...`);
-    run('sh', ['scripts/ci-local.sh'], { inherit: true });
-    run('docker', ['buildx', 'build', '--platform', 'linux/amd64', '--load',
-      '--build-arg', `BUILD_SHA=${originalHead}`, '--build-arg', `BUILD_VERSION=${tag}`,
-      '-t', 'nox-yard:release-check', '.'], { inherit: true });
+    log(`Running lightweight push checks for ${tag} (no Docker or builds)...`);
+    run(process.execPath, ['scripts/push-check.mjs', '--release', remoteBase, originalHead], { inherit: true });
     const unexpected = status().filter(({ code, path }) => path !== 'package.json' || code !== ' M');
     if (unexpected.length) {
       throw new Error(`Checks changed unexpected files: ${unexpected.map(({ code, path }) => `${code} ${path}`).join(', ')}`);
@@ -100,7 +100,8 @@ export function release(argv, {
     commitAttempted = true;
     git('commit', '-m', `chore: release ${tag}`);
     commit = git('rev-parse', 'HEAD');
-    if (git('diff-tree', '--no-commit-id', '--name-only', '-r', commit) !== 'package.json' ||
+    if (git('rev-parse', `${commit}^`) !== originalHead ||
+        git('diff-tree', '--no-commit-id', '--name-only', '-r', commit) !== 'package.json' ||
         readVersion(git('show', `${commit}:package.json`)) !== version || status().length) {
       throw new Error('Release commit or working tree changed unexpectedly. Inspect the local commit before continuing.');
     }
@@ -108,7 +109,9 @@ export function release(argv, {
     tagCreated = true;
     if (git('rev-parse', `${tag}^{commit}`) !== commit) throw new Error('Release tag does not point to the release commit.');
     log(`Pushing ${branch} and ${tag} atomically...`);
-    run('git', pushArgs, { inherit: true });
+    run('git', pushArgs, { inherit: true, env: { ...process.env,
+      NOX_PUSH_CHECKED_TREE: git('rev-parse', `${commit}^{tree}`), NOX_PUSH_CHECKED_BASE: remoteBase,
+    } });
   } catch (error) {
     // If Git created a commit before reporting an error, preserve that commit too.
     const currentHead = git('rev-parse', 'HEAD');

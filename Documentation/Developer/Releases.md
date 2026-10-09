@@ -1,42 +1,66 @@
 # Formal releases
 
-Run from the repository root with a completely clean working tree:
+Run from a completely clean repository root on `master`:
 
 ```sh
-npm run release -- 1.0.0
+npm run release -- 1.2.0
 ```
 
-Prereleases use the same command, for example `npm run release -- 1.1.0-rc.1`. An optional initial `v` is normalized. The version must be valid SemVer; build metadata (`+...`) is not supported. The root `package.json` stores the version in its `version` field without `v`, and Git uses an annotated `v<version>` tag. The initial `0.0.0` is a baseline, not a published release.
+Git, Node.js 24 and Go 1.26.6 are the only local prerequisites. No Docker Desktop, Buildx, Compose, frontend `npm ci` or browser is needed. Install the lightweight hook with `npm run hooks:install`; custom hooks are preserved. The release preflight still validates when the hook is absent.
 
-## Prerequisites
+The version accepts an optional `v` prefix and SemVer prereleases, but not build metadata (`+...`). Root `package.json` is the version source; there is no VERSION file. The command rejects other branches, detached HEAD, any tracked/staged/untracked changes, missing Git identity, unchanged version and existing local/remote tags. Inaccessible remotes abort.
 
-Install Go from `go.mod`, Node.js from `.nvmrc`, Git, a POSIX shell, and Docker with Compose and Buildx. Run `npm ci --prefix web` first. On Windows, use Git Bash with these tools on PATH. Git author and committer identities must be usable, and `origin` must be accessible with permission to push the current branch and tags. The remote must support atomic pushes; branch protection still applies.
+## Local preparation and remote order
 
-Commit the implementation and any other pending work before running the release command. The command rejects tracked, staged, or untracked changes, detached HEAD, an unchanged version, and a tag that already exists locally or on `origin`. A failed remote lookup aborts the release.
+The command changes only package.json, runs the same lightweight checks as push, commits the version and creates an annotated `v<version>` tag. The branch and tag are pushed atomically. Its pre-push hook recognizes the exact tree/base already checked by this process, avoiding duplicate validation without bypassing custom hooks.
 
-## What the command does
+Commit implementation changes and then run this command directly when publishing. An extra normal push first would start CI that the release subsequently cancels.
 
-The command updates only the root `package.json` version, runs `sh scripts/ci-local.sh`, and builds `nox-yard:release-check` locally for `linux/amd64`. That validation build receives the full current commit SHA and the requested `v<version>` through the existing Docker build arguments; it is never pushed.
+Only `pipeline.yml` receives push/PR events. It detects a release when the package version's annotated tag points exactly at the pushed master SHA. Tags do not launch a second workflow. `release.yml` calls `ci.yml`, waits for all common checks/builds, runs selected acceptance groups, then publishes. Ordinary pushes/PRs run that same reusable CI without publication. A manual tag-only push does not initiate publication: use the release command. Workflow dispatch on master supports `full_acceptance`; it publishes only when the selected master commit is a release candidate. Recover historical candidates by rerunning their original pipeline, not dispatching a newer master commit.
 
-After validation, the command refuses unexpected file changes, commits only `package.json` as `chore: release v<version>`, creates the annotated tag with message `Release v<version>`, and atomically pushes the current branch and tag to `origin`. It detects the branch dynamically.
+A release cancels active/pending normal CI for ancestor master commits, including the legacy branch CI during migration. It preserves other releases, current/newer/unrelated runs and completed runs. Only the trusted master cancellation job receives `actions: write`; PRs never cancel or publish. PR cancellation remains enabled.
 
-The tag push starts `.github/workflows/release.yml`. On a clean runner it checks tag/package.json version agreement, refuses an existing GitHub Release, installs the project toolchains and frontend dependencies, and repeats the shared checks. It then builds and publishes `linux/amd64` and `linux/arm64`, followed by a GitHub Release with generated notes. The release binary receives the release tag and full release commit SHA. OCI labels record version, revision, source, and creation time.
+## Build once and select acceptance
 
-| Version | GHCR tags | GitHub Release |
+CI runs Go vet/tests, delivery-tooling tests, vulnerability analysis for both Linux targets, production frontend build and four browser fixtures, Compose validation, and AMD64/ARM64 executable/health checks. Frontend and Go jobs run in parallel. Production binaries and frontend assets are compiled once and packaged with the shared runtime Dockerfile target. The publisher consumes tested image archives, validates their SHA/version/run/architecture/checksum/image IDs and OCI labels, and assembles the registry manifest without builds.
+
+Acceptance compares the complete candidate diff with the highest published stable SemVer ancestor, not the version-only release commit. A root package change affecting only version is ignored for runtime selection. Groups are combined:
+
+| Changed area | Docker acceptance |
+| --- | --- |
+| Frontend/docs | None |
+| Schedule-specific files | Schedules |
+| Managed projects | Managed, MCP, schedules |
+| Recreation | Recreate, MCP, schedules |
+| Self-update-specific files | Self-update |
+| Inventory/lifecycle/MCP | MCP |
+| Shared workers/jobs, auth/schema, dependencies, runtime, delivery policy or unknown files | All seven |
+
+Core managed manager/worker/readiness changes conservatively select all because they cross these subsystem boundaries. Changes to acceptance fixtures run their corresponding group. Missing baseline or explicit full selection also runs all. The policy summary records baseline, groups and reasons. Isolated Linux runners execute groups in parallel and retain timing/result reports for 14 days. Fixture scripts run with sudo on these disposable runners so they can clean root-owned private state/journals; this does not affect local push/release prerequisites. Historical v1.0.1 source/image is built with its own revision-keyed cache only for the upgrade gate. Go module/build caches are shared with fixture runner volumes; production images are not rebuilt for acceptance. Some fixtures deliberately compile modified/test binaries to exercise failure injection, separately from the shipped image.
+
+An equivalent explicitly requested host check is:
+
+```sh
+python scripts/acceptance.py --image CURRENT --groups schedules --report .tmp/schedules.json
+# Full suite also needs the historical image:
+python scripts/acceptance.py --image CURRENT --legacy-image LEGACY
+```
+
+These automated gates do not replace native Pi 5 and manual host acceptance.
+
+## Publication and recovery
+
+| Version | Official image tags | GitHub |
 | --- | --- | --- |
-| `1.0.0` | `v1.0.0`, `latest` | Stable |
-| `1.1.0-rc.1` | `v1.1.0-rc.1` only | Prerelease |
+| Stable | `v<version>` and `latest` | Release |
+| Prerelease | `v<version>` only | Prerelease |
 
-Only stable releases update `latest`. Publication is serialized, and an older stable version cannot replace a newer published stable release. Normal installation and self-update continue to use `ghcr.io/mapherez/nox-yard:latest`. Ordinary pushes to `master` and pull requests validate source and Docker builds without publishing official images. `scripts/build-version.sh` remains available for normal builds.
+Technical `build-<SHA>-amd64/arm64` tags hold uploaded platform images; official manifests reference their immutable digests. OCI labels contain version, full release commit SHA, source and creation time. The two official platform image IDs must match the tested artifacts. Publication is serialized with `queue: max`; pending releases are retained. Both GitHub releases and the registry latest label guard against moving latest backwards, including partial publication failures. Existing version tags with different images are refused; matching images/releases permit safe completion of a partial retry. Registry verification happens before GitHub Release creation.
 
-## Failure recovery
+Before a release commit exists, failure restores package.json byte-for-byte and unstages only the command's change. Unexpected check changes remain available for inspection. After the commit, failures preserve local commit/tag and print recovery commands. There is no automatic reset, deletion, tag replacement or force push.
 
-Before a release commit exists, any validation, build, or commit failure restores `package.json` byte-for-byte and unstages the command's `package.json` change. No release tag or push is made. Unexpected files changed by checks are reported and retained for inspection.
+On GitHub, use **Re-run failed jobs** to reuse successful CI jobs and tested architecture artifacts, including artifacts from earlier attempts of the same run. Release image/backend/frontend artifacts expire after seven days (normal CI keeps intermediate binaries/assets for one day and does not upload image archives); expired artifacts require rerunning the validation/build jobs. Retrying just publication performs no build or test suite. If image publication succeeded but GitHub Release creation failed, a retry verifies the existing images and completes the missing release. Rerunning all jobs can change image IDs through newer base-image/dependency layers; it cannot overwrite an already published version.
 
-If tag creation fails after the release commit, the commit is preserved locally. If the atomic push fails, both the release commit and annotated tag are preserved locally. There is no automatic reset or deletion. The error prints the exact commands to recover in a POSIX shell, including the branch/tag push. Resolve the reported problem, inspect the local state, and use those commands rather than rerunning the release command with an existing tag.
+## Rollout and evidence
 
-Watch the GitHub Actions release run after a successful push. Docker publication and GitHub Release creation are separate remote operations: if image publication succeeds but GitHub Release creation fails, the published image remains. Fix the failure and rerun the failed workflow; an existing GitHub Release is always rejected rather than edited silently.
-
-## Tooling validation
-
-`node --test scripts/release.test.mjs` exercises the production validation and metadata functions with disposable Git repositories and local bare remotes. Git operations, commits, annotated tags, and atomic pushes are real inside these fixtures; CI and Docker failure paths use an injected command runner. Tests never contact GitHub or GHCR and remove their fixtures on completion. These tests also run in `scripts/ci-local.sh` and normal CI.
+Branch protection should require **Pipeline result**, replacing the previous source/Docker checks; repository settings are not modified by these scripts. Inspect the first real GitHub run's source/build/acceptance timings and registry results. Locally passing delivery tests and YAML validation do not establish remote runner or GHCR success. No real commit, push, release or host deployment is implied by this refactor.

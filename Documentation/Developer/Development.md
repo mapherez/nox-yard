@@ -17,13 +17,13 @@
 - `internal/jobs/`: independent worker transport, resource identity, interruption observation and reviewed recovery.
 - `web/src/`: typed API client, React views, and CSS Modules. Shared tokens and global rules are in `web/src/styles/`.
 - `Dockerfile`, `compose.yaml`, `compose.dev.yaml`, `.env.example`: production and local development images and Compose configurations.
-- `scripts/check.sh`, `scripts/test.sh`, `scripts/ci-local.sh`: shared local and CI validation.
-- `scripts/install-hooks.sh`: installs the local pre-push hook in a clone.
-- `scripts/smoke-arm64.sh`: CI-only ARM64 executable and runtime health validation.
+- `scripts/check.sh`, `scripts/test.sh`, `scripts/ci-local.sh`: explicitly requested full source checks; CI invokes its separate jobs.
+- `scripts/install-hooks.mjs`, `scripts/push-check.mjs`: portable lightweight hook installation and pushed-snapshot checks.
+- `scripts/smoke-arm64.sh`: CI executable/runtime health checks, supporting AMD64 and ARM64.
 - `scripts/build-version.sh`: exact-commit Git tag/full-SHA version metadata for normal builds.
 - `package.json`, `scripts/release*.mjs`: formal release version, command, shared validation, metadata, and tests.
-- `.github/workflows/ci.yml`: source checks, Docker builds, and ARM64 smoke test, without publication.
-- `.github/workflows/release.yml`: tagged-source validation, multi-architecture GHCR publication, and GitHub Releases.
+- `.github/workflows/pipeline.yml`: push/PR entrypoint and release classification/cancellation; `ci.yml`: reusable source/image validation.
+- `.github/workflows/release.yml`: reusable CI call, selected runtime acceptance, image-artifact publication and GitHub Releases.
 - `Documentation/Developer/`: canonical architecture, implementation, style, decision, progress, and feature documentation.
 
 Keep Go packages and frontend modules small and named for their responsibilities. Prefer typed application models at HTTP boundaries. Do not send Docker SDK structs, credentials, or host-only details to the browser unless a user decision requires them.
@@ -58,16 +58,21 @@ Managed mutations and durable Yard restart require the container backend, its ex
 
 ## Local validation and pre-push
 
-Install Go 1.26.6 or a later patch, Node.js 24, Docker with the Compose plugin, and frontend dependencies. From the repository root:
+Install Git, Node.js 24 and Go 1.26.6. Push and release require neither Docker Desktop, frontend dependencies nor Chrome. From the repository root:
 
 ```sh
-npm ci --prefix web
-sh scripts/install-hooks.sh
+npm run hooks:install
 ```
 
-Run the installer from Git Bash on Windows, or from a POSIX shell on Linux. It installs a minimal `.git/hooks/pre-push` that calls `scripts/ci-local.sh`. Hooks are local to each clone, so repeat the installer in every new clone. The installer refuses to overwrite an existing pre-push hook or a custom `core.hooksPath`; in that case, add `sh "$(git rev-parse --show-toplevel)/scripts/ci-local.sh"` to the existing hook setup. The hook blocks a push when any check fails. It can be bypassed locally with `git push --no-verify`, but GitHub CI still runs.
+This portable Node installer creates the clone-local pre-push hook or migrates the exact old Yard hook. It preserves custom hooks and `core.hooksPath`; integrate `node "$(git rev-parse --show-toplevel)/scripts/push-check.mjs" "$@"` into custom hooks, forwarding Git's stdin. The old `sh scripts/install-hooks.sh` entrypoint remains available. Repeat installation for each clone.
 
-The same checks can be run at any time with `sh scripts/ci-local.sh`. Each check prints its name and a `[pass]` or `[FAIL]` result; a failure includes the command's own diagnostic output. The main script sends output to stderr so Git clients show the actual failure instead of only `failed to push some refs`. `check.sh` validates tracked Go files with `gofmt`, runs `go vet ./...`, and validates Compose with `docker compose config --quiet`. `test.sh` runs `go test ./...`, release tooling tests, the frontend type-check/build and `npm test`. The frontend test runner starts its own production preview on an ephemeral loopback port and uses pinned Playwright CLI 0.1.22 with Chrome to run deterministic history/recovery, recreate, schedule and session-expiry assertions. Install Chrome and make `npx` available; a missing browser or failing assertion fails validation. The CLI package may be fetched on its first invocation. CI and release source validation explicitly install Chrome through the same pinned CLI before these checks. Undefined optional lint/stylelint scripts are not reported as checks. The local scripts do not build Docker images or start application services; browser testing starts only its disposable frontend preview. The frontend build creates the ignored `web/dist/` directory.
+The hook validates committed snapshots, not working-tree edits: whitespace, `gofmt` for changed Go files, Node syntax for changed JS/MJS/CJS, package JSON and frontend manifest/lock agreement. Branch/tag updates targeting the same commit are checked once. Unknown remote objects fall back to checking the full tree. There are no network calls, automatic dependency installations, compilation, browser or Docker operations. Release preflight shares this validator; its own push reuses only an exact validated tree/base within that process. This local marker is never used as evidence by remote CI.
+
+During development, run the smallest relevant regression checks. Real container behaviour needs an isolated Linux Engine, but a minor unrelated change does not require Docker or the full acceptance suite. `sh scripts/ci-local.sh` remains an explicitly requested full source check, requiring its documented Go/frontend/browser/Compose prerequisites; neither the hook nor release invokes it. It is also not the remote CI entrypoint.
+
+The event entrypoint is `pipeline.yml`; `ci.yml` and `release.yml` accept reusable calls only. Normal CI runs vet/Go tests, delivery tests, vulnerability checks, frontend build/browser tests and two architecture health checks. Go and frontend validation run in parallel. Compiled binaries preserve executable permissions through a tar artifact; tested frontend assets and image archives are reused downstream. No validation is copied into the publishing job.
+
+Configure branch protection to require **Pipeline result** instead of **Source validation** and **Docker builds and ARM64 smoke test**. The aggregate check handles documentation skips, normal CI and release gates; configuration is intentionally manual. Obsolete PR runs cancel automatically. A release explicitly cancels only ancestor normal CI in `master`, including the legacy CI during migration; other releases, newer/unrelated runs and completed runs remain intact.
 
 ## Explicit durable-job acceptance
 
@@ -94,17 +99,15 @@ npx --yes --package @playwright/cli playwright-cli -s=history run-code --filenam
 npx --yes --package @playwright/cli playwright-cli -s=history close
 ```
 
-The script mocks API responses in the test browser only; it checks reload/reopening, action blocking, keyboard acknowledgement/conflict/retry/focus, rollback/cleanup details and 1440/768/390/320px layouts. Screenshots go to ignored `output/playwright/`. Real Docker interruption remains the jobs fixture's responsibility. Wiring these runtime gates into release CI remains C7 work.
+The script mocks API responses in the test browser only; it checks reload/reopening, action blocking, keyboard acknowledgement/conflict/retry/focus, rollback/cleanup details and 1440/768/390/320px layouts. Screenshots go to ignored `output/playwright/`. Real Docker interruption remains the jobs fixture's responsibility. Selected runtime gates are wired into release CI; confirming their first real GitHub execution remains C7 work.
 
 ## GitHub CI and image publication
 
-Pull requests into `master` run the shared source checks, explicit `linux/amd64` and `linux/arm64` Docker builds, and an ARM64 runtime smoke test. They do not publish images or change the host. QEMU runs the ARM64 container on the GitHub runner. The smoke script checks the executable's ELF architecture, then starts the image and requires `/healthz` to return `{"status":"ok"}`. It removes the test container on exit.
+PRs and normal master pushes call the reusable CI; documentation-only changes skip builds. Backend/frontend validation runs once and produces artifacts for image packaging. Both Linux image architectures receive executable and `/healthz` checks; ARM64 uses QEMU. Normal pushes publish nothing.
 
-Pushes to `master` run the same gates without publishing images. CI concurrency cancels older runs for the same branch or pull request. Release tooling tests run through `scripts/test.sh` in both local checks and CI.
+Formal releases use `npm run release -- X.Y.Z` from a clean master checkout. One pipeline calls the same CI, runs cumulative-diff-selected acceptance, then publishes the tested image artifacts. A release cancels only obsolete ancestor normal CI; new normal pushes cannot cancel releases. Stable tags promote `latest`; prereleases do not. See [Releases](Releases.md) for artifact identities, retries, queueing and the full-acceptance override.
 
-Formal releases use `npm run release -- X.Y.Z` from the clean repository root. The tag-only [release workflow](Releases.md) validates the tagged commit and publishes the multi-architecture image before creating its GitHub Release. Stable releases publish the version tag and `latest`; prereleases publish only their version tag. Release runs are not automatically canceled while executing.
-
-For branch protection, require **Source validation** and **Docker builds and ARM64 smoke test** before merging. Direct pushes to `master` are checked after the push; branch protection is needed if direct pushes must be disallowed. A failing release check prevents image publication.
+Require **Pipeline result** for branch protection. Direct master pushes are checked after the push; use protection rules if they must be disallowed. Old source/Docker check names must be removed from required checks manually. Any failed applicable gate blocks the aggregate result and publication.
 
 The image package may be private. Set its visibility to public in GitHub package settings for an unauthenticated host pull. For a private package, authenticate the host to `ghcr.io` with a token that has `read:packages` access. The Compose file references the published image and has no local `build:` context, so the host needs only `compose.yaml` and optional `.env` configuration. Run `docker compose pull` followed by `docker compose up -d` to deploy the latest stable release.
 

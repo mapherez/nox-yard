@@ -10,15 +10,19 @@ NoX Yard is a lightweight, self-hosted Docker management web application for a p
 
 ## CI and image publication
 
-The pre-push hook runs shared Go, release tooling, frontend, and Compose checks locally without a Docker build. Install it in each clone with `sh scripts/install-hooks.sh` after `npm ci --prefix web` (use Git Bash on Windows). GitHub CI repeats those checks, builds both architectures, and runs the ARM64 container under QEMU to verify its executable and `/healthz`. Pull requests and normal pushes to `master` publish nothing.
+Push and release need Git, Node.js 24 and Go 1.26.6; Docker Desktop, frontend dependencies and Chrome are not required. Install or upgrade the lightweight hook in each clone with `npm run hooks:install`. It checks the pushed Git snapshots for whitespace, changed Go formatting, JavaScript syntax and package/lock consistency. It does not build, test, install dependencies or access the network.
 
-From a clean repository root, create a formal release with:
+A single GitHub pipeline handles pushes to `master` and pull requests. CI runs Go analysis/tests, delivery-tooling tests, Linux vulnerability analysis, frontend build/browser regressions, Compose validation and AMD64/ARM64 image health checks. Documentation-only changes skip builds. Nothing is published by a normal push or PR.
+
+From a clean repository root on `master`, create a formal release with:
 
 ```sh
-npm run release -- 1.0.0
+npm run release -- 1.2.0
 ```
 
-This validates Git, updates `package.json`, runs the local checks and a Docker build, commits only `package.json`, creates the annotated `v1.0.0` tag, and pushes the current branch and tag atomically. GitHub Actions validates the tagged source again, publishes the image, then creates the GitHub Release with generated notes.
+The command updates only the root `package.json`, performs the lightweight checks, commits the version, creates an annotated tag and pushes `master` plus the tag atomically. One pipeline cancels superseded normal CI, calls the reusable CI, runs the Docker acceptance groups affected since the last published stable release, then publishes the exact tested images and creates the GitHub Release. Publication does not rebuild. Releases already in progress are protected against cancellation.
+
+When you intend to release, commit the code and run the release command directly; a separate preceding push would start an unnecessary normal CI. GitHub branch protection should require **Pipeline result**, replacing the old source/Docker check names; this setting is not changed automatically.
 
 | Release | Docker tags | GitHub |
 | --- | --- | --- |

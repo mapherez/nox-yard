@@ -1,5 +1,10 @@
 .git
 .gitignore
+.tmp
+output
+.playwright-cli
+.ci-images
+**/__pycache__
 Documentation
 data
 **/node_modules

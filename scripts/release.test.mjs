@@ -8,6 +8,7 @@ import test from 'node:test';
 import { commandRunner, release } from './release.mjs';
 import { assertLatestStable, checkReleaseVersion, parseVersion } from './release-version.mjs';
 import { image, releaseMetadata, source, writeMetadataOutputs } from './release-metadata.mjs';
+import { installHooks } from './install-hooks.mjs';
 
 const scripts = dirname(fileURLToPath(import.meta.url));
 const sha = 'a'.repeat(40);
@@ -21,7 +22,7 @@ function fixture(t, original = '0.0.0\n') {
   mkdirSync(join(root, 'scripts'), { recursive: true });
   const realRun = commandRunner(root);
   const git = (...args) => realRun('git', args).trim();
-  git('-c', 'init.templateDir=', 'init', '--initial-branch=delivery/topic');
+  git('-c', 'init.templateDir=', 'init', '--initial-branch=master');
   for (const [key, value] of Object.entries({
     'user.name': 'Release Tests', 'user.email': 'release@example.test',
     'commit.gpgSign': 'false', 'tag.gpgSign': 'false', 'core.autocrlf': 'false',
@@ -33,25 +34,25 @@ function fixture(t, original = '0.0.0\n') {
   writeFileSync(join(root, 'Dockerfile'), 'FROM scratch\n');
   writeFileSync(join(root, 'other.txt'), 'unchanged\n');
   writeFileSync(join(root, 'scripts', 'ci-local.sh'), '#!/bin/sh\nexit 0\n');
-  for (const name of ['release.mjs', 'release-version.mjs', 'release-metadata.mjs', 'check-release-version.mjs']) {
+  for (const name of ['release.mjs', 'release-version.mjs', 'release-metadata.mjs', 'check-release-version.mjs', 'push-check.mjs']) {
     copyFileSync(join(scripts, name), join(root, 'scripts', name));
   }
   git('add', '.');
   git('commit', '-m', 'Fixture baseline');
   git('-c', 'init.templateDir=', 'init', '--bare', remote);
   git('remote', 'add', 'origin', remote);
-  git('push', 'origin', 'HEAD:refs/heads/delivery/topic');
+  git('push', 'origin', 'HEAD:refs/heads/master');
   const originalHead = git('rev-parse', 'HEAD');
   const calls = [];
   const messages = [];
   const controls = {};
-  const run = (command, args) => {
-    calls.push({ command, args });
-    if (command === 'sh') { controls.check?.(); return ''; }
-    if (command === 'docker') { controls.build?.(); return ''; }
+  const run = (command, args, options) => {
+    calls.push({ command, args, options });
+    if (command === process.execPath && args[0] === 'scripts/push-check.mjs') { controls.check?.(); return ''; }
+    if (command === 'docker') throw new Error('Local release must never invoke Docker');
     if (command === 'git' && args[0] === 'commit') controls.commit?.();
     if (command === 'git' && args[0] === 'tag' && args.includes('-a')) controls.tag?.();
-    return realRun(command, args);
+    return realRun(command, args, { env: options?.env });
   };
   const options = { cwd: root, root, run, log: (message) => messages.push(message) };
   return {
@@ -64,7 +65,7 @@ function fixture(t, original = '0.0.0\n') {
       assert.equal(git('rev-parse', 'HEAD'), originalHead);
       assert.equal(git('tag', '--list'), '');
       assert.equal(git('diff', '--cached', '--name-only'), '');
-      assert.equal(git('--git-dir', remote, 'rev-parse', 'refs/heads/delivery/topic'), originalHead);
+      assert.equal(git('--git-dir', remote, 'rev-parse', 'refs/heads/master'), originalHead);
       assert.equal(git('--git-dir', remote, 'tag', '--list'), '');
     },
   };
@@ -133,6 +134,15 @@ test('requires usable Git identity', (t) => {
   f.assertUnreleased();
 });
 
+test('rejects release outside master before changing files or checking source', (t) => {
+  const f = fixture(t);
+  f.git('checkout', '-b', 'development');
+  assert.throws(() => f.release(), /only allowed from master/);
+  assert.equal(f.version(), '0.0.0');
+  assert.equal(f.calls.some(({ command }) => command === process.execPath), false);
+  f.assertUnreleased();
+});
+
 test('inaccessible origin aborts instead of treating the tag as absent', (t) => {
   const f = fixture(t);
   f.git('remote', 'set-url', 'origin', join(f.directory, 'missing.git'));
@@ -164,7 +174,7 @@ test('rejects a tag that exists only on origin', (t) => {
   assert.equal(f.git('rev-parse', 'HEAD'), f.originalHead);
 });
 
-for (const failure of ['check', 'build', 'commit']) {
+for (const failure of ['check', 'commit']) {
   test(`${failure} failure restores package.json byte-for-byte before any release`, (t) => {
     const f = fixture(t, '0.0.0\r\n');
     const original = f.packageContents();
@@ -188,14 +198,14 @@ for (const staged of [false, true]) {
     assert.equal(readFileSync(join(f.root, 'other.txt'), 'utf8'), 'check changed this\n');
     assert.equal(f.git('rev-parse', 'HEAD'), f.originalHead);
     assert.equal(f.git('tag', '--list'), '');
-    assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), f.originalHead);
+    assert.equal(f.remoteGit('rev-parse', 'refs/heads/master'), f.originalHead);
     assert.equal(f.git('diff', '--cached', '--name-only'), staged ? 'other.txt' : '');
   });
 }
 
 test('unexpected changes to package.json during checks also abort', (t) => {
   const f = fixture(t);
-  f.controls.build = () => writeFileSync(join(f.root, 'package.json'), JSON.stringify({ name: 'nox-yard', version: '7.0.0' }));
+  f.controls.check = () => writeFileSync(join(f.root, 'package.json'), JSON.stringify({ name: 'nox-yard', version: '7.0.0' }));
   assert.throws(() => f.release(), /Checks changed package.json unexpectedly/);
   assert.equal(f.version(), '0.0.0');
   f.assertUnreleased();
@@ -208,7 +218,7 @@ for (const version of ['v1.0.0', '2.0.0-rc.1', '2.0.0-beta.2']) {
     const normalized = version.replace(/^v/, '');
     const tag = `v${normalized}`;
     assert.equal(result.version, normalized);
-    assert.equal(result.branch, 'delivery/topic');
+    assert.equal(result.branch, 'master');
     assert.equal(f.version(), normalized);
     assert(f.packageContents().toString().endsWith('\r\n'));
     assert.equal(f.packageContents().toString().replaceAll('\r\n', '').includes('\n'), false);
@@ -223,17 +233,17 @@ for (const version of ['v1.0.0', '2.0.0-rc.1', '2.0.0-beta.2']) {
     assert.equal(f.git('for-each-ref', '--format=%(contents)', `refs/tags/${tag}`), `Release ${tag}`);
     assert.equal(f.git('rev-parse', `${tag}^{commit}`), result.commit);
     assert.equal(f.remoteGit('rev-parse', `refs/tags/${tag}^{commit}`), result.commit);
-    assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), result.commit);
+    assert.equal(f.remoteGit('rev-parse', 'refs/heads/master'), result.commit);
     assert.equal(f.git('status', '--porcelain'), '');
-    assert.deepEqual(f.calls.find(({ command }) => command === 'sh').args, ['scripts/ci-local.sh']);
-    assert.deepEqual(f.calls.find(({ command }) => command === 'docker').args, [
-      'buildx', 'build', '--platform', 'linux/amd64', '--load',
-      '--build-arg', `BUILD_SHA=${f.originalHead}`, '--build-arg', `BUILD_VERSION=${tag}`,
-      '-t', 'nox-yard:release-check', '.',
-    ]);
+    assert.deepEqual(f.calls.find(({ command }) => command === process.execPath).args,
+      ['scripts/push-check.mjs', '--release', f.originalHead, f.originalHead]);
+    assert.equal(f.calls.some(({ command }) => command === 'docker' || command === 'sh'), false);
     assert.deepEqual(f.calls.find(({ command, args }) => command === 'git' && args[0] === 'push').args, [
-      'push', '--atomic', 'origin', 'refs/heads/delivery/topic:refs/heads/delivery/topic', `refs/tags/${tag}:refs/tags/${tag}`,
+      'push', '--atomic', 'origin', 'refs/heads/master:refs/heads/master', `refs/tags/${tag}:refs/tags/${tag}`,
     ]);
+    const push = f.calls.find(({ command, args }) => command === 'git' && args[0] === 'push');
+    assert.equal(push.options.env.NOX_PUSH_CHECKED_TREE, f.git('rev-parse', `${result.commit}^{tree}`));
+    assert.equal(push.options.env.NOX_PUSH_CHECKED_BASE, f.originalHead);
     assert(f.messages.at(-1).includes('GitHub Actions'));
   });
 }
@@ -250,7 +260,27 @@ test('tag creation failure preserves the release commit and prints recovery', (t
   assert.notEqual(f.git('rev-parse', 'HEAD'), f.originalHead);
   assert.equal(f.git('tag', '--list'), '');
   assert.equal(f.version(), '1.0.0');
-  assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), f.originalHead);
+  assert.equal(f.remoteGit('rev-parse', 'refs/heads/master'), f.originalHead);
+});
+
+test('real release preflight and installed hook validate once without Docker or source builds', t => {
+  const f = fixture(t), diagnostics = [];
+  f.git('config', '--unset', 'core.hooksPath');
+  installHooks({ cwd: f.root, log() {} });
+  const realRun = commandRunner(f.root);
+  const run = (command, args, options = {}) => {
+    assert.notEqual(command, 'docker'); assert.notEqual(command, 'sh');
+    if (command === process.execPath || (command === 'git' && args[0] === 'push')) {
+      const result = spawnSync(command, args, { cwd: f.root, encoding: 'utf8', env: options.env || process.env });
+      diagnostics.push(result.stderr);
+      if (result.error || result.status !== 0) throw new Error(result.error?.message || result.stderr);
+      return result.stdout;
+    }
+    return realRun(command, args);
+  };
+  release(['1.0.0'], { ...f.options, run });
+  assert.equal(diagnostics.filter(text => text.includes('Push checks:')).length, 1);
+  assert.equal(diagnostics.filter(text => text.includes('already completed for release tree')).length, 1);
 });
 
 test('an atomic push rejected for the tag preserves local commit/tag and updates neither remote ref', (t) => {
@@ -263,14 +293,14 @@ test('an atomic push rejected for the tag preserves local commit/tag and updates
   f.remoteGit('config', 'core.hooksPath', join(f.remote, 'hooks'));
   assert.throws(() => f.release(), (error) => {
     assert.match(error.message, /commit .* and annotated tag v1.0.0 remain local/);
-    assert.match(error.message, /git 'push' '--atomic' 'origin' 'refs\/heads\/delivery\/topic:refs\/heads\/delivery\/topic' 'refs\/tags\/v1.0.0:refs\/tags\/v1.0.0'/);
+    assert.match(error.message, /git 'push' '--atomic' 'origin' 'refs\/heads\/master:refs\/heads\/master' 'refs\/tags\/v1.0.0:refs\/tags\/v1.0.0'/);
     return true;
   });
   const commit = f.git('rev-parse', 'HEAD');
   assert.notEqual(commit, f.originalHead);
   assert.equal(f.git('rev-parse', 'v1.0.0^{commit}'), commit);
   assert.equal(f.git('cat-file', '-t', 'v1.0.0'), 'tag');
-  assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), f.originalHead);
+  assert.equal(f.remoteGit('rev-parse', 'refs/heads/master'), f.originalHead);
   assert.equal(f.remoteGit('tag', '--list'), '');
   assert.equal(f.git('status', '--porcelain'), '');
 });

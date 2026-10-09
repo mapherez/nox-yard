@@ -1,0 +1,143 @@
+name: Pipeline
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      full_acceptance:
+        description: Run all Docker acceptance groups for a release candidate
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Only obsolete PR runs are cancelled automatically. Release cancellation is explicit.
+concurrency:
+  group: pipeline-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  classify:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.policy.outputs.release_tag }}
+      version: ${{ steps.policy.outputs.version }}
+      created: ${{ steps.policy.outputs.created }}
+      docs_only: ${{ steps.policy.outputs.docs_only }}
+      groups: ${{ steps.policy.outputs.groups }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Identify release and cumulative acceptance changes
+        id: policy
+        uses: actions/github-script@v8
+        env:
+          FULL_ACCEPTANCE: ${{ inputs.full_acceptance || false }}
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const { classify } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/delivery.mjs`).href);
+            const policy = await classify({ github, context, full: process.env.FULL_ACCEPTANCE === 'true' });
+            core.setOutput('release_tag', policy.releaseTag);
+            core.setOutput('version', policy.version);
+            core.setOutput('created', new Date().toISOString());
+            core.setOutput('docs_only', String(policy.docsOnly));
+            core.setOutput('groups', JSON.stringify(policy.groups));
+            await core.summary.addHeading(policy.releaseTag ? `Release ${policy.releaseTag}` : 'Normal CI')
+              .addRaw(`Baseline: ${policy.baseline?.tag || 'none'}\n\n`)
+              .addRaw(`Docker acceptance: ${policy.groups.join(', ') || 'none'}\n\n`)
+              .addList(policy.reasons).write();
+
+  cancel_previous:
+    name: Cancel superseded normal CI
+    needs: classify
+    if: needs.classify.outputs.release_tag != '' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const { cancelSuperseded } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/delivery.mjs`).href);
+            await cancelSuperseded({ github, context, log: core.info });
+
+  normal_ci:
+    name: CI
+    needs: classify
+    if: needs.classify.outputs.release_tag == '' && needs.classify.outputs.docs_only != 'true'
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      version: ${{ needs.classify.outputs.version }}
+      created: ${{ needs.classify.outputs.created }}
+
+  release:
+    name: Release
+    needs: [classify, cancel_previous]
+    if: needs.classify.outputs.release_tag != '' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    uses: ./.github/workflows/release.yml
+    permissions:
+      contents: write
+      packages: write
+      actions: read
+    with:
+      tag: ${{ needs.classify.outputs.release_tag }}
+      created: ${{ needs.classify.outputs.created }}
+      groups: ${{ needs.classify.outputs.groups }}
+
+  result:
+    name: Pipeline result
+    permissions:
+      contents: read
+      actions: read
+    needs: [classify, cancel_previous, normal_ci, release]
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      CLASSIFY: ${{ needs.classify.result }}
+      DOCS_ONLY: ${{ needs.classify.outputs.docs_only }}
+      RELEASE_TAG: ${{ needs.classify.outputs.release_tag }}
+      NORMAL_CI: ${{ needs.normal_ci.result }}
+      RELEASE: ${{ needs.release.result }}
+    steps:
+      - name: Require every applicable gate
+        run: |
+          test "$CLASSIFY" = success
+          if [ -n "$RELEASE_TAG" ]; then
+            test "$RELEASE" = success
+          elif [ "$DOCS_ONLY" != true ]; then
+            test "$NORMAL_CI" = success
+          fi
+      - name: Summarize completed job durations
+        if: always()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { ...context.repo, run_id: context.runId, per_page: 100 });
+            const rows = jobs.filter(j => j.started_at && j.completed_at).map(j => [j.name, j.conclusion || j.status,
+              `${((Date.parse(j.completed_at) - Date.parse(j.started_at)) / 1000).toFixed(1)}s`]);
+            await core.summary.addHeading('Job durations').addTable([
+              [{ data: 'Job', header: true }, { data: 'Result', header: true }, { data: 'Duration', header: true }], ...rows
+            ]).write();

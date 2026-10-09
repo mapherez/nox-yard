@@ -36,3 +36,6 @@ output/playwright/
 Thumbs.db
 .idea/
 .vscode/
+.ci-build/
+.ci-images/
+__pycache__/
