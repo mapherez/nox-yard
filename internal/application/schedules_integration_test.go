@@ -112,8 +112,29 @@ func TestScheduleDockerAcceptance(t *testing.T) {
 	wait := func(id, want string) store.Job {
 		t.Helper()
 		var last store.Job
+		var workerState, workerLogs string
+		var nextWorkerCheck time.Time
+		captureExitedWorker := func() {
+			if last.WorkerID == "" || workerState != "" || time.Now().Before(nextWorkerCheck) {
+				return
+			}
+			nextWorkerCheck = time.Now().Add(time.Second)
+			out, err := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{json .State}}", last.WorkerID).CombinedOutput()
+			var state struct{ Status string }
+			if err == nil && json.Unmarshal(out, &state) == nil && (state.Status == "exited" || state.Status == "dead") {
+				// Preserve only fixture state/logs before the observer removes the worker.
+				workerState = strings.TrimSpace(string(out))
+				out, err = exec.CommandContext(ctx, "docker", "logs", "--tail", "40", last.WorkerID).CombinedOutput()
+				workerLogs = fmt.Sprintf("%s (%v)", strings.TrimSpace(string(out)), err)
+			}
+		}
 		diagnose := func() {
-			t.Logf("scheduled job: status=%s stage=%s outcome=%s error=%s", last.Status, last.Stage, last.Outcome, last.Error)
+			t.Logf("scheduled job: status=%s stage=%s outcome=%s startedAt=%d error=%s", last.Status, last.Stage, last.Outcome, last.StartedAt, last.Error)
+			if workerState != "" {
+				t.Logf("fixture worker inspect (before cleanup): %s", workerState)
+				t.Logf("fixture worker logs (before cleanup): %s", workerLogs)
+				return
+			}
 			if last.WorkerID != "" {
 				for _, command := range [][]string{
 					{"inspect", "--format", "{{json .State}}", last.WorkerID},
@@ -131,6 +152,7 @@ func TestScheduleDockerAcceptance(t *testing.T) {
 				t.Fatal(err)
 			}
 			last = j
+			captureExitedWorker()
 			if j.Status != "running" {
 				if j.Outcome != want {
 					diagnose()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path"
@@ -104,14 +105,25 @@ func TestRecreateDockerAcceptance(t *testing.T) {
 	docker("network", "create", "--label", "nox-yard.acceptance="+name, name+"-net")
 	// Let Docker allocate a free subnet, then declare it explicitly for static IPs.
 	subnet := docker("network", "inspect", "--format", "{{(index .IPAM.Config 0).Subnet}}", name+"-net")
+	prefix, err := netip.ParsePrefix(subnet)
+	if err != nil || !prefix.Addr().Is4() {
+		t.Fatalf("fixture network did not allocate an IPv4 subnet: %q (%v)", subnet, err)
+	}
+	gateway := prefix.Masked().Addr().Next()
+	staticIP := gateway
+	for range 9 {
+		staticIP = staticIP.Next()
+	}
+	if !prefix.Contains(staticIP) {
+		t.Fatalf("fixture subnet cannot hold its static address: %s", prefix)
+	}
 	docker("network", "rm", name+"-net")
-	docker("network", "create", "--subnet", subnet, "--label", "nox-yard.acceptance="+name, name+"-net")
-	gateway := docker("network", "inspect", "--format", "{{(index .IPAM.Config 0).Gateway}}", name+"-net")
-	staticIP := gateway[:strings.LastIndex(gateway, ".")] + ".10"
+	// Engines may not report a gateway until the first endpoint is attached.
+	docker("network", "create", "--subnet", subnet, "--gateway", gateway.String(), "--label", "nox-yard.acceptance="+name, name+"-net")
 	docker("volume", "create", "--label", "nox-yard.acceptance="+name, name+"-data")
 	id := docker("run", "-d", "--name", name+"-single", "--label", "nox-yard.acceptance="+name, "--network", name+"-net", "--network-alias", "app-alias",
 		"--mount", "type=volume,source="+name+"-data,target=/data", "--mount", "type=bind,source="+base+"/bind,target=/bind",
-		"--ip", staticIP, "--mac-address", "02:42:ac:11:00:10", "--publish", "127.0.0.1:"+os.Getenv("NOX_RECREATE_PORT")+":8080",
+		"--ip", staticIP.String(), "--mac-address", "02:42:ac:11:00:10", "--publish", "127.0.0.1:"+os.Getenv("NOX_RECREATE_PORT")+":8080",
 		"--env", "TOKEN=private$literal", "--workdir", "/data", "--memory", "64m", "--cpus", "0.4", "--pids-limit", "64", "--read-only", "--tmpfs", "/tmp", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--restart", "unless-stopped", reference+":app")
 	old, _ := m.client.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 	if err := m.ready(ctx, &entry{Old: old.Container}, id); err != nil {

@@ -48,8 +48,9 @@ func Open(dataDir string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	for _, pragma := range []string{
-		"PRAGMA journal_mode = WAL",
+		// WAL setup/recovery can contend with a worker or a restarting web process.
 		"PRAGMA busy_timeout = 5000",
+		"PRAGMA journal_mode = WAL",
 		"PRAGMA foreign_keys = ON",
 	} {
 		if _, err := db.Exec(pragma); err != nil {
