@@ -103,3 +103,86 @@ func TestRollbackVerifiesRestoredOriginalDespiteDockerEmptyCollections(t *testin
 		})
 	}
 }
+
+func TestEndpointDifferences(t *testing.T) {
+	original := map[string]*network.EndpointSettings{
+		"app": {
+			Aliases: []string{"service"},
+			IPAMConfig: &network.EndpointIPAMConfig{
+				IPv4Address: netip.MustParseAddr("172.20.0.10"),
+			},
+			MacAddress: network.HardwareAddr{
+				0x02, 0x42, 0xac, 0x11, 0x00, 0x10,
+			},
+		},
+	}
+
+	t.Run("additional Docker alias", func(t *testing.T) {
+		actual := clone(original)
+		actual["app"].Aliases = append(actual["app"].Aliases, "docker-generated")
+		if diff := endpointDifferences(actual, original); len(diff) != 0 {
+			t.Fatalf("unexpected differences: %v", diff)
+		}
+	})
+
+	t.Run("lost original alias", func(t *testing.T) {
+		actual := clone(original)
+		actual["app"].Aliases = nil
+		if diff := endpointDifferences(actual, original); len(diff) == 0 {
+			t.Fatal("lost alias was accepted")
+		}
+	})
+
+	t.Run("changed static IP", func(t *testing.T) {
+		actual := clone(original)
+		actual["app"].IPAMConfig.IPv4Address = netip.MustParseAddr("172.20.0.11")
+		if diff := endpointDifferences(actual, original); len(diff) == 0 {
+			t.Fatal("changed static IP was accepted")
+		}
+	})
+
+	t.Run("changed MAC", func(t *testing.T) {
+		actual := clone(original)
+		actual["app"].MacAddress[5] = 0x11
+		if diff := endpointDifferences(actual, original); len(diff) == 0 {
+			t.Fatal("changed MAC was accepted")
+		}
+	})
+
+	t.Run("changed driver options", func(t *testing.T) {
+		actual := clone(original)
+		actual["app"].DriverOpts = map[string]string{"foo": "bar"}
+		if diff := endpointDifferences(actual, original); len(diff) == 0 {
+			t.Fatal("changed driver options were accepted")
+		}
+	})
+
+	t.Run("changed gateway priority", func(t *testing.T) {
+		actual := clone(original)
+		actual["app"].GwPriority = 100
+		if diff := endpointDifferences(actual, original); len(diff) == 0 {
+			t.Fatal("changed gateway priority was accepted")
+		}
+	})
+
+	t.Run("empty IPAM is equivalent to nil", func(t *testing.T) {
+		before := map[string]*network.EndpointSettings{
+			"bridge": {},
+		}
+		after := map[string]*network.EndpointSettings{
+			"bridge": {IPAMConfig: &network.EndpointIPAMConfig{}},
+		}
+		if diff := endpointDifferences(after, before); len(diff) != 0 {
+			t.Fatalf("unexpected differences: %v", diff)
+		}
+	})
+
+	t.Run("different networks are rejected", func(t *testing.T) {
+		actual := map[string]*network.EndpointSettings{
+			"other": {},
+		}
+		if diff := endpointDifferences(actual, original); len(diff) == 0 {
+			t.Fatal("different network was accepted")
+		}
+	})
+}
