@@ -495,8 +495,14 @@ func (m *Manager) verify(ctx context.Context, state *journal, root string) error
 		if actual.Image != target.TargetImage || actual.Name != target.Old.Name || !equivalent(normalizeConfig(actual), wanted.Config) || !equivalent(normalizeHost(actual.HostConfig), normalizeHost(wanted.HostConfig)) {
 			return preservationError{fmt.Sprintf("Preserved configuration differs (%s; %s).", differing(normalizeConfig(actual), wanted.Config), differing(normalizeHost(actual.HostConfig), normalizeHost(wanted.HostConfig)))}
 		}
-		if !reflect.DeepEqual(endpoints(actual), wanted.NetworkingConfig.EndpointsConfig) {
-			return preservationError{"Preserved network endpoint settings differ."}
+		if differences := endpointDifferences(
+			endpoints(actual),
+			wanted.NetworkingConfig.EndpointsConfig,
+		); len(differences) > 0 {
+			return preservationError{
+				"Preserved network endpoint settings differ: " +
+					strings.Join(differences, ", "),
+			}
 		}
 		if !equivalent(mountIdentities(actual), mountIdentities(target.Old)) {
 			return preservationError{"Preserved mount sources, access or propagation differ."}
@@ -577,8 +583,14 @@ func (m *Manager) rollback(ctx context.Context, job store.Job, state *journal) e
 		if !equivalent(actual.Container.Config, target.Old.Config) || !equivalent(normalizeHost(actual.Container.HostConfig), normalizeHost(target.Old.HostConfig)) {
 			return preservationError{fmt.Sprintf("Restored original configuration differs (%s; %s).", differing(actual.Container.Config, target.Old.Config), differing(normalizeHost(actual.Container.HostConfig), normalizeHost(target.Old.HostConfig)))}
 		}
-		if !equivalent(endpoints(actual.Container), endpoints(target.Old)) {
-			return preservationError{"Restored original network endpoint settings differ."}
+		if differences := endpointDifferences(
+			endpoints(actual.Container),
+			endpoints(target.Old),
+		); len(differences) > 0 {
+			return preservationError{
+				"Restored original network endpoint settings differ: " +
+					strings.Join(differences, ", "),
+			}
 		}
 		if !equivalent(mountIdentities(actual.Container), mountIdentities(target.Old)) {
 			return preservationError{"Restored original mount sources, access or propagation differ."}
@@ -651,6 +663,85 @@ func (e preservationError) Error() string { return e.message }
 
 // Docker may encode unset lists as null or [] before/after first start. Treat
 // only empty collections equivalently; configured values still compare exactly.
+// normalizedEndpointIPAM compares configured addresses rather than Docker's
+// nil/empty representation. Order of link-local IPs is not meaningful.
+func normalizedEndpointIPAM(cfg *network.EndpointIPAMConfig) any {
+	if cfg == nil {
+		return nil
+	}
+
+	linkLocal := make([]string, 0, len(cfg.LinkLocalIPs))
+	for _, addr := range cfg.LinkLocalIPs {
+		linkLocal = append(linkLocal, addr.String())
+	}
+	sort.Strings(linkLocal)
+
+	if !cfg.IPv4Address.IsValid() &&
+		!cfg.IPv6Address.IsValid() &&
+		len(linkLocal) == 0 {
+		return nil
+	}
+
+	return []any{
+		cfg.IPv4Address.String(),
+		cfg.IPv6Address.String(),
+		linkLocal,
+	}
+}
+
+// endpointDifferences checks that every configured network setting survived.
+// Docker may add aliases and represent empty IPAM settings differently.
+func endpointDifferences(
+	actual, expected map[string]*network.EndpointSettings,
+) []string {
+	var differences []string
+
+	for name, want := range expected {
+		got, exists := actual[name]
+		if !exists || got == nil || want == nil {
+			differences = append(differences, name+".missing")
+			continue
+		}
+
+		if !equivalent(
+			normalizedEndpointIPAM(got.IPAMConfig),
+			normalizedEndpointIPAM(want.IPAMConfig),
+		) {
+			differences = append(differences, name+".IPAMConfig")
+		}
+
+		gotAliases := make(map[string]struct{}, len(got.Aliases))
+		for _, alias := range got.Aliases {
+			gotAliases[alias] = struct{}{}
+		}
+		for _, alias := range want.Aliases {
+			if _, exists := gotAliases[alias]; !exists {
+				differences = append(differences, name+".Aliases")
+				break
+			}
+		}
+
+		if !equivalent(got.MacAddress, want.MacAddress) {
+			differences = append(differences, name+".MacAddress")
+		}
+		if !equivalent(got.DriverOpts, want.DriverOpts) {
+			differences = append(differences, name+".DriverOpts")
+		}
+		if got.GwPriority != want.GwPriority {
+			differences = append(differences, name+".GwPriority")
+		}
+	}
+
+	for name := range actual {
+		if _, exists := expected[name]; !exists {
+			differences = append(differences, name+".unexpected")
+		}
+	}
+
+	sort.Strings(differences)
+	return differences
+}
+
 func equivalent(a, b any) bool {
 	canonical := func(value any) any {
 		encoded, _ := json.Marshal(value)
