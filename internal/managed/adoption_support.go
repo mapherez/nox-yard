@@ -26,7 +26,7 @@ func assessAdoption(service modelService, item container.InspectResponse) error 
 		return fmt.Errorf("%w: existing Compose identity labels are incomplete; this service cannot be safely adopted", ErrInvalidSource)
 	}
 	allowed := map[string]bool{}
-	for _, key := range strings.Fields("image command entrypoint environment labels user working_dir profiles scale depends_on ports volumes networks healthcheck restart stop_grace_period stop_signal hostname domainname init logging") {
+	for _, key := range strings.Fields("image command entrypoint environment labels user working_dir profiles scale depends_on ports volumes networks healthcheck restart stop_grace_period stop_signal hostname domainname init logging tmpfs") {
 		allowed[key] = true
 	}
 	for _, key := range slices.Sorted(maps.Keys(service.raw)) {
@@ -77,8 +77,19 @@ func assessAdoption(service modelService, item container.InspectResponse) error 
 			}
 			for _, options := range volumes {
 				for field := range options {
-					if field != "type" && field != "source" && field != "target" && field != "read_only" && field != "bind" && field != "volume" {
+					if field != "type" && field != "source" && field != "target" && field != "read_only" && field != "bind" && field != "volume" && field != "tmpfs" {
 						return fmt.Errorf("%w: mount %s", ErrUnsupportedComparison, field)
+					}
+				}
+				if raw := options["tmpfs"]; raw != nil {
+					var tmpfs map[string]json.RawMessage
+					if json.Unmarshal(raw, &tmpfs) != nil {
+						return fmt.Errorf("%w: invalid tmpfs settings", ErrInvalidSource)
+					}
+					for _, field := range slices.Sorted(maps.Keys(tmpfs)) {
+						if field != "size" && field != "mode" {
+							return fmt.Errorf("%w: tmpfs.%s", ErrUnsupportedComparison, field)
+						}
 					}
 				}
 				if raw := options["volume"]; raw != nil {
@@ -113,7 +124,7 @@ func assessAdoption(service modelService, item container.InspectResponse) error 
 	// Docker fills many default fields. Reject observable non-default settings
 	// whose meaning cannot be recovered from the supported source fields.
 	host := reflect.ValueOf(*item.HostConfig)
-	for _, field := range strings.Fields("Privileged ReadonlyRootfs CapAdd CapDrop SecurityOpt Devices DeviceRequests DeviceCgroupRules ExtraHosts DNS DNSOptions DNSSearch GroupAdd VolumesFrom Links Tmpfs Ulimits Memory MemorySwap MemoryReservation NanoCPUs CPUPeriod CPUQuota CPURealtimePeriod CPURealtimeRuntime CPUShares CpusetCpus CpusetMems PidsLimit BlkioWeight BlkioWeightDevice BlkioDeviceReadBps BlkioDeviceWriteBps BlkioDeviceReadIOps BlkioDeviceWriteIOps ShmSize Sysctls AutoRemove ContainerIDFile Annotations OomScoreAdj PidMode PublishAllPorts StorageOpt UTSMode UsernsMode CgroupParent Umask") {
+	for _, field := range strings.Fields("Privileged ReadonlyRootfs CapAdd CapDrop SecurityOpt Devices DeviceRequests DeviceCgroupRules ExtraHosts DNS DNSOptions DNSSearch GroupAdd VolumesFrom Links Ulimits Memory MemorySwap MemoryReservation NanoCPUs CPUPeriod CPUQuota CPURealtimePeriod CPURealtimeRuntime CPUShares CpusetCpus CpusetMems PidsLimit BlkioWeight BlkioWeightDevice BlkioDeviceReadBps BlkioDeviceWriteBps BlkioDeviceReadIOps BlkioDeviceWriteIOps ShmSize Sysctls AutoRemove ContainerIDFile Annotations OomScoreAdj PidMode PublishAllPorts StorageOpt UTSMode UsernsMode CgroupParent Umask") {
 		value := host.FieldByName(field)
 		if field == "ShmSize" && value.IsValid() && value.Int() == 64*1024*1024 {
 			continue
@@ -131,11 +142,18 @@ func assessAdoption(service modelService, item container.InspectResponse) error 
 		}
 	}
 	for _, mount := range item.HostConfig.Mounts {
+		if mount.Type == "tmpfs" && mount.TmpfsOptions != nil && len(mount.TmpfsOptions.Options) > 0 {
+			return fmt.Errorf("%w: existing advanced tmpfs options", ErrUnsupportedComparison)
+		}
 		if mount.VolumeOptions != nil && (mount.VolumeOptions.NoCopy || mount.VolumeOptions.Subpath != "" || mount.VolumeOptions.DriverConfig != nil) {
 			return fmt.Errorf("%w: existing volume options", ErrUnsupportedComparison)
 		}
 	}
 	for _, mount := range item.Mounts {
+		if mount.Type == "tmpfs" {
+			// Configuration is assessed through HostConfig, not runtime mount flags.
+			continue
+		}
 		for _, option := range strings.Split(mount.Mode, ",") {
 			if option != "" && option != "rw" && option != "ro" {
 				return fmt.Errorf("%w: existing mount mode", ErrUnsupportedComparison)

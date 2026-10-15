@@ -53,11 +53,22 @@ func TestDeploymentDockerAcceptance(t *testing.T) {
         max-size: '10m'
         max-file: '3'
         tag: 'private$$literal'
+    tmpfs:
+      - /volatile
+      - /scratch:size=8m,mode=1770
     stop_grace_period: 1s
     env_file: [config/app.env]
     environment: {LITERAL: '${LITERAL}'}
     labels: {nox-yard.acceptance: '%s'}
-    volumes: [data:/data, './bind:/bind']
+    volumes:
+      - data:/data
+      - './bind:/bind'
+      - type: tmpfs
+        target: /cache
+        read_only: true
+        tmpfs:
+          size: 65536
+          mode: 0700
   idle:
     image: %s
     stop_grace_period: 1s
@@ -174,6 +185,21 @@ volumes:
 				t.Fatal("logging option changed")
 			}
 		}
+		if len(item.HostConfig.Tmpfs) != 2 || item.HostConfig.Tmpfs["/scratch"] != "size=8m,mode=1770" {
+			t.Fatal("service tmpfs configuration changed")
+		}
+		if value, ok := item.HostConfig.Tmpfs["/volatile"]; !ok || value != "" {
+			t.Fatal("plain tmpfs configuration changed")
+		}
+		found := false
+		for _, mounted := range item.HostConfig.Mounts {
+			if mounted.Type == "tmpfs" && mounted.Target == "/cache" {
+				found = mounted.ReadOnly && mounted.TmpfsOptions != nil && mounted.TmpfsOptions.SizeBytes == 65536 && mounted.TmpfsOptions.Mode == 0700
+			}
+		}
+		if !found {
+			t.Fatal("long-syntax tmpfs configuration changed")
+		}
 	}
 	assertRuntimeSettings(original)
 	for _, value := range original.Config.Env {
@@ -225,6 +251,7 @@ volumes:
 	}
 	assertRuntimeSettings(web())
 	assertData()
+	t.Log("PASS: plain/optioned service tmpfs and long-syntax tmpfs survive image replacement")
 	t.Log("PASS: real registry pull is cache-only; changed image update is immutable and preserves named-volume/bind data")
 	// Simulate a pull failure by removing only this fixture registry container.
 	registry := os.Getenv("NOX_MANAGED_ACCEPTANCE_REGISTRY")
@@ -248,6 +275,7 @@ volumes:
 		t.Fatalf("rollback missing: %s: %s", failed.Outcome, failed.Error)
 	}
 	assertRuntimeSettings(web())
+	t.Log("PASS: rollback restores tmpfs targets, options, size, mode and read-only state")
 	for _, item := range runtime() {
 		if item.Image != before[0].Image || (item.Config.Labels["com.docker.compose.service"] == "idle" && item.State.Running) {
 			t.Fatal("previous image/stopped state not restored")

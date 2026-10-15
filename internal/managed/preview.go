@@ -73,6 +73,10 @@ type modelVolume struct {
 	Bind     struct {
 		Propagation string `json:"propagation"`
 	} `json:"bind"`
+	Tmpfs struct {
+		Size modelTmpfsSize `json:"size"`
+		Mode uint32         `json:"mode"`
+	} `json:"tmpfs"`
 }
 type modelService struct {
 	Image    string        `json:"image"`
@@ -103,6 +107,7 @@ type modelService struct {
 	Domainname      string            `json:"domainname"`
 	Init            *bool             `json:"init"`
 	Logging         *modelLogging     `json:"logging"`
+	Tmpfs           []string          `json:"tmpfs"`
 	raw             map[string]json.RawMessage
 }
 
@@ -232,13 +237,20 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 			item.Ports = append(item.Ports, fmt.Sprintf("%s:%d/%s", port.Published, port.Target, port.Protocol))
 		}
 		for _, volume := range service.Volumes {
-			if volume.Type != "bind" && volume.Type != "volume" {
+			if volume.Type != "bind" && volume.Type != "volume" && volume.Type != "tmpfs" {
 				return Preview{}, fmt.Errorf("%w: service %s uses an unsupported mount", ErrInvalidSource, name)
+			}
+			if volume.Type == "tmpfs" {
+				item.Volumes = append(item.Volumes, "tmpfs:"+volume.Target)
+				continue
 			}
 			if volume.Type == "bind" && strings.HasPrefix(volume.Source, "~") {
 				return Preview{}, fmt.Errorf("%w: service %s needs an absolute host bind path or a path relative to its project directory; tilde bind paths are unsupported", ErrInvalidSource, name)
 			}
 			item.Volumes = append(item.Volumes, volume.Source+":"+volume.Target)
+		}
+		for _, tmpfs := range service.Tmpfs {
+			item.Volumes = append(item.Volumes, "tmpfs:"+tmpfs)
 		}
 		for network := range service.Networks {
 			item.Networks = append(item.Networks, network)

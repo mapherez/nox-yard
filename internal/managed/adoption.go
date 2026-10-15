@@ -125,6 +125,9 @@ func compareAdoption(name, directory string, model composeModel, items []contain
 			return nil, fmt.Errorf("service %s: %w", serviceName, err)
 		}
 		mark := func(field string) { changes[field+" differs for "+serviceName] = true }
+		if !matchesTmpfs(service, item.HostConfig) {
+			mark("Tmpfs mounts")
+		}
 		if (service.Init != nil && *service.Init) != (item.HostConfig.Init != nil && *item.HostConfig.Init) {
 			mark("Init")
 		}
@@ -290,6 +293,9 @@ func compareAdoption(name, directory string, model composeModel, items []contain
 		}
 		mounts := map[string]string{}
 		for _, mount := range item.Mounts {
+			if mount.Type == "tmpfs" {
+				continue
+			}
 			source := mount.Source
 			if mount.Type == "volume" {
 				source = mount.Name
@@ -302,6 +308,9 @@ func compareAdoption(name, directory string, model composeModel, items []contain
 		}
 		desiredMounts := map[string]string{}
 		for _, mount := range service.Volumes {
+			if mount.Type == "tmpfs" {
+				continue
+			}
 			source := mount.Source
 			if mount.Type == "bind" && !path.IsAbs(source) {
 				if directory == "" {
