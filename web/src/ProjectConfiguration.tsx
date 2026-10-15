@@ -47,7 +47,6 @@ export type ConfigurationControl = ReturnType<typeof useProjectConfiguration>;
 export function ConfigurationMigrationStatus() {
   const [states, setStates] = useState<ConfigurationMigration[]>([]);
   const [error, setError] = useState("");
-  const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
     let active = true;
     async function refresh() { try { const next = await getConfigurationMigration(); if (active) { setStates(Array.isArray(next) ? next : []); setError(""); } } catch { if (active) setError("Unable to read configuration migration status."); } }
@@ -56,15 +55,10 @@ export function ConfigurationMigrationStatus() {
   }, []);
   const ready = states.filter(state => state.state === "ready").length;
   const pending = states.length - ready;
-  useEffect(() => {
-    if (!states.length || pending) { setDismissed(false); return; }
-    const timer = window.setTimeout(() => setDismissed(true), 30_000);
-    return () => window.clearTimeout(timer);
-  }, [pending, states.length]);
   if (error) return <p role="alert">{error} Open a project to verify its file status before editing.</p>;
-  if (!states.length || (dismissed && !pending)) return null;
+  if (!pending) return null;
   return <section className={styles.panel} aria-label="Configuration migration status" aria-live="polite">
-    <strong>{pending ? `Configuration migration: ${ready}/${states.length} Ready` : "Configuration migration complete · files are Ready"}</strong>
+    <strong>{`Configuration migration: ${ready}/${states.length} Ready`}</strong>
     {states.filter(state => state.state !== "ready").map(state => <p key={state.name}>{state.name}: {state.state === "migrating" ? "Migrating" : "Needs attention"}{state.error ? ` · ${state.error}` : ""}. Open the project for details.</p>)}
   </section>;
 }
