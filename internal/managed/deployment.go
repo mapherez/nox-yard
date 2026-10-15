@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -87,6 +89,70 @@ func definitionPlatforms(definition string, platforms map[string]string) (string
 	}
 	encoded, err := json.Marshal(model)
 	return string(encoded), err
+}
+
+// Pin effective init/logging settings for rollback, including options inherited
+// from the daemon. Compose cannot express different settings per replica.
+func definitionRuntimeSettings(definition string, runtime []container.InspectResponse) (string, error) {
+	var model map[string]any
+	if err := json.Unmarshal([]byte(definition), &model); err != nil {
+		return "", err
+	}
+	type settings struct {
+		Init    *bool
+		Logging container.LogConfig
+	}
+	seen := map[string]settings{}
+	services := model["services"].(map[string]any)
+	for _, item := range runtime {
+		name := item.Config.Labels["com.docker.compose.service"]
+		current := settings{Init: item.HostConfig.Init, Logging: item.HostConfig.LogConfig}
+		if previous, ok := seen[name]; ok && (!reflect.DeepEqual(previous.Init, current.Init) || previous.Logging.Type != current.Logging.Type || !maps.Equal(previous.Logging.Config, current.Logging.Config)) {
+			return "", fmt.Errorf("replicas have mixed init or logging settings for %s; reconcile the service before updating", name)
+		}
+		seen[name] = current
+		service := services[name].(map[string]any)
+		if current.Init != nil {
+			service["init"] = *current.Init
+		}
+		if current.Logging.Type == "" {
+			// Real Engine inspections include the effective driver. An incomplete
+			// inspection must not turn declared logging into daemon defaults.
+			if len(current.Logging.Config) > 0 {
+				return "", fmt.Errorf("effective logging driver is unavailable for %s", name)
+			}
+			continue
+		}
+		options := map[string]string{}
+		for key, value := range current.Logging.Config {
+			options[key] = strings.ReplaceAll(value, "$", "$$")
+		}
+		service["logging"] = modelLogging{Driver: current.Logging.Type, Options: options}
+	}
+	encoded, err := json.Marshal(model)
+	return string(encoded), err
+}
+
+func verifyRestoredRuntimeSettings(previous, current []container.InspectResponse) error {
+	byService := map[string]*container.HostConfig{}
+	for _, item := range previous {
+		if item.Config == nil || item.HostConfig == nil {
+			return fmt.Errorf("previous init or logging settings are unavailable")
+		}
+		byService[item.Config.Labels["com.docker.compose.service"]] = item.HostConfig
+	}
+	for _, item := range current {
+		if item.Config == nil || item.HostConfig == nil {
+			return fmt.Errorf("restored init or logging settings are unavailable")
+		}
+		name := item.Config.Labels["com.docker.compose.service"]
+		before := byService[name]
+		after := item.HostConfig
+		if before == nil || (before.Init != nil && *before.Init) != (after.Init != nil && *after.Init) || before.LogConfig.Type != after.LogConfig.Type || !maps.Equal(before.LogConfig.Config, after.LogConfig.Config) {
+			return fmt.Errorf("previous init or logging settings were not restored for %s", name)
+		}
+	}
+	return nil
 }
 
 func imageTargets(preview Preview, defaults map[string]imageDefaults) ([]store.ImageIdentity, map[string]string) {
@@ -179,6 +245,9 @@ func (m *Manager) snapshotDeployment(ctx context.Context, project store.ManagedP
 	definition, err := resolvedDefinition(preview, project.ProjectDir, images)
 	if err == nil {
 		definition, err = definitionPlatforms(definition, platforms)
+	}
+	if err == nil {
+		definition, err = definitionRuntimeSettings(definition, runtime)
 	}
 	return &deploymentSnapshot{Previous: &project, Runtime: runtime, Definition: definition}, err
 }
@@ -658,6 +727,9 @@ func (m *Manager) rollbackDeployment(ctx context.Context, project store.ManagedP
 		if count != 0 {
 			return fmt.Errorf("previous replica count was not restored")
 		}
+	}
+	if err := verifyRestoredRuntimeSettings(snapshot.Runtime, current); err != nil {
+		return err
 	}
 	if _, err := m.snapshotDeployment(ctx, *snapshot.Previous, current); err != nil {
 		return fmt.Errorf("restored runtime configuration does not match the previous source: %w", err)

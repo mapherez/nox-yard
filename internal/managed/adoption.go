@@ -122,9 +122,25 @@ func compareAdoption(name, directory string, model composeModel, items []contain
 		seen[serviceName] = true
 		counts[serviceName]++
 		if err := assessAdoption(service, item); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("service %s: %w", serviceName, err)
 		}
 		mark := func(field string) { changes[field+" differs for "+serviceName] = true }
+		if (service.Init != nil && *service.Init) != (item.HostConfig.Init != nil && *item.HostConfig.Init) {
+			mark("Init")
+		}
+		// Engine merges daemon defaults into unspecified logging settings. Only
+		// declared overrides can be compared to source; rollback pins all observed
+		// values, including inherited options, before replacing any containers.
+		if service.Logging != nil {
+			if service.Logging.Driver != "" && service.Logging.Driver != item.HostConfig.LogConfig.Type {
+				mark("Logging driver")
+			}
+			for key, desired := range service.Logging.Options {
+				if actual, ok := item.HostConfig.LogConfig.Config[key]; !ok || actual != desired {
+					mark("Logging options")
+				}
+			}
+		}
 		if item.Config.Image != service.Image {
 			mark("Image")
 		}

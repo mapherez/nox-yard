@@ -115,14 +115,14 @@ func TestAdoptionComparesRelativeBindsAndMaskedRuntimeChanges(t *testing.T) {
 func TestAdoptionRejectsUnsupportedAndUninspectableConfiguration(t *testing.T) {
 	model, item, defaults := adoptionSample(t)
 	item.HostConfig.Privileged = true
-	if _, err := compareAdoption("sample", "/srv/original", model, []container.InspectResponse{item}, defaults); !errors.Is(err, ErrInvalidSource) {
+	if _, err := compareAdoption("sample", "/srv/original", model, []container.InspectResponse{item}, defaults); !errors.Is(err, ErrUnsupportedComparison) {
 		t.Fatal("unsupported runtime accepted")
 	}
 	item.HostConfig.Privileged = false
 	service := model.Services["web"]
 	service.raw["security_opt"] = json.RawMessage(`["secret-value"]`)
 	model.Services["web"] = service
-	if _, err := compareAdoption("sample", "/srv/original", model, []container.InspectResponse{item}, defaults); !errors.Is(err, ErrInvalidSource) || strings.Contains(err.Error(), "secret-value") {
+	if _, err := compareAdoption("sample", "/srv/original", model, []container.InspectResponse{item}, defaults); !errors.Is(err, ErrUnsupportedComparison) || strings.Contains(err.Error(), "secret-value") || strings.Contains(err.Error(), "invalid Compose source") {
 		t.Fatalf("unsupported source accepted or exposed: %v", err)
 	}
 	delete(service.raw, "security_opt")
@@ -190,6 +190,94 @@ func TestAdoptionRequiresLabelsThatComposeWillRecognize(t *testing.T) {
 		delete(item.Config.Labels, key)
 		if _, err := compareAdoption("sample", "/srv/original", model, []container.InspectResponse{item}, defaults); !errors.Is(err, ErrInvalidSource) {
 			t.Fatalf("unrecognized service accepted without %s: %v", key, err)
+		}
+	}
+}
+
+func TestAdoptionComparesInit(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source *bool
+		actual *bool
+		drift  bool
+	}{
+		{"omitted", nil, nil, false},
+		{"explicit false", new(false), new(false), false},
+		{"false and engine default", new(false), nil, false},
+		{"enabled", new(true), new(true), false},
+		{"undeclared enabled", nil, new(true), true},
+		{"disabled at runtime", new(true), new(false), true},
+		{"missing at runtime", new(true), nil, true},
+		{"enabled at runtime", new(false), new(true), true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model, item, defaults := adoptionSample(t)
+			service := model.Services["web"]
+			if test.source != nil {
+				service.raw["init"], _ = json.Marshal(*test.source)
+				service.Init = test.source
+			}
+			model.Services["web"] = service
+			item.HostConfig.Init = test.actual
+			changes, err := compareAdoption("sample", "/srv/original", model, []container.InspectResponse{item}, defaults)
+			if err != nil || (len(changes) > 0) != test.drift || (test.drift && !strings.Contains(strings.Join(changes, ";"), "Init differs for web")) {
+				t.Fatalf("unexpected init comparison: %v, %v", changes, err)
+			}
+		})
+	}
+}
+
+func TestAdoptionComparesLoggingOverridesAndAllowsDaemonDefaults(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source string
+		actual container.LogConfig
+		want   string
+	}{
+		{"omitted", "null", container.LogConfig{Type: "json-file"}, ""},
+		{"inherited", "null", container.LogConfig{Type: "local", Config: map[string]string{"max-size": "10m"}}, ""},
+		{"empty", `{}`, container.LogConfig{Type: "local", Config: map[string]string{"max-size": "10m"}}, ""},
+		{"driver", `{"driver":"local"}`, container.LogConfig{Type: "local"}, ""},
+		{"none", `{"driver":"none"}`, container.LogConfig{Type: "none"}, ""},
+		{"options", `{"driver":"json-file","options":{"max-size":"10m","max-file":"3"}}`, container.LogConfig{Type: "json-file", Config: map[string]string{"max-file": "3", "max-size": "10m"}}, ""},
+		{"inherited driver", `{"options":{"max-size":"10m"}}`, container.LogConfig{Type: "local", Config: map[string]string{"max-size": "10m"}}, ""},
+		{"additional daemon option", `{"driver":"json-file","options":{"max-size":"10m"}}`, container.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "10m", "max-file": "3"}}, ""},
+		{"changed driver", `{"driver":"local"}`, container.LogConfig{Type: "json-file"}, "Logging driver"},
+		{"changed option", `{"options":{"tag":"secret-value"}}`, container.LogConfig{Type: "json-file", Config: map[string]string{"tag": "other-secret"}}, "Logging options"},
+		{"missing option", `{"options":{"max-size":"10m"}}`, container.LogConfig{Type: "json-file"}, "Logging options"},
+		{"missing empty option", `{"options":{"tag":""}}`, container.LogConfig{Type: "json-file"}, "Logging options"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model, item, defaults := adoptionSample(t)
+			service := model.Services["web"]
+			service.raw["logging"] = json.RawMessage(test.source)
+			encoded, _ := json.Marshal(service.raw)
+			if err := json.Unmarshal(encoded, &service); err != nil {
+				t.Fatal(err)
+			}
+			model.Services["web"] = service
+			item.HostConfig.LogConfig = test.actual
+			changes, err := compareAdoption("sample", "/srv/original", model, []container.InspectResponse{item}, defaults)
+			text := strings.Join(changes, ";")
+			if err != nil || (len(changes) == 0) != (test.want == "") || !strings.Contains(text, test.want) {
+				t.Fatalf("unexpected logging comparison: %v, %v", changes, err)
+			}
+			if strings.Contains(text, "secret-value") || strings.Contains(text, "other-secret") {
+				t.Fatal("logging options leaked in differences")
+			}
+		})
+	}
+}
+
+func TestAdoptionUnsupportedComparisonReportsFieldAndService(t *testing.T) {
+	for _, field := range []string{"security_opt", "cap_add", "cpus", "container_name"} {
+		model, item, defaults := adoptionSample(t)
+		service := model.Services["web"]
+		service.raw[field] = json.RawMessage(`"secret-value"`)
+		model.Services["web"] = service
+		_, err := compareAdoption("sample", "/srv/original", model, []container.InspectResponse{item}, defaults)
+		if !errors.Is(err, ErrUnsupportedComparison) || errors.Is(err, ErrInvalidSource) || !strings.Contains(err.Error(), field) || !strings.Contains(err.Error(), "service web") || strings.Contains(err.Error(), "secret-value") {
+			t.Fatalf("unsupported field has incorrect diagnostic: %v", err)
 		}
 	}
 }

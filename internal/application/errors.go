@@ -29,7 +29,7 @@ func ClassifyError(err error, execution bool) (int, Problem) {
 		return 400, Problem{Code: "INVALID_PAYLOAD", Message: err.Error()}
 	case errors.Is(err, ErrScheduleUnsupported):
 		return 400, Problem{Code: "UNSUPPORTED_CONFIGURATION", Message: err.Error()}
-	case errors.Is(err, recreate.ErrUnsupported):
+	case errors.Is(err, recreate.ErrUnsupported), errors.Is(err, managed.ErrUnsupportedComparison):
 		return 400, Problem{Code: "UNSUPPORTED_CONFIGURATION", Message: err.Error()}
 	case errors.Is(err, recreate.ErrInvalid):
 		return 400, Problem{Code: "INVALID_PAYLOAD", Message: err.Error()}

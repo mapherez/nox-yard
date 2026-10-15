@@ -101,7 +101,14 @@ type modelService struct {
 	StopSignal      string            `json:"stop_signal"`
 	Hostname        string            `json:"hostname"`
 	Domainname      string            `json:"domainname"`
+	Init            *bool             `json:"init"`
+	Logging         *modelLogging     `json:"logging"`
 	raw             map[string]json.RawMessage
+}
+
+type modelLogging struct {
+	Driver  string            `json:"driver"`
+	Options map[string]string `json:"options"`
 }
 
 type modelHealthcheck struct {

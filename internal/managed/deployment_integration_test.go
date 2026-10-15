@@ -46,6 +46,13 @@ func TestDeploymentDockerAcceptance(t *testing.T) {
 	source := fmt.Sprintf(`services:
   web:
     image: %s
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+        tag: 'private$$literal'
     stop_grace_period: 1s
     env_file: [config/app.env]
     environment: {LITERAL: '${LITERAL}'}
@@ -157,6 +164,18 @@ volumes:
 	}
 	submit(request, "succeeded")
 	original := web()
+	assertRuntimeSettings := func(item container.InspectResponse) {
+		t.Helper()
+		if item.HostConfig == nil || item.HostConfig.Init == nil || !*item.HostConfig.Init || item.HostConfig.LogConfig.Type != "json-file" {
+			t.Fatal("init or logging driver changed")
+		}
+		for key, value := range map[string]string{"max-size": "10m", "max-file": "3", "tag": "private$literal"} {
+			if item.HostConfig.LogConfig.Config[key] != value {
+				t.Fatal("logging option changed")
+			}
+		}
+	}
+	assertRuntimeSettings(original)
 	for _, value := range original.Config.Env {
 		if strings.HasPrefix(value, "LITERAL=") && value != "LITERAL=private$literal" {
 			t.Fatal("literal interpolation changed")
@@ -204,6 +223,7 @@ volumes:
 	if updated.Outcome != "verified" || web().ID == original.ID || web().Image == original.Image {
 		t.Fatal("changed image was not replaced")
 	}
+	assertRuntimeSettings(web())
 	assertData()
 	t.Log("PASS: real registry pull is cache-only; changed image update is immutable and preserves named-volume/bind data")
 	// Simulate a pull failure by removing only this fixture registry container.
@@ -227,6 +247,7 @@ volumes:
 	if failed.Outcome != "rolled_back" || failed.Rollback != "restored" {
 		t.Fatalf("rollback missing: %s: %s", failed.Outcome, failed.Error)
 	}
+	assertRuntimeSettings(web())
 	for _, item := range runtime() {
 		if item.Image != before[0].Image || (item.Config.Labels["com.docker.compose.service"] == "idle" && item.State.Running) {
 			t.Fatal("previous image/stopped state not restored")
