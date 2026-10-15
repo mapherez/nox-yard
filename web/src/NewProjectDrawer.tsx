@@ -106,7 +106,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
   }
 
   function providedVariables(): Record<string, string> {
-    return Object.fromEntries(Object.entries(variables).filter(([, value]) => value !== ""));
+    return { ...variables };
   }
 
   function updateRow(path: string, id: string, field: "key" | "value", value: string) {
@@ -176,6 +176,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
           <div className={styles.field}><label htmlFor="managed-name">Project name</label><input id="managed-name" value={name} required pattern={"[a-z0-9][a-z0-9_\\-]{0,62}"} onChange={(event) => setName(event.target.value)} /></div>
           {(source.variables.length > 0 || source.envFiles.length > 0) && <label className={styles.visibilityToggle}><input type="checkbox" checked={showValues} onChange={(event) => setShowValues(event.target.checked)} /> Show environment values</label>}
           {source.variables.length > 0 && <fieldset className={styles.envSection}><legend>Compose interpolation variables</legend>
+            <p className={styles.hint}>When syncing, untouched fields keep the saved project values. Edit a field to override its saved value.</p>
             {source.variables.map((variable) => <div className={styles.field} key={variable.name}><label htmlFor={`managed-var-${variable.name}`}>{variable.name}{variable.required && !rootEnvDefines(variable.name) ? " *" : ""}</label><input id={`managed-var-${variable.name}`} type={showValues ? "text" : "password"} value={variables[variable.name] ?? ""} required={variable.required && !rootEnvDefines(variable.name)} placeholder={variable.default} autoComplete="off" onChange={(event) => setVariables((current) => ({ ...current, [variable.name]: event.target.value }))} /></div>)}
           </fieldset>}
           {source.envFiles.map((envFile, index) => <fieldset className={styles.envSection} key={envFile.path}>

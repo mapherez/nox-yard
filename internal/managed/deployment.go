@@ -507,6 +507,9 @@ func (m *Manager) deploy(ctx context.Context, job store.Job, payload workerPaylo
 	if err != nil {
 		return finishFailure("Immutable target definition could not be prepared.")
 	}
+	if err := m.assessPorts(ctx, project.Name, preview.model); err != nil {
+		return finishFailure("Host port check failed before replacement: " + err.Error())
+	}
 	if initial {
 		snapshot.FileCommit = true
 		if err := m.saveDeployment(job, payload, "writing_files"); err != nil {

@@ -45,6 +45,8 @@ type ProjectPreview struct {
 	AdoptionDir        string   `json:"adoptionDir,omitempty"`
 	filesFingerprint   string
 	runtimeFingerprint string
+	variables          map[string]string
+	envFiles           map[string]string
 }
 
 type Manager struct {
@@ -155,11 +157,18 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
 	}
+	if input.Mode == "sync" && isManaged {
+		input.Variables, input.EnvFiles, err = syncInputs(storedProject, source.YAML, input.Variables, input.EnvFiles)
+		if err != nil {
+			return ProjectPreview{}, Source{}, err
+		}
+	}
 	preview, err := Validate(ctx, input.Name, source, input.Variables, input.EnvFiles, projectDir)
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
 	}
 	result := ProjectPreview{Preview: preview, ProjectDir: projectDir, SourceKind: source.Kind, SourceURL: source.URL, Duplicates: []string{}, Changes: []string{}, Mode: input.Mode, ExternalMatch: external, AdoptionDir: adoptDir, runtimeFingerprint: runtimeSignature}
+	result.variables, result.envFiles = input.Variables, input.EnvFiles
 	if input.Mode == "sync" && isManaged {
 		encodedEnv, _ := json.Marshal(input.EnvFiles)
 		next := store.ManagedProject{YAML: source.YAML, EnvFilesJSON: string(encodedEnv), VariablesJSON: "{}"}
@@ -215,6 +224,13 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 		}
 	}
 	sort.Strings(result.Changes)
+	// Let an existing-project preview offer Sync before checking a new project's
+	// default ports. Sync resolves the saved overrides above before this check.
+	if input.Mode == "sync" || input.Mode == "adopt" || (!isManaged && !external && (input.Mode == "copy" || len(result.Duplicates) == 0)) {
+		if err := m.assessPorts(ctx, input.Name, preview.model); err != nil {
+			return ProjectPreview{}, Source{}, err
+		}
+	}
 	managedSignature := ""
 	if isManaged {
 		encoded, _ := json.Marshal(storedProject)
@@ -343,8 +359,8 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 	default:
 		return store.ManagedJob{}, fmt.Errorf("%w: choose a project action", ErrInvalidSource)
 	}
-	variablesJSON, _ := json.Marshal(input.Variables)
-	envFilesJSON, _ := json.Marshal(input.EnvFiles)
+	variablesJSON, _ := json.Marshal(preview.variables)
+	envFilesJSON, _ := json.Marshal(preview.envFiles)
 	projectRecord := store.ManagedProject{Name: input.Name, SourceKind: source.Kind, SourceURL: source.URL, Filename: source.Filename,
 		YAML: source.YAML, VariablesJSON: string(variablesJSON), EnvFilesJSON: string(envFilesJSON), ProjectDir: preview.ProjectDir}
 	return m.enqueue(ctx, projectRecord, input.Mode, workerPayload{Project: projectRecord, RuntimeFingerprint: preview.runtimeFingerprint, FilesFingerprint: preview.filesFingerprint})

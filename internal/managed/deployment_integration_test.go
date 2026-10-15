@@ -3,6 +3,7 @@ package managed
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,10 +43,37 @@ func TestDeploymentDockerAcceptance(t *testing.T) {
 	}
 	m, _ := NewManager(data, previewInventory{})
 	m.launch = func(context.Context, *store.Store, store.Job, string) error { return nil }
+	docker := func(parts ...string) string {
+		t.Helper()
+		value, err := exec.CommandContext(ctx, "docker", parts...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("fixture command failed: %s: %v", value, err)
+		}
+		return strings.TrimSpace(string(value))
+	}
+	// Docker itself allocates ports on its host, including when the test runner
+	// runs in a separate network namespace. All owners use the fixture label.
+	portOwner := prefix + "-port-owner"
+	docker("run", "-d", "--name", portOwner, "--label", "nox-yard.acceptance="+prefix, "-p", "127.0.0.1::8080", os.Getenv("NOX_MANAGED_ACCEPTANCE_V1"))
+	allocatedPort := func(name string) string {
+		t.Helper()
+		return docker("inspect", "--format", `{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostPort}}`, name)
+	}
+	blockedPort := allocatedPort(portOwner)
+	freePort := func() string {
+		t.Helper()
+		name := prefix + "-port-reserver"
+		docker("run", "-d", "--name", name, "--label", "nox-yard.acceptance="+prefix, "-p", "127.0.0.1::8080", os.Getenv("NOX_MANAGED_ACCEPTANCE_V1"))
+		port := allocatedPort(name)
+		docker("rm", "-f", name)
+		return port
+	}
+	appPort := freePort()
 	sourceURL := "https://example.test/fixture.yml"
 	source := fmt.Sprintf(`services:
   web:
     image: %s
+    ports: ['127.0.0.1:${APP_PORT:-%s}:8080']
     init: true
     logging:
       driver: json-file
@@ -75,14 +103,14 @@ func TestDeploymentDockerAcceptance(t *testing.T) {
     labels: {nox-yard.acceptance: '%s'}
 volumes:
   data: {}
-`, reference, prefix, reference, prefix)
+`, reference, blockedPort, prefix, reference, prefix)
 	m.loadSource = func(ctx context.Context, input SourceInput) (Source, error) {
 		if input.Kind == "url" && input.URL == sourceURL {
 			return Source{Kind: "url", URL: sourceURL, Filename: "fixture.yml", YAML: source}, nil
 		}
 		return LoadSource(ctx, input)
 	}
-	variables := map[string]string{"LITERAL": "private$literal"}
+	variables := map[string]string{"LITERAL": "private$literal", "APP_PORT": appPort}
 	env := map[string]string{"config/app.env": "TOKEN=private-fixture-secret\n"}
 	request := Request{Name: prefix, Mode: "new", Source: SourceInput{Kind: "url", URL: sourceURL}, Variables: variables, EnvFiles: env}
 	run := func(accepted store.Job, want string) store.Job {
@@ -134,14 +162,6 @@ volumes:
 		}
 		return items
 	}
-	docker := func(parts ...string) string {
-		t.Helper()
-		value, err := exec.CommandContext(ctx, "docker", parts...).CombinedOutput()
-		if err != nil {
-			t.Fatalf("fixture command failed: %s: %v", value, err)
-		}
-		return strings.TrimSpace(string(value))
-	}
 	publish := func(version string) {
 		t.Helper()
 		docker("tag", os.Getenv("NOX_MANAGED_ACCEPTANCE_"+version), reference)
@@ -177,6 +197,9 @@ volumes:
 	original := web()
 	assertRuntimeSettings := func(item container.InspectResponse) {
 		t.Helper()
+		if allocatedPort(item.ID) != appPort {
+			t.Fatal("saved published port changed")
+		}
 		if item.HostConfig == nil || item.HostConfig.Init == nil || !*item.HostConfig.Init || item.HostConfig.LogConfig.Type != "json-file" {
 			t.Fatal("init or logging driver changed")
 		}
@@ -299,7 +322,40 @@ volumes:
 	source = strings.Replace(source, "stop_grace_period: 1s", "stop_grace_period: 2s", 1)
 	sync := request
 	sync.Mode = "sync"
+	sync.Variables = nil // Untouched fields must retain saved overrides, including APP_PORT.
 	sync.EnvFiles = map[string]string{"config/app.env": "TOKEN=new-private-secret\n"}
+	conflicting := sync
+	conflicting.Variables = map[string]string{"APP_PORT": blockedPort}
+	beforePortCheck := web().ID
+	if _, _, err := m.Preview(ctx, conflicting); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), portOwner) {
+		t.Fatalf("occupied explicit port not rejected with its owner: %v", err)
+	}
+	assertSource(prior)
+	if web().ID != beforePortCheck {
+		t.Fatal("port preview replaced running containers")
+	}
+	// A port can become occupied after confirmation. The worker rechecks before
+	// replacing anything and leaves the original files, containers and SQL intact.
+	lateOwner, latePort := prefix+"-late-port-owner", freePort()
+	docker("create", "--name", lateOwner, "--label", "nox-yard.acceptance="+prefix, "-p", "127.0.0.1:"+latePort+":8080", os.Getenv("NOX_MANAGED_ACCEPTANCE_V1"))
+	conflicting.Variables = map[string]string{"APP_PORT": latePort}
+	latePreview, _, err := m.Preview(ctx, conflicting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflicting.Fingerprint = latePreview.Fingerprint
+	lateJob, err := m.Submit(ctx, conflicting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docker("start", lateOwner)
+	portFailure := run(lateJob, "failed")
+	if portFailure.Rollback != "not_needed" || !strings.Contains(portFailure.Error, lateOwner) || web().ID != beforePortCheck {
+		t.Fatalf("late port conflict should fail before mutation: %s / %s", portFailure.Rollback, portFailure.Error)
+	}
+	assertSource(prior)
+	docker("rm", "-f", lateOwner)
+	t.Log("PASS: occupied ports fail in preview and are rechecked before replacement without rollback or container changes")
 	preview, _, err := m.Preview(ctx, sync)
 	if err != nil || len(preview.Changes) == 0 {
 		t.Fatalf("sync preview missing changes: %v", err)
@@ -324,6 +380,11 @@ volumes:
 	}
 	assertSource(next)
 	assertData()
+	assertRuntimeSettings(web())
+	if next.VariablesJSON != prior.VariablesJSON {
+		t.Fatal("omitted sync variables lost saved overrides")
+	}
+	t.Log("PASS: URL sync with omitted variables retains the saved published port despite an occupied source default")
 	// Exercise a partially committed source journal directly in the fixture.
 	// SQL still describes next; the recovery path restores only owned files.
 	journalCandidate := next
@@ -353,6 +414,7 @@ volumes:
 	copy := sync
 	copy.Name = prefix + "-copy"
 	copy.Mode = "copy"
+	copy.Variables = map[string]string{"APP_PORT": "0", "LITERAL": "copy-value"}
 	submit(copy, "succeeded")
 	copyProject, _, _ := data.ManagedProject(copy.Name)
 	if copyProject.ProjectDir == next.ProjectDir {
