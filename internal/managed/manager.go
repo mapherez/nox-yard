@@ -12,11 +12,13 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
+	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 )
@@ -50,6 +52,8 @@ type ProjectPreview struct {
 }
 
 type Manager struct {
+	migrationMu   sync.Mutex
+	filesEnabled  bool
 	data          *store.Store
 	inventory     inventory.Reader
 	changes       *inventory.Notifier
@@ -93,6 +97,12 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 	storedProject, isManaged, err := m.data.ManagedProject(input.Name)
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
+	}
+	if isManaged {
+		storedProject, err = m.hydrateFileProject(ctx, storedProject)
+		if err != nil {
+			return ProjectPreview{}, Source{}, err
+		}
 	}
 	external := false
 	for _, project := range snapshot.Projects {
@@ -399,7 +409,7 @@ func (m *Manager) operation(name, operation string, removeVolumes bool, removalF
 	if name == "nox-yard" {
 		return store.ManagedJob{}, fmt.Errorf("%w: NoX Yard cannot manage itself", ErrConflict)
 	}
-	allowed := map[string]bool{"start": true, "stop": true, "restart": true, "pull": true, "update": true, "remove": true}
+	allowed := map[string]bool{"start": true, "stop": true, "restart": true, "pull": true, "update": true, "recreate": true, "remove": true}
 	if !allowed[operation] {
 		return store.ManagedJob{}, fmt.Errorf("%w: invalid operation", ErrInvalidSource)
 	}
@@ -409,6 +419,26 @@ func (m *Manager) operation(name, operation string, removeVolumes bool, removalF
 	}
 	if !found {
 		return store.ManagedJob{}, fmt.Errorf("%w: managed project not found", ErrConflict)
+	}
+	if state, exists, _ := m.data.FileConfiguration(name); exists {
+		if operation == "pull" || operation == "update" || operation == "recreate" {
+			if state.State != "ready" {
+				return store.Job{}, fmt.Errorf("%w: finish configuration migration before this operation", ErrConflict)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			job, err := m.FileOperation(ctx, name, operation, "")
+			if !errors.Is(err, ErrFilesMissing) {
+				return job, err
+			}
+			if operation == "pull" {
+				return m.enqueue(ctx, project, operation, workerPayload{Project: project, NativeAction: "pull"})
+			}
+			return m.runtimeReplacement(ctx, name, operation, false)
+		}
+		if operation == "start" || operation == "stop" || operation == "restart" {
+			return m.enqueue(context.Background(), project, operation, workerPayload{Project: project, NativeAction: operation})
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -432,6 +462,26 @@ func (m *Manager) operation(name, operation string, removeVolumes bool, removalF
 		removalFingerprint = preview.Fingerprint
 	}
 	return m.enqueue(ctx, project, operation, workerPayload{Project: project, RemoveVolumes: removeVolumes, RemovalFingerprint: removalFingerprint})
+}
+
+func (m *Manager) runtimeReplacement(ctx context.Context, name, operation string, automatic bool) (store.Job, error) {
+	manager, err := recreate.New(m.data)
+	if err != nil {
+		return store.Job{}, err
+	}
+	defer manager.Close()
+	input := recreate.Request{ID: "compose:" + name, Operation: operation, Confirm: true}
+	var preview recreate.Preview
+	if automatic {
+		preview, err = manager.AutomaticPreview(ctx, input)
+	} else {
+		preview, err = manager.Preview(ctx, input)
+	}
+	if err != nil {
+		return store.Job{}, err
+	}
+	input.Fingerprint = preview.Fingerprint
+	return manager.Submit(ctx, input)
 }
 
 func fingerprint(data []byte) string {

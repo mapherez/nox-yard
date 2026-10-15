@@ -145,6 +145,14 @@ export type SelfUpdateStatus = {
 
 export type ManagedSettings = { projectsBase: string };
 
+export type ProjectConfiguration = { available: boolean; state: "ready" | "migrating" | "needs_attention"; error?: string; directory?: string; fingerprint: string; files: { path: string; content: string; compose: boolean }[]; variables: { name: string; service: string; value?: string; pending: boolean }[] };
+export type ConfigurationEdit = { fingerprint: string; path?: string; content: string; service?: string; variable?: string };
+export type ConfigurationMigration = {name: string; state: "migrating" | "ready" | "needs_attention"; error?: string};
+export function getConfigurationMigration(): Promise<ConfigurationMigration[]> { return request("/api/configuration-migration"); }
+export function readProjectConfiguration(id: string, csrfToken: string, reveal = false): Promise<ProjectConfiguration> { return request(`/api/projects/${encodeURIComponent(id)}/configuration/read`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ reveal }) }); }
+export function saveProjectConfiguration(id: string, edit: ConfigurationEdit, csrfToken: string): Promise<ProjectConfiguration> { return request(`/api/projects/${encodeURIComponent(id)}/configuration/save`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(edit) }); }
+export function retryConfigurationMigration(id: string, useCurrentFiles: boolean, csrfToken: string): Promise<ProjectConfiguration> { return request(`/api/projects/${encodeURIComponent(id)}/configuration/retry-migration`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ useCurrentFiles }) }); }
+
 type Credentials = {
   username: string;
   password: string;

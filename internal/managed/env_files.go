@@ -12,20 +12,8 @@ import (
 var globalControlVariable = regexp.MustCompile(`(?m)^[\t ]*(?:export[\t ]+)?["']?(?:COMPOSE|DOCKER)_[A-Za-z0-9_]*["']?[\t ]*[=:]`)
 
 func envFileDefines(content, key string) bool {
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-		name, _, hasValue := strings.Cut(line, "=")
-		if !hasValue {
-			name, _, hasValue = strings.Cut(line, ":")
-		}
-		if hasValue && strings.TrimSpace(name) == key {
-			return true
-		}
-	}
-	return false
+	start, _ := dotenvDefinition(strings.Split(content, "\n"), key)
+	return start >= 0
 }
 
 func prepareCompose(content string, envFiles map[string]string) (string, func(), error) {

@@ -1,10 +1,10 @@
 # External updates, recreation and removal
 
-`internal/recreate` replaces supported standalone containers or complete external Compose projects through the Linux Docker Engine. It does not read or rewrite their Compose source. Managed projects use their stored definition and the [managed update protocol](Managed-Updates.md); Yard uses its dedicated self-update path. Opt-in project scheduling uses this same assessed update path; see [Project schedules](Project-Schedules.md).
+Compose projects with accessible source use the shared [current host-file protocol](Configuration-Files.md), including external projects and Yard itself. The `internal/recreate` Engine protocol below applies to standalone targets and Compose projects whose files cannot be found. Inaccessible or incompatible existing files fail explicitly.
 
-## Review and supported configuration
+## Review and supported runtime fallback
 
-The contextual **Update images** and **Recreate containers** actions require an assessment and confirmation. Browser `POST /api/recreate/preview` and `/api/recreate/submit` take `id` (`container:FULL_ID` or `compose:NAME`) and `operation` (`update` or `recreate`); submission also requires `confirm:true` and the current `fingerprint`. Session, Origin and CSRF protections apply. MCP exposes `yard_recreate_preview` and `yard_recreate_submit`. Accepted submissions return a durable job, not a completed replacement. Control API v1 is unchanged.
+The contextual **Recreate** action requires assessment and confirmation identifying the whole target. Browser `POST /api/recreate/preview` and `/api/recreate/submit` accept `id` and `operation`; `recreate` uses cached images without pull/build, and legacy `update` remains for API/schedule compatibility. Submission requires `confirm:true` and the current fingerprint. Session, Origin and CSRF protections apply. MCP uses the same facade. Accepted submissions return a durable job. Control API v1 is unchanged.
 
 Preview performs reads only. It returns deployed image identities, container names, running/stopped state, replacement order, preserved setting categories and environment names. Full inspect snapshots, environment values and execution ownership stay private in SQLite. Errors name unsupported settings without exposing their values. Treat SQLite and backups as sensitive.
 
@@ -18,7 +18,7 @@ An external Compose target must have complete service/replica labels. A single m
 
 ## Image comparison and replacement
 
-Update pulls each distinct source reference for the deployed platform and inspects its immutable image ID. Pull failure or a platform mismatch leaves originals intact. No private-registry credential intake is added by C4; registry access must work through the existing Engine pull path. Recreate uses the currently deployed immutable IDs without pulling. Cache-only **Pull images** remains separate.
+Update pulls each distinct source reference for the deployed platform and inspects its immutable image ID. Pull failure or a platform mismatch leaves originals intact. No private-registry credential intake is added by C4; registry access must work through the existing Engine pull path. Recreate resolves the original image reference from the local cache without pulling, including a newer image previously downloaded by **Pull**. Missing local images or platform mismatches fail before mutation. **Pull** changes the cache only.
 
 If every update image is unchanged, the job succeeds with `unchanged`, preserving container identities and state. If any image changes, the whole confirmed group is replaced in dependency order. Fingerprints include configuration, mounts, network identities, running/stopped state and start revision; submission and the worker recheck them before pull and immediately before replacement.
 

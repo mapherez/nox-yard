@@ -4,7 +4,10 @@ async (page) => {
   await page.unrouteAll({behavior:'wait'});
   await page.route('**/api/**', route => {
     const path=new URL(route.request().url()).pathname;
+    if(path==='/api/configuration-migration') return route.fulfill({json:[]});
+    if(path.includes('/configuration/')) return route.fulfill({json:{available:false,state:'ready',files:[],variables:[]}});
     if(path.endsWith('/schedule')) return route.fulfill({json:{enabled:false,targetID:'compose:sample',timezone:'Etc/UTC',time:'03:00',eligible:true}});
+    if(path==='/api/recreate/preview') return route.fulfill({json:{fingerprint:'a'.repeat(64),items:[],order:[]}});
     if(path==='/api/bootstrap') return route.fulfill({json:{authenticated:true,needsSetup:false,username:'admin',csrfToken:'fixture'}});
     if(path==='/api/projects/events') return route.fulfill({contentType:'text/event-stream',body:'data: {"inventory":false,"metrics":false}\n\n'});
     if(path==='/api/projects') return route.fulfill({json:{collectedAt:'2026-10-08T00:00:00Z',projects:[{id:'compose:sample',name:'sample',kind:'managed-compose',state:'running',health:'healthy',cpuPercent:null,memoryBytes:null,uptimeSeconds:null,networkRxBytes:null,networkTxBytes:null,containers:[]}]}});
@@ -83,16 +86,16 @@ async (page) => {
   current={...current,status:'failed',outcome:'rolled_back',stage:'completed',rollback:'restored'};
   await drawer.getByText('update: Failed · previous version restored',{exact:true}).waitFor();
   await drawer.getByLabel('More actions',{exact:true}).click();
-  await drawer.getByRole('button',{name:'Update images',exact:true}).click();
-  await drawer.getByText(/Uses the saved source\. Unchanged images preserve containers/).waitFor();
-  if(await drawer.getByRole('button',{name:'Update images',exact:true}).isVisible()) throw Error('Maintenance menu covers update confirmation');
-  if(!await drawer.getByRole('button',{name:'Cancel',exact:true}).evaluate(el=>document.activeElement===el)) throw Error('Confirmation did not receive keyboard focus');
+  await drawer.getByRole('button',{name:'Recreate',exact:true}).click();
+  const confirmation=page.getByRole('dialog',{name:'Recreate containers?',exact:true});
+  await confirmation.getByText(/Reads the current Compose and environment files/).waitFor();
+  if(!await confirmation.getByRole('button',{name:'Cancel',exact:true}).evaluate(el=>document.activeElement===el)) throw Error('Confirmation did not receive keyboard focus');
   for(const width of [1440,768,390,320]) {
     await page.setViewportSize({width,height:1000});
-    if(await drawer.evaluate(el=>el.scrollWidth>el.clientWidth+1)) throw Error('Update confirmation overflows '+width);
+    if(await confirmation.evaluate(el=>el.scrollWidth>el.clientWidth+1)) throw Error('Recreate confirmation overflows '+width);
   }
-  await page.screenshot({path:'output/playwright/c3-update-320.png'});
-  await drawer.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.screenshot({path:'output/playwright/c3-recreate-320.png'});
+  await confirmation.getByRole('button',{name:'Cancel',exact:true}).click();
   if(!await drawer.getByLabel('More actions',{exact:true}).evaluate(el=>document.activeElement===el)) throw Error('Cancel did not return focus to the maintenance menu');
   await page.keyboard.press('Escape');
   await drawer.waitFor({state:'hidden'});

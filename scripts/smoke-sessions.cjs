@@ -22,6 +22,8 @@ async (page) => {
     if(path==='/api/bootstrap')return route.fulfill({json:{authenticated:true,needsSetup:false,username:'owner',csrfToken:'fixture'}});
     if(path==='/api/login')return route.fulfill({status:401,json:{error:'Invalid username or password.'}});
     if(path==='/api/projects')return route.fulfill(unauthorized?{status:401,json:{error:'Sign in to continue.'}}:{json:{collectedAt:'2026-10-08T00:00:00Z',projects:[{id:'compose:sample',name:'sample',kind:'managed-compose',state:'running',health:'healthy',cpuPercent:null,memoryBytes:null,networkRxBytes:null,networkTxBytes:null,uptimeSeconds:null,containers:[{id,name:'demo',service:'demo',image:'alpine',state:'running',health:'healthy',terminalAvailable:true,cpuPercent:null,memoryBytes:null,networkRxBytes:null,networkTxBytes:null,uptimeSeconds:null}]}]}});
+    if(path==='/api/configuration-migration') return route.fulfill({json:[]});
+    if(path.includes('/configuration/')) return route.fulfill({json:{available:false,state:'ready',files:[],variables:[]}});
     if(path.endsWith('/schedule'))return route.fulfill({json:{enabled:false,targetID:'compose:sample',timezone:'Etc/UTC',time:'03:00',eligible:true}});
     if(path==='/api/jobs')return route.fulfill({json:[]});
     return route.fulfill({json:{}});

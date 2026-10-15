@@ -3,6 +3,8 @@ package application
 import (
 	"context"
 	"errors"
+	"github.com/mapherez/nox-yard/internal/managed"
+	"strings"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/jobs"
@@ -135,6 +137,19 @@ func (s *Service) Pull(ctx context.Context, id string, container bool) (lifecycl
 		return lifecycle.MaintenanceResult{}, err
 	}
 	var result lifecycle.MaintenanceResult
+	if !container {
+		if name, compose := strings.CutPrefix(id, "compose:"); compose {
+			if controller, ok := s.Managed.(interface {
+				PullFiles(context.Context, string) (lifecycle.MaintenanceResult, error)
+			}); ok {
+				result, err = controller.PullFiles(ctx, name)
+				if !errors.Is(err, managed.ErrFilesMissing) {
+					s.finishOperation(job, result.Failed > 0, err)
+					return result, err
+				}
+			}
+		}
+	}
 	if container {
 		result, err = s.Lifecycle.PullContainer(ctx, id)
 	} else {

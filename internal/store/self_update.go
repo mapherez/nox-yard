@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -78,6 +79,9 @@ func (s *Store) SelfUpdateJob(id string) (SelfUpdateJob, error) {
 }
 
 func (s *Store) CreateSelfUpdateJob(job SelfUpdateJob) error {
+	return s.CreateSelfUpdateJobContext(context.Background(), job)
+}
+func (s *Store) CreateSelfUpdateJobContext(ctx context.Context, job SelfUpdateJob) error {
 	target := "compose:" + job.ProjectName
 	if job.ProjectName == "" {
 		target = "compose:nox-yard"
@@ -87,6 +91,7 @@ func (s *Store) CreateSelfUpdateJob(job SelfUpdateJob) error {
 		return err
 	}
 	operation.ID = job.ID
+	operation = ScheduledJob(ctx, operation)
 	operation.ProjectName = job.ProjectName
 	operation.Stage = "pulling"
 	operation.WorkerID = "nox-yard-update-" + job.ID
@@ -161,6 +166,9 @@ func (s *Store) FinishSelfUpdateOutcome(id, status, message string, recovery boo
 		messageSafe = "Self-update completion or rollback is uncertain. Inspect the running container, SQLite snapshot and retained rollback resources on the host, then acknowledge recovery."
 	}
 	if _, err := tx.Exec(`UPDATE operation_jobs SET status=?,stage=?,outcome=?,error=?,rollback=?,completed_at=?,updated_at=? WHERE id=? AND domain='self-update'`, status, stage, outcome, messageSafe, rollback, time.Now().Unix(), time.Now().Unix(), id); err != nil {
+		return err
+	}
+	if err := finishSchedule(tx, id, status, outcome, messageSafe); err != nil {
 		return err
 	}
 	if !recovery {

@@ -1,12 +1,12 @@
 # Managed deployment, image updates and source sync
 
-Managed operations use the C2 independent worker and resource reservations. This contract applies to stored Compose projects; external reconstruction and schedules are separate work packages. Yard's own update keeps its dedicated protocol.
+Managed operations use the C2 independent worker and resource reservations. File-backed projects share the current host-file protocol described below. Engine reconstruction remains the fallback when Compose files are absent; Yard recreation uses the independent worker and an additional SQLite snapshot.
 
-## Separate operations
+## Current file-backed operations
 
-- **Pull** validates the stored definition and populates the image cache. Its `cached` result changes no deployed containers or host source files.
-- **Update images** uses saved YAML, variables and environment files, without fetching the source URL. It pulls active services, inspects their local immutable image IDs/platforms and compares every deployed service/replica. Identical targets return `unchanged` and preserve container IDs and running/stopped state. This means no image change; it does not certify an already unhealthy application as healthy.
-- **Sync** fetches the matching managed URL, presents source/configuration changes and requires a fresh confirmation fingerprint. Preview/cancel never changes the stack. A separate URL copy has a new project name/directory. Sync may apply changed services, mounts, environment and images.
+[Configuration files](Configuration-Files.md) defines the current contract for managed and external projects: current host files are authoritative; Save changes files only; Start/Stop/Restart affect existing containers; Pull downloads only; Recreate applies current files with cached images and no pull/build. The browser no longer offers Update. Legacy update APIs/schedules still pull before applying current files. Migration exports DB-only values and clears the verified legacy active copies. The private job journal remains in SQLite.
+
+The source Sync/deployment protocol below remains for URL intake and compatibility. Its old-source snapshot is hydrated from current files after migration. Multi-file source editing uses the drawer's individual file editors.
 
 Sync retains saved interpolation overrides that the new source still declares, and saved environment files that it still uses (including `.env`), when those inputs are omitted from the request. Explicit values/files replace their saved counterparts; an empty string is an explicit replacement, not an omission. A newly supplied `.env` assignment supersedes an inherited interpolation override for that key, while an explicitly supplied interpolation variable still wins. Removed variable/file declarations are dropped. The preview fingerprints and worker payload use the same effective inputs without returning saved secrets. The form omits untouched variable fields and sends edited fields even when cleared. Copy/new deployment does not inherit another project's inputs.
 
@@ -16,7 +16,7 @@ Replacement uses the complete validated Compose JSON model over stdin, with immu
 
 Pinned containers retain their original image reference in the reserved `nox-yard.image-reference` label. Inventory and cache-only Engine pulls use that reference; image verification, replacement and rollback still use actual immutable IDs. Engine pull history records the newly cached ID without changing deployed containers. Source definitions cannot supply the reserved label.
 
-Compose helpers mount host source read-only; pull works from the parent directory so it cannot create a missing project directory through its working-directory mount. Start of a complete stack starts the existing containers instead of running `up` against mutable cache tags. Stop/Start after rollback therefore preserves the restored version even while the failed target remains cached. Start/restart also check saved source/env files for host drift.
+Compose helpers mount host source read-only; pull works from the parent directory so it cannot create a missing project directory through its working-directory mount. Start of a complete stack starts the existing containers instead of running `up` against mutable cache tags. Stop/Start after rollback therefore preserves the restored version even while the failed target remains cached. Start/restart of migrated projects use existing Engine containers and do not apply edited files.
 
 ## Snapshot and supported replacement
 

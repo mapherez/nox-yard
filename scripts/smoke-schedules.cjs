@@ -9,6 +9,8 @@ async (page) => {
     if(path==='/api/projects/events') return route.fulfill({contentType:'text/event-stream',body:'data: {"inventory":false,"metrics":false}\n\n'});
     if(path==='/api/projects') return route.fulfill({json:{collectedAt:'2026-10-08T00:00:00Z',projects:[{id:target,name:'sample',kind:'managed-compose',state:'running',health:'healthy',containers:[],cpuPercent:null,memoryBytes:null,uptimeSeconds:null}]}});
     if(path==='/api/jobs') return route.fulfill({json:status.lastJobID?[{id:status.lastJobID,targetID:target,projectName:'sample',domain:'schedule',operation:'update',status:'succeeded',stage:'completed',outcome:'skipped',scheduledFor:1791432000,createdAt:1791432000,updatedAt:1791432000,error:status.lastReason}]:[]});
+    if(path==='/api/configuration-migration') return route.fulfill({json:[]});
+    if(path.includes('/configuration/')) return route.fulfill({json:{available:false,state:'ready',files:[],variables:[]}});
     if(path.endsWith('/schedule')){
       if(request.method()==='PUT'){
         if(request.headers()['x-csrf-token']!=='fixture')throw Error('schedule save lost CSRF');

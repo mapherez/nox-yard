@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const session = "regression-" + randomUUID();
 const temp = path.join(root, ".tmp", session);
-const tests = ["smoke-history.cjs", "smoke-recreate.cjs", "smoke-schedules.cjs", "smoke-sessions.cjs"];
+const tests = ["smoke-history.cjs", "smoke-recreate.cjs", "smoke-schedules.cjs", "smoke-sessions.cjs", "smoke-configuration.cjs"];
 const port = await new Promise((resolve, reject) => {
  const server = createServer(); server.on("error", reject);
  server.listen(0, "127.0.0.1", () => { const port = server.address().port; server.close(() => resolve(port)); });

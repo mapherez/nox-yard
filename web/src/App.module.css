@@ -1623,7 +1623,7 @@
 }
 
 .inspectList li,
-.environmentList div {
+.environmentList > div {
   display: grid;
   gap: var(--space-1);
   min-inline-size: 0;

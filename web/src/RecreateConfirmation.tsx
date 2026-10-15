@@ -48,8 +48,8 @@ export function RecreateConfirmation({ target, csrfToken, onClose, onAccepted }:
     {target && <div className={styles.confirmBody}>
       <h2 id={titleID}>{target.operation === "update" ? "Update images?" : "Recreate containers?"}</h2>
       <p><strong>{target.name}</strong></p>
-      <p>{target.operation === "update" ? "Pulls the latest images for this host platform. If every image is unchanged, containers stay as they are." : "Recreates the selected containers using their currently deployed images."} A changed project is replaced in dependency order, preserving supported configuration and running/stopped states.</p>
-      <p>Original containers remain available until verification. Failed replacements restore them. Named volumes and binds remain. Replacement does not copy writable container layers or temporary files; rollback cannot undo shared data writes or migrations. Back up application data first. Automatically assigned network addresses may change.</p>
+      <p>{target.operation === "update" ? "Pulls images and applies changed configuration." : "Reads the current Compose and environment files and recreates using local images. No images are pulled or built. When project files are unavailable, the existing container configuration is used."} Running/stopped states and persistent data are preserved.</p>
+      <p>Failed replacements attempt to restore the previous container configuration and images. Named volumes and binds remain. Writable container layers and temporary files are not copied; rollback cannot undo application data writes or migrations. Automatically assigned network addresses may change.</p>
       {loading && <p role="status">Assessing configuration and dependencies…</p>}
       {error && <p className={styles.inventoryError} role="alert">{error}</p>}
       {preview && <>

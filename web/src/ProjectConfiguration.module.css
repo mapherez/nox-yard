@@ -1,0 +1,14 @@
+.panel { padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-2); min-inline-size: 0; }
+.panel summary { cursor: pointer; font-weight: 650; }
+.panel p { font-size: .8rem; overflow-wrap: anywhere; }
+.panel form { display: grid; gap: var(--space-2); margin-block: var(--space-3); }
+.panel label { display: grid; gap: var(--space-2); font-size: .85rem; overflow-wrap: anywhere; }
+.panel textarea { box-sizing: border-box; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; padding: var(--space-3); font-family: var(--font-code); font-size: 1rem; line-height: 1.5; color: var(--color-text-primary); background: var(--color-surface-1); border: 1px solid var(--color-border); border-radius: var(--radius-sm); resize: vertical; }
+.panel button, .value button { min-block-size: 2.5rem; padding: var(--space-2) var(--space-3); color: var(--color-text-primary); background: var(--color-surface-1); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+.panel button { justify-self: start; }
+.panel button:disabled, .value button:disabled { opacity: .5; cursor: default; }
+.value { display: flex; flex-direction: row; align-items: center; gap: var(--space-2); padding: 0; border: 0; background: none; }
+.value code { flex: 1; min-inline-size: 0; }
+.value form { display: flex; flex-wrap: wrap; gap: var(--space-2); inline-size: 100%; }
+.value input { box-sizing: border-box; flex: 1 1 8rem; min-inline-size: 0; padding: var(--space-2); font-size: 1rem; color: var(--color-text-primary); background: var(--color-surface-1); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.pending { display: block; margin-block-start: var(--space-2); color: var(--color-text-secondary); }

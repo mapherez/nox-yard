@@ -437,4 +437,147 @@ volumes:
 		}
 	}
 	t.Log("PASS: unsupported sources rejected before mutation; errors/history omit private source/env snapshots")
+	t.Run("materialized environment", TestMaterializedEnvironmentDocker)
+	if err := m.migrateConfiguration(ctx, next, false); err != nil {
+		t.Fatal("file migration", err)
+	}
+	cleared, _, _ := data.ManagedProject(prefix)
+	if cleared.YAML != "" || cleared.VariablesJSON != "{}" || cleared.EnvFilesJSON != "{}" {
+		t.Fatal("migration retained active database configuration")
+	}
+	configuration, err := m.Configuration(ctx, prefix)
+	if err != nil || !configuration.Available || configuration.State != "ready" {
+		t.Fatalf("configuration unavailable: %v", err)
+	}
+	if _, exists := func() (string, bool) {
+		for _, file := range configuration.Files {
+			if file.Path == ".env" {
+				return file.Content, true
+			}
+		}
+		return "", false
+	}(); !exists {
+		t.Fatal("interpolation variables were not materialized")
+	}
+	beforeFileEdit := web()
+	configuration, err = m.SaveConfiguration(ctx, prefix, ConfigurationEdit{Fingerprint: configuration.Fingerprint, Service: "web", Variable: "LITERAL", Content: "edited$private-value"})
+	if err != nil {
+		t.Fatal("inline variable edit", err)
+	}
+	if web().ID != beforeFileEdit.ID {
+		t.Fatal("saving configuration changed containers")
+	}
+	if _, err := m.SaveConfiguration(ctx, prefix, ConfigurationEdit{Fingerprint: "stale", Service: "web", Variable: "LITERAL", Content: "must-not-write"}); err == nil {
+		t.Fatal("stale file edit was accepted")
+	}
+	docker("stop", registry)
+	fileJob, err := m.FileOperation(ctx, prefix, "recreate", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(fileJob, "succeeded")
+	if web().ID == beforeFileEdit.ID || web().Image != beforeFileEdit.Image {
+		t.Fatal("configuration recreation did not use the cached image")
+	}
+	foundEdited := false
+	for _, entry := range web().Config.Env {
+		if entry == "LITERAL=edited$private-value" {
+			foundEdited = true
+		}
+	}
+	if !foundEdited {
+		t.Fatal("saved env was not applied")
+	}
+	assertData()
+	docker("start", registry)
+	t.Log("PASS: migration exports .env; inline edits preserve containers until cached-only Recreate and stale writes are rejected")
+	// Preserve original filenames and Compose merge order across manual edits.
+	originalFiles, err := m.readFileSnapshot(ctx, prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	multi := originalFiles
+	multi.Files = map[string]string{}
+	for file, content := range originalFiles.Files {
+		multi.Files[file] = content
+	}
+	multi.ComposeFiles = []string{"compose.yml", "override.yaml"}
+	multi.Files["override.yaml"] = "services:\n  web:\n    environment: {MANUAL_FILE: original}\n"
+	if err := saveConfigurationFiles(ctx, originalFiles, multi); err != nil {
+		t.Fatal(err)
+	}
+	encodedCompose, _ := json.Marshal(multi.ComposeFiles)
+	if err := data.SetFileConfiguration(store.FileConfiguration{Name: prefix, Directory: next.ProjectDir, ComposeFiles: string(encodedCompose), State: "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	manual, err := m.readFileSnapshot(ctx, prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := manual
+	changed.Files = map[string]string{}
+	for file, content := range manual.Files {
+		changed.Files[file] = content
+	}
+	changed.Files["override.yaml"] = strings.Replace(changed.Files["override.yaml"], "original", "from-terminal", 1)
+	if err := saveConfigurationFiles(ctx, manual, changed); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range runtime() {
+		if item.Config.Labels["com.docker.compose.service"] == "idle" {
+			docker("stop", item.ID)
+		}
+	}
+	fileJob, err = m.FileOperation(ctx, prefix, "recreate", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(fileJob, "succeeded")
+	foundManual := false
+	for _, entry := range web().Config.Env {
+		if entry == "MANUAL_FILE=from-terminal" {
+			foundManual = true
+		}
+	}
+	if !foundManual {
+		t.Fatal("manual multi-file override ignored")
+	}
+	for _, item := range runtime() {
+		if item.Config.Labels["com.docker.compose.service"] == "idle" && item.State.Running {
+			t.Fatal("Recreate started an originally stopped service")
+		}
+	}
+	t.Log("PASS: multiple Compose files retain merge order; terminal edits apply and stopped services remain stopped")
+	// An invalid application configuration must restore runtime without changing
+	// the user's current files, which remain available to correct and retry.
+	beforeBad := web()
+	configuration, err = m.Configuration(ctx, prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var override string
+	for _, file := range configuration.Files {
+		if file.Path == "override.yaml" {
+			override = file.Content
+		}
+	}
+	badOverride := override + "    healthcheck: {test: [CMD, 'false'], interval: 1s, timeout: 1s, retries: 1}\n"
+	if _, err := m.SaveConfiguration(ctx, prefix, ConfigurationEdit{Fingerprint: configuration.Fingerprint, Path: "override.yaml", Content: badOverride}); err != nil {
+		t.Fatal(err)
+	}
+	fileJob, err = m.FileOperation(ctx, prefix, "recreate", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	badJob := run(fileJob, "failed")
+	if badJob.Rollback != "restored" || web().Image != beforeBad.Image {
+		t.Fatalf("file-based rollback failed: %s", badJob.Error)
+	}
+	afterBad, err := m.readFileSnapshot(ctx, prefix)
+	if err != nil || afterBad.Files["override.yaml"] != badOverride {
+		t.Fatal("rollback overwrote manual source files")
+	}
+	assertData()
+	t.Log("PASS: file-based unhealthy rollback restores runtime and data while preserving the user's edited Compose")
+	testConfigurationMigrationDocker(t, ctx, m, data, prefix, docker)
 }

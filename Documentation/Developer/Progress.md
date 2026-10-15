@@ -1,12 +1,18 @@
 # Current checkpoint
 
-**Updated:** 2026-10-08
+**Updated:** 2026-10-15
 
 **Phase:** C6 — Local acceptance and preparation for real-host validation
 
 The [MVP completion plan](Completion-Plan.md) is the execution path for remaining work. **C0–C5 are implemented and their local acceptance gates passed. C6 local preparation has passed; physical Pi 5 and Linux amd64 acceptance are next.** C0–C5 are committed; C2's checkpoint is `4ad8caa`, C3's is `9daace6` and C4's is `8462a5d`. C5's checkpoint is `05f1752`. C6 changes remain in the working tree; real-host acceptance is pending. These changes are not released or deployed to the Pi; the original phase and host acceptance checkpoints remain open.
 
 Repository review on 2026-10-08 established the clean `v1.0.1` baseline and identified incorrect managed health outcomes and missing adoption directories. C1 corrects those defects; C2 adds durable ownership, interruption observation and contextual history; C3 builds managed image comparison, source staging and rollback on that ownership; C4 adds assessed external replacement and explicit safe removal. C5 adds project-level opt-in scheduling; Phase 4 still needs its real-host acceptance evidence. The connected `v1.0.1` instance was only inspected; it has not received these changes. See [Repository review](Repository-Review-2026-10-08.md) for the historical findings and validation limits.
+
+## Host configuration implementation
+
+The approved file-configuration plan is implemented in the working tree: host Compose/environment source of truth, inline variables and collapsed editors, fingerprinted authenticated writes, automatic verified migration with conflict resolution and active DB cleanup, host-owner access, uniform Pull/Recreate/Restart semantics, current-file Yard recreation with SQLite recovery, daily Yard scheduling and compact Settings. Native recovery snapshots remain in SQLite as requested. See [Configuration files](Configuration-Files.md) and decision D-031.
+
+Local verification passed `go test ./...`, `go vet ./...`, frontend typecheck/build and all five deterministic browser scripts. Desktop/mobile screenshots were inspected. Disposable Linux/Docker acceptance passed managed file migration (including interrupted/conflicting exports), multiple Compose order, terminal edits, literal environment values, stale writes, registry-offline cached Recreate, stopped services, unhealthy rollback, non-root host ownership, root-worker SQLite/WAL/SHM ownership on reopen, invalid YAML repair, recovery of legacy missing directories/original filenames from Docker labels, and automatic equivalent multi-file migration. The independent Yard fixture passed saved `.env` and terminal Compose changes, preserved session/daily settings, and restored runtime/SQLite after invalid startup while preserving edited files. Engine fallback acceptance passed separately pulled cached-image recreation with its registry offline, rollback and recovery-required ownership. The complete local Linux amd64 image also builds successfully. These are local Docker Desktop/Linux fixtures; no homelab migration, publication or production deployment occurred.
 
 C0 updates `source-map-js` to 1.2.2 and the minimum Go toolchain to 1.26.6, corrects implemented/planned architecture and backup guidance, records operation contracts in Decisions, and adds isolated acceptance fixtures plus `scripts/security.sh`. A fresh frontend install/build and npm audit passed with zero vulnerabilities. Pinned `govulncheck` scans for Linux amd64 and arm64 report zero reachable vulnerabilities and zero vulnerabilities in imported packages. Module-only advisory GO-2026-5932 concerns the unmaintained `golang.org/x/crypto/openpgp` package, which Yard does not import or call; no fixed release is available. This finding is triaged, not represented as a completely advisory-free dependency graph.
 

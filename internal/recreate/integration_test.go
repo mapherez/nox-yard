@@ -165,12 +165,20 @@ func TestRecreateDockerAcceptance(t *testing.T) {
 	if _, err := m.Submit(ctx, input); err == nil {
 		t.Fatal("stale runtime preview accepted")
 	}
+	publish("V1", "app")
+	docker("pull", reference+":app")
+	cachedImage := docker("image", "inspect", "--format", "{{.Id}}", reference+":app")
+	docker("stop", os.Getenv("NOX_RECREATE_REGISTRY"))
 	recreated := run("container:"+newID, "recreate", "verified")
 	stoppedID := recreated.TargetImages[0].ContainerID
 	if docker("inspect", "--format", "{{.State.Running}}", stoppedID) != "false" {
 		t.Fatal("stopped container started")
 	}
-	t.Log("PASS: stale preview aborts; explicit same-image recreation retains stopped state")
+	if docker("inspect", "--format", "{{.Image}}", stoppedID) != cachedImage || cachedImage == updated.TargetImages[0].ImageID {
+		t.Fatal("Recreate did not apply the separately pulled local image")
+	}
+	docker("start", os.Getenv("NOX_RECREATE_REGISTRY"))
+	t.Log("PASS: stale preview aborts; Recreate applies a separately pulled image with the registry offline and retains stopped state")
 	project := name + "-group"
 	// The registry uses tmpfs: a restart intentionally erased its manifests.
 	publish("V1", "db")
@@ -204,6 +212,7 @@ func TestRecreateDockerAcceptance(t *testing.T) {
 	// Unchecked real Engine removal retains exclusive volumes as well as binds
 	// and source. Keep the fixture images referenced during cleanup.
 	docker("create", "--label", "nox-yard.acceptance="+name, os.Getenv("NOX_RECREATE_V1"), "true")
+	docker("create", "--label", "nox-yard.acceptance="+name, os.Getenv("NOX_RECREATE_V2"), "true")
 	engine, err := lifecycle.New()
 	if err != nil {
 		t.Fatal(err)

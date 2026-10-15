@@ -111,11 +111,13 @@ func run() error {
 	defer recreator.Close()
 	app.Recreator = recreator
 	updates := selfupdate.New(data, buildSHA)
+	updates.Files = managedProjects
 	api.SetSelfUpdate(updates)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	app.ResourceKeys = jobs.TargetResources
 	app.ResourceImages = jobs.Images
+	managedProjects.StartConfigurationMigration(ctx)
 	observer := &jobs.Observer{Data: data, Changes: changes, Verify: func(ctx context.Context, job store.Job) error {
 		if job.Domain == "engine" && (job.Operation == "update" || job.Operation == "recreate") {
 			return recreator.Reconcile(ctx, job)
@@ -145,6 +147,9 @@ func run() error {
 	}
 	projectScheduler := &schedule.Manager{Data: data, Location: location, Run: app.RunScheduledUpdate, Notify: func() { changes.Notify(inventory.Change{Inventory: true}) }, Reconcile: observer.Reconcile}
 	app.Scheduler = projectScheduler
+	if err := updates.InitializeDaily(ctx, location); err != nil {
+		return err
+	}
 	stopScheduler := projectScheduler.Start(ctx)
 	defer stopScheduler()
 	dockerInventory.Start(ctx, changes.Notify)

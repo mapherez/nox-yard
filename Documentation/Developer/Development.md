@@ -158,3 +158,11 @@ The scheduling fixture uses a disposable registry, application images, named sta
 ## Host upgrade and recovery acceptance
 
 See [Host validation](Host-Validation.md) for the prepared Pi 5 handoff, native-host suite/report and manual UI checklist. `scripts/smoke-upgrade.py --image CURRENT --legacy-image LEGACY` uses a real v1.0.1 image, disposable state/application storage, the actual interactive password CLI and a three-part backup/restore. `scripts/acceptance.py` runs all isolated runtime fixtures against native current/legacy images and records exact platform/image evidence. `scripts/smoke-self-update.py` checks real independent Yard replacement and failed replacement/SQLite recovery while redirecting only the fixture binary's restore tag; production GHCR discovery/pull is checked through the release path separately. No fixture uses existing user stacks.
+
+## File configuration verification
+
+Run `python scripts/smoke-configuration.py --image IMAGE` with a freshly built Linux Yard image to test authenticated file reveal/save, no mutation on Save, current-file self-recreation, daily schedule/session persistence and SQLite/runtime recovery after invalid Yard startup. Resources have generated local fixture names and do not target a running homelab.
+
+`smoke-managed.py` additionally covers verified DB export, inline environment edits, stale fingerprints, cached-only Recreate with the fixture registry stopped, original multi-file merge order, terminal edits, stopped services, source-preserving runtime rollback, UID ownership, interrupted export, manual conflicts and repair of invalid local YAML. `smoke-recreate.py` verifies the assessed Engine fallback when files are unavailable.
+
+The browser suite includes `smoke-configuration.cjs`: migration gating/completion, inline edit/cancel/save, retained conflict drafts, pending values, initially collapsed Compose editing, consistent Yard actions/daily controls, compact Settings and desktop/mobile layouts. `node scripts/test-browser.mjs` runs it with the other existing deterministic browser regressions against the built frontend. Screenshots are written under ignored `output/playwright/`.

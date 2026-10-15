@@ -289,7 +289,25 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 		}
 	} else {
 		for _, target := range state.Entries {
-			target.TargetImage = target.Old.Image
+			image, err := m.client.ImageInspect(ctx, target.Reference)
+			if err != nil {
+				return fail("A required local image is unavailable. Run Pull before Recreate.", err)
+			}
+			actual := image.Os + "/" + image.Architecture
+			if image.Variant != "" {
+				actual += "/" + image.Variant
+			}
+			if actual != target.Platform {
+				return fail("The local image does not match the assessed host platform.", nil)
+			}
+			if image.Config != nil {
+				for destination := range image.Config.Volumes {
+					if _, present := target.Old.Config.Volumes[destination]; !present {
+						additionalVolumes = true
+					}
+				}
+			}
+			target.TargetImage = image.ID
 		}
 	}
 	_, fresh, err = m.snapshot(ctx, state.Request)

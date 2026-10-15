@@ -235,9 +235,9 @@ func (m *Manager) snapshot(ctx context.Context, input Request) (*journal, Previe
 				return nil, Preview{}, fmt.Errorf("%w: update the complete Compose project instead of one member", ErrUnsupported)
 			}
 			if project != "" {
-				if _, found, err := m.data.ManagedProject(project); err != nil {
+				if stored, found, err := m.data.ManagedProject(project); err != nil {
 					return nil, Preview{}, err
-				} else if found {
+				} else if found && stored.YAML != "" {
 					return nil, Preview{}, fmt.Errorf("%w: use stored managed-project operations", ErrUnsupported)
 				}
 				if item.Config.Labels["com.docker.compose.service"] == "" || item.Config.Labels["com.docker.compose.container-number"] == "" {

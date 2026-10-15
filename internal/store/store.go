@@ -65,6 +65,7 @@ func Open(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("secure database: %w", err)
 	}
+	inheritDatabaseOwner(dataDir)
 	return &Store{db: db, directory: dataDir}, nil
 }
 
@@ -72,7 +73,10 @@ func migrate(db *sql.DB) error {
 	if err := migrateBase(db); err != nil {
 		return err
 	}
-	return migrateScheduleTimes(db)
+	if err := migrateScheduleTimes(db); err != nil {
+		return err
+	}
+	return migrateConfigurations(db)
 }
 
 func migrateBase(db *sql.DB) error {

@@ -74,8 +74,18 @@ func (s *Store) SaveManagedProject(project ManagedProject) error {
 
 func saveManagedProject(writer interface {
 	Exec(string, ...any) (sql.Result, error)
+	QueryRow(string, ...any) *sql.Row
 }, project ManagedProject) error {
 	now := time.Now().Unix()
+	var configurationState string
+	if err := writer.QueryRow(`SELECT state FROM file_configurations WHERE name=? AND EXISTS(SELECT 1 FROM managed_projects WHERE name=? AND yaml='')`, project.Name, project.Name).Scan(&configurationState); err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if configurationState == "ready" {
+		project.YAML = ""
+		project.VariablesJSON = "{}"
+		project.EnvFilesJSON = "{}"
+	}
 	if project.EnvFilesJSON == "" {
 		project.EnvFilesJSON = "{}"
 	}
@@ -88,8 +98,18 @@ func saveManagedProject(writer interface {
 }
 
 func (s *Store) DeleteManagedProject(name string) error {
-	_, err := s.db.Exec("DELETE FROM managed_projects WHERE name = ?", name)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM managed_projects WHERE name = ?", name); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM file_configurations WHERE name = ?", name); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // CommitManagedJob fences metadata writes and resource release with the same
@@ -108,6 +128,9 @@ func (s *Store) CommitManagedJob(job Job, project *ManagedProject, remove bool, 
 	}
 	if remove {
 		if _, err := tx.Exec("DELETE FROM managed_projects WHERE name=?", job.ProjectName); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM file_configurations WHERE name=?", job.ProjectName); err != nil {
 			return err
 		}
 	} else if project != nil {

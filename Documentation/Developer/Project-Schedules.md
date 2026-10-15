@@ -1,6 +1,6 @@
 # Project automatic image updates
 
-Project schedules are disabled by default and independent of Yard self-update. In the project's Details drawer, select **Enable automatic updates for this project**, choose **Daily check time**, and select **Save automatic updates**. Enabling requires a supported healthy running project; unsupported or stopped projects must be reviewed through the manual update path. Back up application data before enabling.
+Project schedules are disabled by default. Yard uses the same daily schedule UI and occurrence admission, while retaining its independent safe replacement/recovery path. In the project's Details drawer, select **Enable automatic updates for this project**, choose **Daily check time**, and select **Save automatic updates**. Enabling requires a supported healthy running project; unsupported or stopped projects must be reviewed through the manual update path. Back up application data before enabling.
 
 ## Time and missed checks
 
@@ -10,7 +10,7 @@ The server checks due schedules at startup and every minute after its previous c
 
 ## Execution and failures
 
-Automatic checks assess the same supported runtime/source contracts as [managed updates](Managed-Updates.md) and [external updates](External-Updates.md). They pull and compare immutable image identities, preserve containers when unchanged, and use independent workers, verification and bounded rollback when changed. They do not fetch/synchronize source URLs, change Compose definitions, or start stopped projects. Declared successful one-shot dependencies may be rerun by a changed deployment when its long-running services are running. Yard/helpers always use their dedicated management path.
+Automatic checks assess the same supported runtime/source contracts as [managed updates](Managed-Updates.md) and [external updates](External-Updates.md). They pull and compare immutable image identities, preserve containers when unchanged, and use independent workers, verification and bounded rollback when changed. They do not fetch/synchronize source URLs, change Compose definitions, or start stopped projects. Declared successful one-shot dependencies may be rerun by a changed deployment when its long-running services are running. Yard uses its independent worker from the same drawer and daily scheduler; temporary helpers remain protected. File-backed projects read current saved files and block automatic replacement while migration is pending. They never fetch the original Compose URL implicitly.
 
 Only one automatic worker is admitted globally, including pending cleanup/recovery. A tick considers at most four due schedules and gives each assessment a 30-second context; update workers retain their existing deadlines. Other due projects remain deferred with a persisted reason. Manual actions keep their normal reservations. Busy, absent, stopped, unhealthy, unsupported or changed targets receive a persisted skipped occurrence with a safe reason and no mutation locks. Docker unavailability also skips without starting work.
 

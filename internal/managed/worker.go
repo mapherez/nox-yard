@@ -13,6 +13,8 @@ import (
 )
 
 type workerPayload struct {
+	NativeAction        string
+	FileJob             *fileDeployment
 	Project             store.ManagedProject
 	RuntimeFingerprint  string
 	FilesFingerprint    string
@@ -35,7 +37,7 @@ func (m *Manager) enqueue(ctx context.Context, project store.ManagedProject, ope
 	}
 	job.Payload = string(encoded)
 	// Directory-less legacy mutations fail locally, without launching a worker.
-	invalidDir := project.ProjectDir == "" && (operation == "start" || operation == "restart" || operation == "update")
+	invalidDir := project.ProjectDir == "" && payload.NativeAction == "" && (operation == "start" || operation == "restart" || operation == "update")
 	if !invalidDir {
 		runtime, err := m.runtime(ctx, project.Name)
 		if err != nil {
@@ -63,7 +65,7 @@ func (m *Manager) enqueue(ctx context.Context, project store.ManagedProject, ope
 			}
 			job.SourceImages = append(job.SourceImages, identity)
 		}
-		if operation == "sync" && payload.RuntimeFingerprint != "" && adoptionRuntimeFingerprint(runtime) != payload.RuntimeFingerprint {
+		if payload.RuntimeFingerprint != "" && adoptionRuntimeFingerprint(runtime) != payload.RuntimeFingerprint {
 			return store.Job{}, ErrConflict
 		}
 	}
@@ -82,6 +84,9 @@ func (m *Manager) enqueue(ctx context.Context, project store.ManagedProject, ope
 		if err := m.data.SaveManagedProject(project); err != nil {
 			_ = m.data.FinishJob(job.ID, job.Owner, "failed", "failed", "Project configuration could not be saved.", "")
 			return store.ManagedJob{}, err
+		}
+		if m.filesEnabled {
+			_ = m.data.SetFileConfiguration(store.FileConfiguration{Name: project.Name, Directory: project.ProjectDir, ComposeFiles: `["compose.yml"]`, State: "migrating"})
 		}
 	}
 	if err := m.launch(ctx, m.data, job, "managed-worker"); err != nil {
@@ -137,6 +142,28 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 	if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
 		return fail("Saved operation payload could not be read.")
 	}
+	if payload.FileJob != nil {
+		return m.executeFileDeployment(ctx, job, payload)
+	}
+	if payload.NativeAction != "" {
+		engine, err := lifecycle.New()
+		if err != nil {
+			return fail("Docker is unavailable.")
+		}
+		defer engine.Close()
+		if payload.NativeAction == "pull" {
+			result, err := engine.PullProject(ctx, "compose:"+payload.Project.Name)
+			if err != nil || result.Failed > 0 {
+				return fail("Image pull failed; existing containers were retained.")
+			}
+			return m.data.FinishJob(job.ID, job.Owner, "succeeded", "cached", "", "")
+		}
+		result, err := engine.Project(ctx, "compose:"+payload.Project.Name, lifecycle.Action(payload.NativeAction))
+		if err != nil || result.Failed > 0 {
+			return fail("Container lifecycle operation failed; configuration files were not applied.")
+		}
+		return m.data.FinishJob(job.ID, job.Owner, "succeeded", "verified", "", "")
+	}
 	project := payload.Project
 	variables, envFiles := map[string]string{}, map[string]string{}
 	if json.Unmarshal([]byte(project.VariablesJSON), &variables) != nil || json.Unmarshal([]byte(project.EnvFilesJSON), &envFiles) != nil {
@@ -159,6 +186,7 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 		if err := m.data.CommitManagedJob(job, &project, false, "verified"); err != nil {
 			return fail("Adopted files were preserved, but project metadata could not be saved.")
 		}
+		_ = m.data.SetFileConfiguration(store.FileConfiguration{Name: project.Name, Directory: project.ProjectDir, ComposeFiles: `["compose.yml"]`, State: "migrating"})
 		return nil
 	}
 	if job.Operation == "new" || job.Operation == "copy" || job.Operation == "sync" || job.Operation == "update" || job.Operation == "pull" {
@@ -299,6 +327,27 @@ func (m *Manager) Reconcile(ctx context.Context, job store.Job) error {
 	var payload workerPayload
 	if json.Unmarshal([]byte(job.Payload), &payload) != nil {
 		return store.ErrJobChanged
+	}
+	if payload.FileJob != nil {
+		work := payload.FileJob
+		if !work.Mutation || work.Definition == "" || job.Stage != "verifying" {
+			return store.ErrJobChanged
+		}
+		source, err := m.readFileSnapshot(ctx, job.ProjectName)
+		if err != nil || source.Fingerprint != work.Source.Fingerprint {
+			return store.ErrJobChanged
+		}
+		preview := filePreview(work.Source)
+		preview = fileVerification(preview, work.Runtime)
+		if err := m.verifyDeploymentImages(ctx, job.ProjectName, preview.model, work.Targets); err != nil {
+			return err
+		}
+		if len(expectedServices(preview.model)) > 0 {
+			if err := m.verify(ctx, job.ProjectName, preview); err != nil {
+				return err
+			}
+		}
+		return m.data.FinishJob(job.ID, job.Owner, "succeeded", "reconciled", "", "")
 	}
 	project := payload.Project
 	if payload.Deployment != nil {

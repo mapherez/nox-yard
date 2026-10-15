@@ -6,6 +6,8 @@ async (page) => {
   await page.unrouteAll({behavior:'wait'});
   await page.route('**/api/**', async route => {
     const request=route.request(),url=new URL(request.url()),path=url.pathname;
+    if(path==='/api/configuration-migration') return route.fulfill({json:[]});
+    if(path.includes('/configuration/')) return route.fulfill({json:{available:false,state:'ready',files:[],variables:[]}});
     if(path.endsWith('/schedule')) return route.fulfill({json:{enabled:false,targetID:'compose:sample',timezone:'Etc/UTC',time:'03:00',eligible:true}});
     if(path==='/api/bootstrap') return route.fulfill({json:{authenticated:true,needsSetup:false,username:'admin',csrfToken:'fixture'}});
     if(path==='/api/projects/events') return route.fulfill({contentType:'text/event-stream',body:'data: {"inventory":false,"metrics":false}\n\n'});
@@ -47,9 +49,9 @@ async (page) => {
   await drawer.getByText('No recorded operations.',{exact:true}).waitFor();
   const menu=drawer.getByLabel('More actions',{exact:true});
   await menu.click();
-  await drawer.getByRole('button',{name:'Update project images',exact:true}).click();
-  const update=page.getByRole('dialog',{name:'Update images?',exact:true});
-  await update.getByRole('button',{name:'Confirm update',exact:true}).waitFor();
+  await drawer.getByRole('button',{name:'Recreate',exact:true}).click();
+  const update=page.getByRole('dialog',{name:'Recreate containers?',exact:true});
+  await update.getByRole('button',{name:'Confirm recreate',exact:true}).waitFor();
   if(!await update.getByRole('button',{name:'Cancel',exact:true}).evaluate(el=>document.activeElement===el)) throw Error('update did not receive Cancel focus');
   if(await update.innerText().then(text=>text.includes('private-secret'))) throw Error('preview leaked environment values');
   for(const width of [1440,768,390,320]) {
@@ -62,18 +64,18 @@ async (page) => {
   if(submits!==0) throw Error('cancel submitted a replacement');
   await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='More actions');
   if(!await menu.evaluate(el=>document.activeElement===el)) throw Error('cancel did not return focus');
-  await menu.click(); await drawer.getByRole('button',{name:'Update project images',exact:true}).click();
-  await update.getByRole('button',{name:'Confirm update',exact:true}).click();
+  await menu.click(); await drawer.getByRole('button',{name:'Recreate',exact:true}).click();
+  await update.getByRole('button',{name:'Confirm recreate',exact:true}).click();
   await update.getByRole('alert').filter({hasText:'Target changed.'}).waitFor();
-  if(await update.getByRole('button',{name:'Confirm update',exact:true}).count()) throw Error('stale preview allowed resubmit');
+  if(await update.getByRole('button',{name:'Confirm recreate',exact:true}).count()) throw Error('stale preview allowed resubmit');
   await update.getByRole('button',{name:'Review again',exact:true}).click();
-  await update.getByRole('button',{name:'Confirm update',exact:true}).click();
+  await update.getByRole('button',{name:'Confirm recreate',exact:true}).click();
   await update.waitFor({state:'hidden'});
-  await drawer.getByText('update: Completed',{exact:true}).waitFor();
+  await drawer.getByText('recreate: Completed',{exact:true}).waitFor();
   await drawer.getByText('Recent operations (1)',{exact:true}).click();
   await drawer.getByRole('list',{name:'Container outcomes',exact:true}).waitFor();
   unsupported=true;
-  await menu.click(); await drawer.getByRole('button',{name:'Recreate project containers',exact:true}).click();
+  await menu.click(); await drawer.getByRole('button',{name:'Recreate',exact:true}).click();
   const recreate=page.getByRole('dialog',{name:'Recreate containers?',exact:true});
   await recreate.getByRole('alert').filter({hasText:'legacy links'}).waitFor();
   if(await recreate.getByRole('button',{name:'Confirm recreate',exact:true}).count()) throw Error('unsupported target can be recreated');

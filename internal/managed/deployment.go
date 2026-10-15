@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 	"path"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -320,6 +322,15 @@ func (m *Manager) CleanupDeployment(ctx context.Context, job store.Job) error {
 	if json.Unmarshal([]byte(job.Payload), &payload) != nil {
 		return store.ErrJobChanged
 	}
+	if payload.FileJob != nil && payload.FileJob.DatabaseBackup != "" {
+		expected := filepath.Join(m.data.Directory(), ".configuration-"+job.ID+".sqlite")
+		if payload.FileJob.DatabaseBackup != expected {
+			return store.ErrJobChanged
+		}
+		if err := os.Remove(expected); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
 	if payload.RemovalCleanupError != "" {
 		_ = m.data.JobCleanupError(job.ID, payload.RemovalCleanupError)
 		return jobs.ErrCleanupReview
@@ -402,6 +413,10 @@ func (m *Manager) deploy(ctx context.Context, job store.Job, payload workerPaylo
 			previous, found, err := m.data.ManagedProject(project.Name)
 			if err != nil || !found {
 				return finishFailure("Previous project metadata is unavailable.")
+			}
+			previous, err = m.hydrateFileProject(ctx, previous)
+			if err != nil {
+				return finishFailure("Current project files could not be read.")
 			}
 			if err := hostProjectFiles(ctx, project.ProjectDir, &previous, project, "check"); err != nil {
 				return finishFailure("Host project files changed or are missing; restore matching saved source/environment files and review again.")

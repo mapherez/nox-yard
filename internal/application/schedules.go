@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/schedule"
 	"github.com/mapherez/nox-yard/internal/store"
@@ -34,11 +35,22 @@ func (s *Service) scheduleProject(ctx context.Context, target string) (inventory
 	return inventory.Project{}, ErrUnavailable
 }
 func protectedSchedule(project inventory.Project) bool {
+	if yardProject(project) {
+		return false
+	}
+	for _, item := range project.Containers {
+		if strings.HasPrefix(item.Name, "nox-yard-update-") {
+			return true
+		}
+	}
+	return false
+}
+func yardProject(project inventory.Project) bool {
 	if project.Name == "nox-yard" {
 		return true
 	}
 	for _, item := range project.Containers {
-		if item.Service == "nox-yard" || strings.HasPrefix(item.Name, "nox-yard-update-") {
+		if item.Service == "nox-yard" {
 			return true
 		}
 	}
@@ -65,6 +77,10 @@ func (s *Service) ProjectSchedule(ctx context.Context, target string) (ScheduleS
 	if protectedSchedule(project) {
 		result.Eligible = false
 		result.Reason = "Yard and helpers use their dedicated update path."
+	}
+	if yardProject(project) && (project.State != "running" || project.Health != "healthy") {
+		result.Eligible = false
+		result.Reason = "Yard must be running and healthy before enabling automatic updates."
 	}
 	return result, nil
 }
@@ -134,10 +150,32 @@ func (s *Service) setProjectSchedule(ctx context.Context, target string, enabled
 	if _, err := s.Store.SetProjectScheduleAt(ctx, key, target, enabled, next, checkTime); err != nil {
 		return ScheduleStatus{}, err
 	}
+	if project, err := s.scheduleProject(ctx, target); err == nil && yardProject(project) {
+		settings, err := s.Store.SelfUpdateSettings()
+		if err != nil {
+			return ScheduleStatus{}, err
+		}
+		if err := s.Store.SetSelfUpdateSettings(enabled, settings.CheckIntervalMinutes); err != nil {
+			return ScheduleStatus{}, err
+		}
+	}
 	s.Changes.Notify(inventory.Change{Inventory: true})
 	return s.ProjectSchedule(ctx, target)
 }
 func (s *Service) assessAutomatic(ctx context.Context, project inventory.Project) error {
+	if yardProject(project) {
+		if project.State != "running" || project.Health != "healthy" {
+			return ErrScheduleUnsupported
+		}
+		return nil
+	}
+	if controller, ok := s.Managed.(interface {
+		AssessFileAutomatic(context.Context, string) error
+	}); ok {
+		if err := controller.AssessFileAutomatic(ctx, project.Name); !errors.Is(err, managed.ErrFilesMissing) {
+			return err
+		}
+	}
 	if project.Kind == "managed-compose" {
 		manager, ok := s.Managed.(interface {
 			AssessAutomatic(context.Context, string) error
@@ -165,10 +203,29 @@ func (s *Service) RunScheduledUpdate(ctx context.Context, row store.ProjectSched
 	if protectedSchedule(project) {
 		return skip("Yard/helpers are protected from project auto-update.")
 	}
+	if yardProject(project) {
+		if updater, ok := s.Updates.(interface {
+			Scheduled(context.Context, store.ProjectSchedule, store.ScheduleOccurrence) error
+		}); ok {
+			return updater.Scheduled(ctx, row, occurrence)
+		}
+		return skip("Yard automatic updates are unavailable.")
+	}
 	if project.Operation != "" {
 		return skip("Project is busy; automatic update skipped for this occurrence.")
 	}
 	ctx = store.WithSchedule(ctx, occurrence)
+	if controller, ok := s.Managed.(interface {
+		ScheduledFileUpdate(context.Context, string) (store.Job, error)
+	}); ok {
+		_, err := controller.ScheduledFileUpdate(ctx, project.Name)
+		if !errors.Is(err, managed.ErrFilesMissing) {
+			if err != nil {
+				return skip("Project files are pending migration, changed or not eligible for automatic replacement.")
+			}
+			return nil
+		}
+	}
 	if project.Kind == "managed-compose" {
 		manager, ok := s.Managed.(interface {
 			ScheduledUpdate(context.Context, string) (store.Job, error)

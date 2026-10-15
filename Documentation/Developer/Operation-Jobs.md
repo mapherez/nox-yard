@@ -1,5 +1,7 @@
 # Durable operations and recovery
 
+Active configuration now lives in [host files](Configuration-Files.md). Private native job payloads/snapshots remain in SQLite by design; public job DTOs do not expose them. Migration records a verified recoverable export before clearing old active YAML/environment columns. File-backed Recreate preserves edited source files even when runtime recovery is required. Yard file-backed jobs use the independent managed worker with an additional stopped-web SQLite snapshot.
+
 Managed Compose, Engine lifecycle/pull/removal/update/recreate, Yard restart and self-update share SQLite operation records and resource reservations. Browser, MCP and Control API mutations acquire the same reservations. A project operation reserves its Compose identity and current container IDs; a container action also reserves its Compose project. Replacement reserves both old/new IDs, and standalone lineage history persists across repeated replacements. Yard operations reserve `yard:self`. These reservations coordinate Yard requests; they cannot prevent external Docker commands.
 
 ## Persisted contract

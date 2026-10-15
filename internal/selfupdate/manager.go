@@ -16,6 +16,8 @@ import (
 
 	"github.com/containerd/errdefs"
 	"github.com/mapherez/nox-yard/internal/jobs"
+	"github.com/mapherez/nox-yard/internal/managed"
+	"github.com/mapherez/nox-yard/internal/schedule"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
@@ -28,9 +30,11 @@ var ErrCheckInProgress = errors.New("self-update check is in progress")
 var ErrInvalidInterval = errors.New("check interval must be 5, 15, 30, 60, or 360 minutes")
 
 type Manager struct {
+	Files         *managed.Manager
+	Target        string
+	location      *time.Location
 	store         *store.Store
 	buildSHA      string
-	trigger       chan struct{}
 	manual        chan struct{}
 	mu            sync.Mutex
 	checking      atomic.Bool
@@ -47,13 +51,12 @@ type Status struct {
 }
 
 func New(data *store.Store, buildSHA string) *Manager {
-	return &Manager{store: data, buildSHA: buildSHA, trigger: make(chan struct{}, 1), manual: make(chan struct{}, 1)}
+	return &Manager{store: data, buildSHA: buildSHA, manual: make(chan struct{}, 1)}
 }
 
 func (m *Manager) Start(ctx context.Context) {
 	go func() {
 		m.reconcileInterruptedJob(ctx)
-		m.checkIfDue(ctx)
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 		for {
@@ -62,19 +65,11 @@ func (m *Manager) Start(ctx context.Context) {
 				return
 			case <-ticker.C:
 				m.reconcileInterruptedJob(ctx)
-				m.checkIfDue(ctx)
 			case <-m.manual:
 				if err := m.check(ctx, true); err != nil && !errors.Is(err, context.Canceled) {
 					log.Printf("Manual self-update check failed: %v", err)
 				}
 				m.manualPending.Store(false)
-			case <-m.trigger:
-				settings, err := m.store.SelfUpdateSettings()
-				if err == nil && settings.Automatic {
-					if err := m.check(ctx, false); err != nil && !errors.Is(err, context.Canceled) {
-						log.Printf("Self-update check failed: %v", err)
-					}
-				}
 			}
 		}
 	}()
@@ -109,11 +104,21 @@ func (m *Manager) SetSettings(enabled bool, intervalMinutes int) error {
 	if err := m.store.SetSelfUpdateSettings(enabled, intervalMinutes); err != nil {
 		return err
 	}
-	if enabled {
-		select {
-		case m.trigger <- struct{}{}:
-		default:
+	if row, found, _ := m.store.ProjectSchedule(context.Background(), m.scheduleTarget()); found {
+		next := int64(0)
+		if enabled {
+			hour, minute, parseErr := schedule.ParseTime(row.Time)
+			if parseErr != nil {
+				return parseErr
+			}
+			location := m.location
+			if location == nil {
+				location = time.Local
+			}
+			next = schedule.NextAt(time.Now(), location, hour, minute).Unix()
 		}
+		_, err = m.store.SetProjectScheduleAt(context.Background(), row.Key, row.TargetID, enabled, next, row.Time)
+		return err
 	}
 	return nil
 }
@@ -130,6 +135,9 @@ func (m *Manager) Status() (Status, error) {
 	result := Status{
 		Automatic: settings.Automatic, IntervalMinutes: settings.CheckIntervalMinutes,
 		CurrentBuildSHA: m.buildSHA, Status: "not_checked",
+	}
+	if row, found, _ := m.store.ProjectSchedule(context.Background(), m.scheduleTarget()); found {
+		result.Automatic = row.Enabled
 	}
 	if settings.LastCheckedAt > 0 {
 		result.LastChecked = time.Unix(settings.LastCheckedAt, 0).UTC().Format(time.RFC3339)
@@ -155,19 +163,81 @@ func (m *Manager) Status() (Status, error) {
 		result.Status = "checking"
 		result.Error = ""
 	}
+	if active, err := m.store.Jobs(context.Background(), m.scheduleTarget(), true); err == nil && len(active) > 0 {
+		result.Status = "updating"
+	}
+	if result.Status != "updating" && result.Status != "checking" {
+		if history, err := m.store.Jobs(context.Background(), m.scheduleTarget(), false); err == nil {
+			for _, latest := range history {
+				if latest.Operation != "update" && latest.Operation != "recreate" {
+					continue
+				}
+				if latest.Domain == "managed" && latest.Status == "failed" && latest.CompletedAt >= settings.LastCheckedAt {
+					result.Status = "update_failed"
+					result.Error = latest.Error
+				}
+				break
+			}
+		}
+	}
 	return result, nil
 }
 
-func (m *Manager) checkIfDue(ctx context.Context) {
+func (m *Manager) scheduleTarget() string {
+	if m.Target != "" {
+		return m.Target
+	}
+	return "compose:nox-yard"
+}
+
+func (m *Manager) InitializeDaily(ctx context.Context, location *time.Location) error {
+	m.Target = "compose:nox-yard"
+	if cli, err := client.New(client.WithHost("unix:///var/run/docker.sock")); err == nil {
+		if current, err := ownContainer(ctx, cli); err == nil && current.Config != nil {
+			if name := current.Config.Labels["com.docker.compose.project"]; name != "" {
+				m.Target = "compose:" + name
+			}
+		}
+		_ = cli.Close()
+	}
+	return m.initializeDaily(ctx, location)
+}
+
+func (m *Manager) initializeDaily(ctx context.Context, location *time.Location) error {
+	if location == nil {
+		location = time.Local
+	}
+	m.location = location
+	if _, found, err := m.store.ProjectSchedule(ctx, m.Target); err != nil || found {
+		return err
+	}
 	settings, err := m.store.SelfUpdateSettings()
-	if err != nil || !settings.Automatic ||
-		(settings.LastCheckedAt > 0 && time.Since(time.Unix(settings.LastCheckedAt, 0)) <
-			time.Duration(settings.CheckIntervalMinutes)*time.Minute) {
-		return
+	if err != nil {
+		return err
 	}
-	if err := m.check(ctx, false); err != nil && !errors.Is(err, context.Canceled) {
-		log.Printf("Self-update check failed: %v", err)
+	next := int64(0)
+	if settings.Automatic {
+		next = schedule.NextAt(time.Now(), location, 3, 0).Unix()
 	}
+	_, err = m.store.SetProjectScheduleAt(ctx, m.Target, m.Target, settings.Automatic, next, "03:00")
+	return err
+}
+func (m *Manager) Scheduled(ctx context.Context, row store.ProjectSchedule, occurrence store.ScheduleOccurrence) error {
+	ctx = store.WithSchedule(ctx, occurrence)
+	if err := m.check(ctx, false); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		return m.store.SkipSchedule(ctx, row, occurrence, "Yard update check failed or the project is busy; review its status before retrying.")
+	}
+	current, _, err := m.store.ProjectSchedule(ctx, row.TargetID)
+	if err != nil {
+		return err
+	}
+	if current.NextAt == row.NextAt {
+		return m.store.SkipSchedule(ctx, row, occurrence, "No new image was applied; current or previously failed image retained.")
+	}
+	return nil
 }
 
 func validInterval(minutes int) bool {
@@ -206,7 +276,7 @@ func (m *Manager) check(ctx context.Context, manual bool) error {
 	if err != nil {
 		return m.checkError(err)
 	}
-	if available.ImageID != current.Image {
+	if available.ImageID != current.Image && m.Files == nil {
 		if _, _, _, err := replacementConfig(current, available.ImageID); err != nil {
 			return m.checkError(err)
 		}
@@ -230,6 +300,13 @@ func (m *Manager) check(ctx context.Context, manual bool) error {
 	if settings.FailedDigest == available.ManifestDigest && !manual {
 		return nil // Do not retry a version that already failed and was rolled back.
 	}
+	if m.Files != nil {
+		name := current.Config.Labels["com.docker.compose.project"]
+		_, err := m.Files.FileOperation(ctx, name, "update", "")
+		if !errors.Is(err, managed.ErrFilesMissing) {
+			return err
+		}
+	}
 	jobID, err := randomID()
 	if err != nil {
 		return err
@@ -239,7 +316,7 @@ func (m *Manager) check(ctx context.Context, manual bool) error {
 		TargetImageID: available.ImageID, TargetDigest: available.ManifestDigest,
 		ProjectName: current.Config.Labels["com.docker.compose.project"], ContainerID: current.ID,
 	}
-	if err := m.store.CreateSelfUpdateJob(job); err != nil {
+	if err := m.store.CreateSelfUpdateJobContext(ctx, job); err != nil {
 		return err
 	}
 	if err := pullAndVerify(ctx, cli, available.ImageID); err != nil {

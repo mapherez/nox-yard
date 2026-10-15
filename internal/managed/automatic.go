@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/mapherez/nox-yard/internal/lifecycle"
+	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 )
@@ -41,6 +42,15 @@ func (m *Manager) AssessAutomatic(ctx context.Context, name string) error {
 	if !found || name == "nox-yard" {
 		return fmt.Errorf("%w: project is absent or protected", ErrConflict)
 	}
+	if project.YAML == "" {
+		manager, err := recreate.New(m.data)
+		if err != nil {
+			return err
+		}
+		defer manager.Close()
+		_, err = manager.AutomaticPreview(ctx, recreate.Request{ID: "compose:" + name, Operation: "update"})
+		return err
+	}
 	runtime, err := m.runtime(ctx, name)
 	if err != nil {
 		return err
@@ -72,6 +82,9 @@ func (m *Manager) ScheduledUpdate(ctx context.Context, name string) (store.Job, 
 	}
 	if !found {
 		return store.Job{}, ErrConflict
+	}
+	if project.YAML == "" {
+		return m.runtimeReplacement(ctx, name, "update", true)
 	}
 	return m.enqueue(ctx, project, "update", workerPayload{Project: project})
 }
