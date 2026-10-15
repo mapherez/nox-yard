@@ -18,7 +18,7 @@ Facade operations accept the adapter's context, introduce no deadlines and do no
 
 The `yard_*` names remain the canonical MCP identifiers. Each tool also exposes `_meta.cli` through `tools/list` as additional metadata for human-facing clients; generic MCP clients may ignore it. The CLI paths below are local to the application. The future CLI is responsible for adding the `yard` prefix (for example, `container logs` becomes `yard container logs`); that prefix is not part of the metadata.
 
-IDs must be copied from inventory: containers use full 64-character lowercase hexadecimal IDs; Engine projects use `container:<id>` or `compose:<name>`. Managed Compose operations take the saved project name instead. Engine and stored Compose operations remain distinct, matching existing Yard behavior.
+IDs must be copied from inventory: containers use full 64-character lowercase hexadecimal IDs; projects use `container:<id>` or `compose:<name>`. Configuration tools require `compose:<name>`, including external projects and Yard itself. Legacy managed Compose operations take the saved project name instead.
 
 | MCP tool | CLI (`_meta.cli`) | Inputs and behavior |
 | --- | --- | --- |
@@ -31,12 +31,15 @@ IDs must be copied from inventory: containers use full 64-character lowercase he
 | `yard_container_logs` | `container logs` | `id`. Last 20 decoded records, without following the stream. |
 | `yard_container_action` | `container action` | `id`, `action`: `start`, `stop`, `restart`. Shared Engine lifecycle. |
 | `yard_project_action` | `project action` | `id`, `action`: `start`, `stop`, `restart`. Shared Engine lifecycle. |
-| `yard_container_pull` | `container pull` | `id`. Pull configured images without recreating containers. |
-| `yard_project_pull` | `project pull` | `id`. Pull configured images without recreating containers. |
-| `yard_project_schedule_get` | `project schedule get` | `id`. Default-off project setting, 03:00 server timezone, eligibility and last/next result. |
-| `yard_project_schedule_set` | `project schedule set` | `id`, required `enabled` boolean. Explicitly opt in/out of daily image updates for a supported running target. Independent of Yard self-update. |
-| `yard_recreate_preview` | `recreate preview` | `id`, `operation`: `update` or `recreate`. Assess standalone/complete external Compose, returning secret-safe configuration/order and fingerprint. Read-only. |
-| `yard_recreate_submit` | `recreate submit` | Same fields plus `confirm:true`, `fingerprint`. Independent replacement job, unchanged detection, per-container results and rollback. |
+| `yard_container_pull` | `container pull` | `id`. For a Compose member, pull only its service image using current host files; otherwise use runtime configuration. No container changes or build. |
+| `yard_project_pull` | `project pull` | `id`. Pull current host-file images, or runtime images when files cannot be located. Invalid/inaccessible configuration fails without stale fallback. No container changes or build. |
+| `yard_project_configuration_read` | `project configuration read` | `id`, optional `reveal` (default false). Current host Compose/env file paths, fingerprint, service variables and pending flags. File contents and values require explicit `reveal:true`. |
+| `yard_project_configuration_save` | `project configuration save` | `id`, `fingerprint`, `path`, `content`. Validate and save one existing returned file. Does not change containers. Returns metadata with contents/values hidden. |
+| `yard_project_variable_set` | `project variable set` | `id`, `fingerprint`, `service`, `name`, `value` (empty allowed). Edit the existing variable definition in its source file, preserving other values. Save only; returns hidden values and pending flags. |
+| `yard_project_schedule_get` | `project schedule get` | `id`. Daily schedule, server timezone, eligibility and last/next result, including Yard. Initially 03:00; ordinary projects default off and Yard preserves its prior enabled state. |
+| `yard_project_schedule_set` | `project schedule set` | `id`, required `enabled` boolean, optional `time` (`HH:MM`). Set daily updates, including Yard; omitted time preserves its saved value. |
+| `yard_recreate_preview` | `recreate preview` | `id`, `operation`: `recreate` or legacy `update`. Assess a standalone/complete Compose target, including Yard, and return a secret-safe fingerprint. Recreate uses current host files and local images without pull/build. Read-only. |
+| `yard_recreate_submit` | `recreate submit` | Same fields plus `confirm:true`, `fingerprint`. Independent replacement job, per-container results and recovery. Recreate applies saved file changes even when images are unchanged. Legacy update pulls and compares images. |
 | `yard_container_remove_preview` | `container remove preview` | `id`, optional `removeVolumes` (default false). Current removal plan and choice fingerprint. |
 | `yard_project_remove_preview` | `project remove preview` | `id`, optional `removeVolumes` (default false). Current removal plan and choice fingerprint; supports empty saved managed projects. |
 | `yard_container_remove` | `container remove` | `id`, `confirm:true`, `fingerprint`, optional `removeVolumes` (default false). Revalidate and execute selected exclusive-resource rules. |
@@ -44,7 +47,7 @@ IDs must be copied from inventory: containers use full 64-character lowercase he
 | `yard_compose_source` | `compose source` | Existing source fields: `kind`, optional `url`, `filename`, `yaml`. Inspect source and required variables/env files. |
 | `yard_compose_preview` | `compose preview` | Managed request: `name`, `source`, `variables`, `envFiles`, `mode`, optional `fingerprint` and adoption-only `projectDir`. Modes: `new`, `copy`, `sync`, `adopt`. Returns preview/fingerprint and inferred `adoptionDir` when available. |
 | `yard_compose_submit` | `compose submit` | Same managed request. Submission requires the current preview fingerprint and returns a job. Adoption resolves/rechecks the original directory and runtime/files before saving ownership; it does not recreate containers. |
-| `yard_compose_operation` | `compose operation` | `name`, `operation`, existing boolean `removeVolumes` (use false to retain), optional removal `fingerprint` from `yard_project_remove_preview`. Operations: `start`, `stop`, `restart`, `pull`, `update`, `remove`. Returns a job. Removal without a fingerprint retains the input shape but is assessed at submission and rechecked by the worker; shared volumes remain protected. |
+| `yard_compose_operation` | `compose operation` | `name`, `operation`, existing boolean `removeVolumes` (use false to retain), optional removal `fingerprint` from `yard_project_remove_preview`. Operations: `start`, `stop`, `restart`, `pull`, `recreate`, legacy `update`, `remove`. Returns a job. Removal without a fingerprint retains the input shape but is assessed at submission and rechecked by the worker; shared volumes remain protected. |
 | `yard_compose_job` | `compose job` | `id`. Persisted job status. |
 | `yard_job` | `job get` | `id`. Typed operation status, stages, images, recovery and cleanup fields. |
 | `yard_job_history` | `job history` | `target`: `compose:NAME` or `container:FULL_ID`. Latest 30 contextual operations. |
@@ -52,10 +55,14 @@ IDs must be copied from inventory: containers use full 64-character lowercase he
 | `yard_projects_settings_get` | `settings projects get` | No inputs. Read the configured host projects base directory. |
 | `yard_projects_settings_set` | `settings projects set` | `projectsBase`. Existing host-directory checks apply. |
 | `yard_self_update_status` | `update status` | No inputs. Current update settings/state. |
-| `yard_self_update_settings` | `update settings` | `automatic`, `intervalMinutes`. Enabling automatic updates can trigger a check/update/restart. |
+| `yard_self_update_settings` | `update settings` | Compatibility inputs `automatic`, `intervalMinutes` (5, 15, 30, 60 or 360). Synchronizes daily on/off, preserving the chosen time; the interval no longer drives a timer and saving does not trigger a check. Prefer `yard_project_schedule_set` for Yard's daily time. |
 | `yard_self_update_check_and_update` | `update now` | No inputs. Queue a manual check which can install an update and restart Yard **even when automatic updates are disabled**. Observe progress with `yard_self_update_status`. |
 
 Required fields and output shapes are available through `tools/list`. Normal results use structured content plus a JSON text representation. Errors use `IsError` and a code/message envelope; operation errors retain counters and partial results under `details.result`. Accepted jobs and queued restart helpers are not reported as completed operations.
+
+The configuration flow is **read → save file or set variable → preview Recreate → submit Recreate**. Read the fingerprint before each edit; a terminal edit or another save invalidates it. Conflicts require rereading and reviewing the current contents, never a blind retry. File paths are relative to the returned project directory; ordered Compose names and nested env-file paths remain unchanged. Writes share browser validation, resource reservations and secret-safe job history. Saving never pulls, builds or recreates. Start/Stop/Restart operate existing containers; Restart does not apply new configuration. Read saved configuration through the new tools; `yard_container_environment` still inspects runtime values.
+
+Revealed Compose can contain credentials just like `.env`, so default configuration reads and both write responses hide all file contents and variable values. Request `reveal:true` only when those contents are needed. The underlying file readiness guards still apply; migration management remains in the existing browser interface and has no MCP tools.
 
 All tools explicitly declare ReadOnly, Destructive and Idempotent through NoX MCP. Reads/previews, including explicit environment reads, are `(true,false,true)`. Engine actions, pulls, removals, Compose submissions/operations and self-update mutations are conservatively `(false,true,false)`. Setting the projects directory or a project schedule is `(false,true,true)`. Multi-mode tool annotations cover all accepted modes.
 
@@ -63,7 +70,7 @@ All tools explicitly declare ReadOnly, Destructive and Idempotent through NoX MC
 
 The Yard configures the NoX MCP runtime with a global **60-second timeout**, 32 concurrent requests and an 8 MiB payload limit. Existing Compose source limits still apply. Neither the server's 130-second WriteTimeout nor the NoX MCP library's default timeout is changed.
 
-The catalog contains 32 tools. Managed Compose, external update/recreate and Yard restart use independent durable workers; self-update retains its dedicated worker. Query job/history/status tools rather than treating an accepted response as completion. Engine pulls remain synchronous and can exceed the MCP timeout. Interrupted Engine responses persist recovery-required outcomes and hold resource reservations until reviewed. There are no automatic mutation retries. See [Durable operations](Operation-Jobs.md) for the additive fields and recovery procedure, and [External updates](External-Updates.md) for configuration limits and removal compatibility. Omitted volume choice now retains volumes, correcting the former Engine default.
+The catalog contains 35 tools. Managed Compose, external update/recreate and Yard restart use independent durable workers; self-update retains its dedicated worker. Query job/history/status tools rather than treating an accepted response as completion. Pulls and configuration reads/writes remain synchronous and share the MCP timeout. Interrupted Engine responses persist recovery-required outcomes and hold resource reservations until reviewed. There are no automatic mutation retries. See [Durable operations](Operation-Jobs.md) for the additive fields and recovery procedure, and [External updates](External-Updates.md) for configuration limits and removal compatibility. Omitted volume choice now retains volumes, correcting the former Engine default.
 
 Container log snapshots share Docker opening and stdout/stderr/TTY decoding with browser SSE. The browser retains its 200-record initial tail and continuous stream. Long lines retain the existing 16 KiB segmentation, and snapshots keep at most 20 decoded records.
 
@@ -83,6 +90,8 @@ Commit the resolved `go.mod`/`go.sum` updates and run the existing repository ch
 ## Validation
 
 MCP tests use the official Go SDK over real HTTP with temporary SQLite and shared fake dependencies. They cover discovery, schemas/annotations, anonymous MCP versus existing HTTP authentication, origin validation, explicit environment reveal, partial failures, protected/stale removal, manual self-update, shared browser SSE/pending states and asynchronous Compose notification lifetimes. Facade tests cover context propagation, cancellation before dispatch and blocked log-reader cancellation. Existing manager tests continue to cover Docker transport, concurrency and operation rules.
+
+Configuration protocol tests also cover explicit file/value reveal, metadata-only save responses, empty variable values, stale fingerprints, shared active-job reservations, secret-free history and shared manager errors. Facade pull regressions cover service scope, current-file references and fallback only for missing files. `scripts/smoke-configuration.py --image <local-image>` validates MCP/browser parity against a disposable real Yard: Compose/env editing, conflict detection, pending flags, daily schedule, independent self-recreation and failed-start recovery. It never connects to a deployed Yard.
 
 The isolated Docker smoke test creates disposable containers, Compose projects and data volumes, publishes temporary loopback ports, and cleans up its own fixtures. It exercises real lifecycle operations, inspection/environment/logs, pulls, removal fingerprints, browser SSE, Compose jobs, healthy/one-shot verification, unhealthy deploy/update failures, named-volume/bind preservation, original-directory adoption with nested env files and stale runtime/file previews, persisted settings/session and queued Yard self-restart. An optional ARM64 image also checks runtime readiness and MCP discovery under emulation:
 

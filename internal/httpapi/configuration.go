@@ -23,16 +23,7 @@ func (s *Server) projectConfiguration(w http.ResponseWriter, r *http.Request) {
 		if r.ContentLength > 0 && !decodeJSON(w, r, &input) {
 			return
 		}
-		output, err = s.application.ProjectConfiguration(r.Context(), r.PathValue("id"))
-		if view, ok := output.(managed.FileConfigurationView); ok && !input.Reveal {
-			for i := range view.Files {
-				view.Files[i].Content = ""
-			}
-			for i := range view.Variables {
-				view.Variables[i].Value = ""
-			}
-			output = view
-		}
+		output, err = s.application.ReadProjectConfiguration(r.Context(), r.PathValue("id"), input.Reveal)
 	case "save":
 		var input managed.ConfigurationEdit
 		if !decodeManaged(w, r, &input) {

@@ -45,6 +45,28 @@ with socket.socket() as probe:
 origin = "http://127.0.0.1:" + str(port)
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 csrf = ""
+sequence = 0
+
+def rpc(method, params):
+    global sequence
+    sequence += 1
+    request = urllib.request.Request(origin + "/mcp", data=json.dumps({
+        "jsonrpc": "2.0", "id": sequence, "method": method, "params": params,
+    }).encode(), headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+                          "MCP-Protocol-Version": "2025-11-25"})
+    with urllib.request.urlopen(request, timeout=65) as response:
+        result = json.load(response)
+    assert "result" in result, result
+    return result["result"]
+
+def tool(name, arguments, error=None):
+    result = rpc("tools/call", {"name": name, "arguments": arguments})
+    value = result["structuredContent"]
+    if error:
+        assert result.get("isError") and value["code"] == error, result
+    else:
+        assert not result.get("isError"), result
+    return value
 
 def api(path, body=None, method=None):
     headers = {"Origin": origin, "Content-Type": "application/json", "X-CSRF-Token": csrf}
@@ -74,9 +96,9 @@ def current():
     return json.loads(docker("inspect", identifiers[0]))[0]
 
 def recreate():
-    preview = api("/api/recreate/preview", {"id": "compose:" + name, "operation": "recreate"})
-    job = api("/api/recreate/submit", {"id": "compose:" + name, "operation": "recreate", "confirm": True,
-                                      "fingerprint": preview["fingerprint"]})
+    preview = tool("yard_recreate_preview", {"id": "compose:" + name, "operation": "recreate"})
+    job = tool("yard_recreate_submit", {"id": "compose:" + name, "operation": "recreate", "confirm": True,
+                                       "fingerprint": preview["fingerprint"]})
     return wait(lambda: (value if (value := api("/api/jobs/" + job["id"]))["status"] != "running" else None),
                 "independent self-recreation did not finish", 150)
 
@@ -113,21 +135,69 @@ try:
     assert any(file["path"] == "compose.yaml" for file in configuration["files"])
     hidden = api(target + "/configuration/read", {"reveal": False})
     assert all(not file["content"] for file in hidden["files"])
+    rpc("initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
+                       "clientInfo": {"name": "configuration-fixture", "version": "1"}})
+    catalog = rpc("tools/list", {})["tools"]
+    assert len(catalog) == 35 and not any("migration" in item["name"] for item in catalog)
+    configuration_id = {"id": "compose:" + name}
+    assert tool("yard_project_configuration_read", configuration_id) == hidden
+    assert tool("yard_project_configuration_read", {**configuration_id, "reveal": True}) == configuration
     first = current()
-    api(target + "/configuration/save", {"fingerprint": configuration["fingerprint"], "service": "nox-yard",
-                                          "variable": "NOX_FILE_TEST", "content": "edited$private-value"})
+    saved = tool("yard_project_variable_set", {**configuration_id, "fingerprint": configuration["fingerprint"],
+                 "service": "nox-yard", "name": "NOX_FILE_TEST", "value": "edited$private-value"})
+    assert "edited$private-value" not in json.dumps(saved)
+    assert any(value["name"] == "NOX_FILE_TEST" and value["pending"] for value in saved["variables"])
+    assert (base / ".env").read_text() != "FILE_TEST=initial\n"
+    revealed = tool("yard_project_configuration_read", {**configuration_id, "reveal": True})
+    assert any(value["name"] == "NOX_FILE_TEST" and value["value"] == "edited$private-value" for value in revealed["variables"])
+    tool("yard_project_variable_set", {**configuration_id, "fingerprint": configuration["fingerprint"],
+         "service": "nox-yard", "name": "NOX_FILE_TEST", "value": "stale-value"}, error="OPERATION_CONFLICT")
     assert current()["Id"] == first["Id"], "Save must not replace containers"
     wait(lambda: current()["State"].get("Health", {}).get("Status") == "healthy", "fixture not healthy")
     schedule = api(target + "/schedule")
     assert schedule["time"] == "03:00" and schedule["eligible"] and not schedule["enabled"]
-    api(target + "/schedule", {"enabled": True, "time": "03:15"}, "PUT")
+    scheduled = tool("yard_project_schedule_set", {**configuration_id, "enabled": True, "time": "03:15"})
+    assert scheduled["time"] == "03:15" and scheduled["enabled"] and scheduled["timezone"] == "Europe/Lisbon"
+    assert api(target + "/schedule")["time"] == "03:15"
     result = recreate()
     assert result["status"] == "succeeded", result
     second = current()
     assert second["Id"] != first["Id"] and "NOX_FILE_TEST=edited$private-value" in second["Config"]["Env"]
     assert api(target + "/schedule")["time"] == "03:15"
     assert api(target + "/schedule")["enabled"]
-    print("PASS: inline env save uses .env; independent Yard Recreate applies it and preserves sessions/daily schedule", flush=True)
+    assert not any(value["pending"] for value in tool("yard_project_configuration_read", configuration_id)["variables"])
+    assert "edited$private-value" not in json.dumps(tool("yard_job_history", {"target": "compose:" + name}))
+    print("PASS: MCP/browser share host files, redaction, fingerprint conflicts and daily schedule; MCP Yard Recreate applies env without build", flush=True)
+
+    # Full-file MCP editing follows the same validation and save-only path.
+    configuration = tool("yard_project_configuration_read", {**configuration_id, "reveal": True})
+    modified = source.replace("      TZ: Europe/Lisbon", "      TZ: Europe/Lisbon\n      NOX_MCP_TEST: from-mcp-file")
+    saved = tool("yard_project_configuration_save", {**configuration_id, "fingerprint": configuration["fingerprint"],
+                 "path": "compose.yaml", "content": modified})
+    assert all(not file["content"] for file in saved["files"])
+    assert (base / "compose.yaml").read_text() == modified and current()["Id"] == second["Id"]
+    result = recreate()
+    assert result["status"] == "succeeded", result
+    assert "NOX_MCP_TEST=from-mcp-file" in current()["Config"]["Env"]
+    print("PASS: MCP full-file save preserves filenames and leaves containers untouched until reviewed Recreate", flush=True)
+
+    # Pull must use this service's current file reference, not its runtime image
+    # or another service. The sibling's closed registry port makes scope errors
+    # fail immediately. These edits are never applied to the Yard runtime.
+    pull_source = modified.replace("image: " + json.dumps(args.image), "image: alpine:3.23")
+    pull_source += "  unavailable-sibling:\n    image: 127.0.0.1:1/fixture:never\n"
+    before_pull = current()
+    try:
+        (base / "compose.yaml").write_text(pull_source, newline="")
+        pulled = tool("yard_container_pull", {"id": before_pull["Id"]})
+        assert pulled["images"] == ["alpine:3.23"] and pulled["succeeded"] == 1, pulled
+        assert current()["Id"] == before_pull["Id"] and current()["Image"] == before_pull["Image"]
+        failed = rpc("tools/call", {"name": "yard_project_pull", "arguments": configuration_id})
+        assert failed.get("isError"), "project Pull must report the unavailable sibling"
+        assert current()["Id"] == before_pull["Id"]
+    finally:
+        (base / "compose.yaml").write_text(modified, newline="")
+    print("PASS: container Pull reads the current service image and excludes siblings; project Pull reports failure without changing containers", flush=True)
 
     # Manual edits must be read afresh, without a DB configuration copy.
     manual = (base / "compose.yaml").read_text().replace("      TZ: Europe/Lisbon", "      TZ: Europe/Lisbon\n      NOX_MANUAL_TEST: from-host-file")

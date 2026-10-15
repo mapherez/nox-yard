@@ -2,11 +2,25 @@ package managed
 
 import (
 	"context"
+	"sort"
+
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 )
 
 // PullFiles participates in the application's existing synchronous pull job.
 func (m *Manager) PullFiles(ctx context.Context, name string) (lifecycle.MaintenanceResult, error) {
+	return m.pullFiles(ctx, name, "")
+}
+
+// PullServiceFiles uses the current source reference without pulling siblings.
+func (m *Manager) PullServiceFiles(ctx context.Context, name, service string) (lifecycle.MaintenanceResult, error) {
+	if service == "" {
+		return lifecycle.MaintenanceResult{}, ErrInvalidSource
+	}
+	return m.pullFiles(ctx, name, service)
+}
+
+func (m *Manager) pullFiles(ctx context.Context, name, service string) (lifecycle.MaintenanceResult, error) {
 	result := lifecycle.MaintenanceResult{}
 	if err := m.configurationReady(name); err != nil {
 		return result, err
@@ -15,12 +29,21 @@ func (m *Manager) PullFiles(ctx context.Context, name string) (lifecycle.Mainten
 	if err != nil {
 		return result, err
 	}
-	if err := runResolvedCompose(ctx, name, source.Directory, string(source.Resolved), "pull"); err != nil {
+	preview := filePreview(source)
+	services := expectedServices(preview.model)
+	args := []string{"pull"}
+	if service != "" {
+		if _, exists := preview.model.Services[service]; !exists {
+			return result, ErrInvalidSource
+		}
+		services = map[string]serviceExpectation{service: {}}
+		args = append(args, service)
+	}
+	if err := runResolvedCompose(ctx, name, source.Directory, string(source.Resolved), args...); err != nil {
 		return result, err
 	}
-	preview := filePreview(source)
 	seen := map[string]bool{}
-	for service := range expectedServices(preview.model) {
+	for service := range services {
 		reference := preview.model.Services[service].Image
 		if !seen[reference] {
 			seen[reference] = true
@@ -28,5 +51,6 @@ func (m *Manager) PullFiles(ctx context.Context, name string) (lifecycle.Mainten
 			result.Succeeded++
 		}
 	}
+	sort.Strings(result.Images)
 	return result, nil
 }

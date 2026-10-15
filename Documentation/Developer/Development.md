@@ -145,7 +145,7 @@ The embedded MCP adapter consumes the latest available NoX MCP through normal Go
 
 ## Project schedule validation
 
-Compose passes `NOX_TIMEZONE` (IANA name, default `Etc/UTC`) as `TZ`; the backend rejects an invalid timezone. A direct local server uses `TZ` itself, defaulting to UTC. Opt-in remains per project, independent of the Yard self-update settings.
+Compose passes `NOX_TIMEZONE` (IANA name, default `Etc/UTC`) as `TZ`; the backend rejects an invalid timezone. A direct local server uses `TZ` itself, defaulting to UTC. Opt-in and editable daily time are per project, including Yard; its legacy self-update enabled setting follows the same daily row.
 
 ```sh
 python scripts/smoke-schedules.py --image nox-yard:local

@@ -178,7 +178,7 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Tools) != 32 {
+	if len(list.Tools) != 35 {
 		t.Fatalf("tools=%d", len(list.Tools))
 	}
 	app.Scheduler = &schedule.Manager{Data: app.Store, Location: time.UTC}
@@ -197,6 +197,9 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 		"yard_project_pull":                 "project pull",
 		"yard_project_schedule_get":         "project schedule get",
 		"yard_project_schedule_set":         "project schedule set",
+		"yard_project_configuration_read":   "project configuration read",
+		"yard_project_configuration_save":   "project configuration save",
+		"yard_project_variable_set":         "project variable set",
 		"yard_container_remove_preview":     "container remove preview",
 		"yard_project_remove_preview":       "project remove preview",
 		"yard_container_remove":             "container remove",
@@ -251,7 +254,7 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 			writes["yard_"+kind+"_"+op] = true
 		}
 	}
-	for _, name := range []string{"yard_project_schedule_set", "yard_recreate_submit", "yard_compose_submit", "yard_compose_operation", "yard_job_recovery_acknowledge", "yard_projects_settings_set", "yard_self_update_settings", "yard_self_update_check_and_update"} {
+	for _, name := range []string{"yard_project_configuration_save", "yard_project_variable_set", "yard_project_schedule_set", "yard_recreate_submit", "yard_compose_submit", "yard_compose_operation", "yard_job_recovery_acknowledge", "yard_projects_settings_set", "yard_self_update_settings", "yard_self_update_check_and_update"} {
 		writes[name] = true
 	}
 	for _, tool := range list.Tools {

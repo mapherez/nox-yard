@@ -137,6 +137,25 @@ func (s *Service) Pull(ctx context.Context, id string, container bool) (lifecycl
 		return lifecycle.MaintenanceResult{}, err
 	}
 	var result lifecycle.MaintenanceResult
+	ctx = jobs.WithJob(ctx, job)
+	if container {
+		if controller, ok := s.Managed.(interface {
+			PullServiceFiles(context.Context, string, string) (lifecycle.MaintenanceResult, error)
+		}); ok {
+			name, service, resolveErr := s.containerComposeService(ctx, id)
+			if resolveErr != nil {
+				s.finishOperation(job, true, resolveErr)
+				return result, resolveErr
+			}
+			if name != "" {
+				result, err = controller.PullServiceFiles(ctx, name, service)
+				if !errors.Is(err, managed.ErrFilesMissing) {
+					s.finishOperation(job, result.Failed > 0, operationFailure(err, result.Failures))
+					return result, err
+				}
+			}
+		}
+	}
 	if !container {
 		if name, compose := strings.CutPrefix(id, "compose:"); compose {
 			if controller, ok := s.Managed.(interface {
@@ -144,7 +163,7 @@ func (s *Service) Pull(ctx context.Context, id string, container bool) (lifecycl
 			}); ok {
 				result, err = controller.PullFiles(ctx, name)
 				if !errors.Is(err, managed.ErrFilesMissing) {
-					s.finishOperation(job, result.Failed > 0, err)
+					s.finishOperation(job, result.Failed > 0, operationFailure(err, result.Failures))
 					return result, err
 				}
 			}
@@ -157,6 +176,32 @@ func (s *Service) Pull(ctx context.Context, id string, container bool) (lifecycl
 	}
 	s.finishOperation(job, result.Failed > 0, operationFailure(err, result.Failures))
 	return result, err
+}
+
+// Resolve current membership without exposing Docker labels in public DTOs.
+func (s *Service) containerComposeService(ctx context.Context, id string) (string, string, error) {
+	if s.Inventory == nil {
+		return "", "", ErrDockerUnavailable
+	}
+	snapshot, err := s.Inventory.Snapshot(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	for _, project := range snapshot.Projects {
+		for _, item := range project.Containers {
+			if item.ID != id {
+				continue
+			}
+			if name, compose := strings.CutPrefix(project.ID, "compose:"); compose {
+				if name == "" || item.Service == "" {
+					return "", "", managed.ErrInvalidSource
+				}
+				return name, item.Service, nil
+			}
+			return "", "", nil
+		}
+	}
+	return "", "", inventory.ErrContainerNotFound
 }
 
 // Preserve interrupted per-target causes even when the group call returned nil.

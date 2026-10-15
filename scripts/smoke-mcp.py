@@ -127,7 +127,7 @@ def serve(image, platform="linux/amd64", socket=False):
     until(lambda: ready(url), platform + " health")
     rpc(url, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                            "clientInfo": {"name": "yard-smoke", "version": "1"}})
-    assert len(rpc(url, "tools/list", {})["tools"]) == 32
+    assert len(rpc(url, "tools/list", {})["tools"]) == 35
     assert tool(url, "yard_health")["ready"]
     return identifier, url
 
@@ -451,7 +451,7 @@ try:
     until(lambda: ready(url), "Yard recovery")
     assert request(url, "/api/bootstrap", opener=browser)[1]["authenticated"]
     assert tool(url, "yard_projects_settings_get")["projectsBase"] == settings["projectsBase"]
-    assert len(rpc(url, "tools/list", {})["tools"]) == 32
+    assert len(rpc(url, "tools/list", {})["tools"]) == 35
     def restart_job():
         history = tool(url, "yard_job_history", {"target": "container:" + yard})["jobs"]
         return next((job for job in history if job["operation"] == "restart" and job["status"] != "running"), None)

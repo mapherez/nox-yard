@@ -80,6 +80,11 @@ func TestPreviouslyCancelledContextDoesNotDispatch(t *testing.T) {
 	checks := []func() error{
 		func() error { _, e := app.Action(ctx, "target", true, lifecycle.Start); return e },
 		func() error { _, e := app.Pull(ctx, "target", true); return e },
+		func() error { _, e := app.ReadProjectConfiguration(ctx, "compose:target", true); return e },
+		func() error {
+			_, e := app.SaveProjectConfiguration(ctx, "compose:target", managed.ConfigurationEdit{})
+			return e
+		},
 		func() error { _, e := app.Projects(ctx); return e },
 		func() error { _, e := app.Inspect(ctx, "target", true); return e },
 		func() error { _, e := app.Metrics(ctx); return e },

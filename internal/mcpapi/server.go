@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -13,6 +14,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/application"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
+	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
@@ -42,6 +44,9 @@ var cliPaths = map[string]string{
 	"yard_project_pull":                 "project pull",
 	"yard_project_schedule_get":         "project schedule get",
 	"yard_project_schedule_set":         "project schedule set",
+	"yard_project_configuration_read":   "project configuration read",
+	"yard_project_configuration_save":   "project configuration save",
+	"yard_project_variable_set":         "project variable set",
 	"yard_container_remove_preview":     "container remove preview",
 	"yard_project_remove_preview":       "project remove preview",
 	"yard_container_remove":             "container remove",
@@ -140,6 +145,31 @@ type empty struct{}
 type targetInput struct {
 	ID string `json:"id"`
 }
+type configurationReadInput struct {
+	ID     string `json:"id"`
+	Reveal bool   `json:"reveal,omitempty"`
+}
+type configurationSaveInput struct {
+	ID          string `json:"id"`
+	Fingerprint string `json:"fingerprint"`
+	Path        string `json:"path"`
+	Content     string `json:"content"`
+}
+type variableSetInput struct {
+	ID          string `json:"id"`
+	Fingerprint string `json:"fingerprint"`
+	Service     string `json:"service"`
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+}
+
+func configurationTarget(id string) error {
+	if !strings.HasPrefix(id, "compose:") {
+		return &noxmcp.Error{Code: "INVALID_TARGET_ID", Message: "Configuration requires a Compose project ID."}
+	}
+	return target(id, false)
+}
+
 type scheduleInput struct {
 	ID      string  `json:"id"`
 	Enabled bool    `json:"enabled"`
@@ -215,13 +245,39 @@ func failures(items []lifecycle.Failure) []failure {
 }
 func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 	b := &builder{}
-	register(b, "yard_project_schedule_get", "Project automatic updates", "Read the opt-in daily image update setting, explicit server timezone, next occurrence and last result. Independent of Yard self-update.", read, func(ctx context.Context, in targetInput) (application.ScheduleStatus, error) {
+	register(b, "yard_project_configuration_read", "Read project configuration", "Read current Compose, .env and env_file metadata from host files, including fingerprint and pending variable changes. Requires a compose: project ID, including NoX Yard. File contents and variable values are hidden unless reveal is explicitly true; treat revealed output as sensitive. Does not change files or containers.", read, func(ctx context.Context, in configurationReadInput) (managed.FileConfigurationView, error) {
+		if err := configurationTarget(in.ID); err != nil {
+			return managed.FileConfigurationView{}, err
+		}
+		return app.ReadProjectConfiguration(ctx, in.ID, in.Reveal)
+	})
+	register(b, "yard_project_configuration_save", "Save project configuration file", "Validate and save one existing Compose, .env or env_file at its returned path. Requires the current configuration fingerprint; conflicts require rereading and reviewing changes. Preserves other files and never applies changes to containers. Returns metadata with contents and values hidden. To apply, review yard_recreate_preview then use yard_recreate_submit with its fingerprint; no pull or build.", write, func(ctx context.Context, in configurationSaveInput) (managed.FileConfigurationView, error) {
+		if err := configurationTarget(in.ID); err != nil {
+			return managed.FileConfigurationView{}, err
+		}
+		if in.Path == "" || in.Fingerprint == "" {
+			return managed.FileConfigurationView{}, managed.ErrInvalidSource
+		}
+		view, err := app.SaveProjectConfiguration(ctx, in.ID, managed.ConfigurationEdit{Fingerprint: in.Fingerprint, Path: in.Path, Content: in.Content})
+		return application.RedactProjectConfiguration(view), err
+	})
+	register(b, "yard_project_variable_set", "Set project environment variable", "Validate and save one existing service variable in its current Compose or env file definition, preserving other values. Requires compose: project ID, service, name, value (empty is allowed) and the current configuration fingerprint. Does not change containers. Returns metadata and pending flags with values hidden. Apply using the reviewed Recreate flow; Restart does not apply configuration changes.", write, func(ctx context.Context, in variableSetInput) (managed.FileConfigurationView, error) {
+		if err := configurationTarget(in.ID); err != nil {
+			return managed.FileConfigurationView{}, err
+		}
+		if in.Service == "" || in.Name == "" || in.Fingerprint == "" {
+			return managed.FileConfigurationView{}, managed.ErrInvalidSource
+		}
+		view, err := app.SaveProjectConfiguration(ctx, in.ID, managed.ConfigurationEdit{Fingerprint: in.Fingerprint, Service: in.Service, Variable: in.Name, Content: in.Value})
+		return application.RedactProjectConfiguration(view), err
+	})
+	register(b, "yard_project_schedule_get", "Project automatic updates", "Read the daily image update setting, explicit server timezone, next occurrence and last result. Also covers NoX Yard's own project and its daily self-update schedule.", read, func(ctx context.Context, in targetInput) (application.ScheduleStatus, error) {
 		if err := target(in.ID, false); err != nil {
 			return application.ScheduleStatus{}, err
 		}
 		return app.ProjectSchedule(ctx, in.ID)
 	})
-	register(b, "yard_project_schedule_set", "Set project automatic updates", "Explicitly enable or disable daily updates in the server timezone. Optional time selects HH:MM; omitting it preserves the saved time (03:00 for new projects). Enabling requires a supported running project and may replace its containers on future occurrences. Never starts stopped projects. Disabled by default.", setting, func(ctx context.Context, in scheduleInput) (application.ScheduleStatus, error) {
+	register(b, "yard_project_schedule_set", "Set project automatic updates", "Enable or disable daily updates, including NoX Yard, in the server timezone. Optional time selects HH:MM; omitting it preserves the saved time (initially 03:00). Enabling requires a supported running project and may replace its containers on future occurrences. Never starts stopped projects. New projects default to disabled; Yard preserves its existing enabled setting.", setting, func(ctx context.Context, in scheduleInput) (application.ScheduleStatus, error) {
 		if err := target(in.ID, false); err != nil {
 			return application.ScheduleStatus{}, err
 		}
@@ -269,7 +325,7 @@ func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 		if container {
 			kind = "container"
 		}
-		register(b, "yard_"+kind+"_action", "Engine "+kind+" action", "Start, stop or restart existing containers through the shared Engine lifecycle implementation. This is distinct from stored Compose operations; restarting Yard may queue its restart helper.", write, func(ctx context.Context, in actionInput) (actionOutput, error) {
+		register(b, "yard_"+kind+"_action", "Engine "+kind+" action", "Start, stop or restart existing containers through the shared Engine lifecycle implementation. Restart does not apply saved Compose/env changes; use Recreate to apply them. Restarting Yard may queue its restart helper.", write, func(ctx context.Context, in actionInput) (actionOutput, error) {
 			if err := target(in.ID, container); err != nil {
 				return actionOutput{}, err
 			}
@@ -281,7 +337,7 @@ func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 			}
 			return out, nil
 		})
-		register(b, "yard_"+kind+"_pull", "Pull "+kind+" images", "Pull configured images into Docker's local cache, without replacing containers. Synchronous, bounded by the 60-second MCP timeout; reconcile state after timeout before retrying.", write, func(ctx context.Context, in targetInput) (pullOutput, error) {
+		register(b, "yard_"+kind+"_pull", "Pull "+kind+" images", "Pull images into Docker's local cache without replacing containers or building images. Compose targets read current host files: a container pulls only its service image, a project pulls all its service images. Targets without locatable files use existing container configuration. Invalid files produce an error. Use Recreate to apply pulled images. Synchronous, bounded by the 60-second MCP timeout; reconcile state after timeout before retrying.", write, func(ctx context.Context, in targetInput) (pullOutput, error) {
 			if err := target(in.ID, container); err != nil {
 				return pullOutput{}, err
 			}
@@ -364,7 +420,7 @@ func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 		return settingsInput{base}, err
 	})
 	register(b, "yard_self_update_status", "Self-update status", "Read current self-update settings and state without triggering a check.", read, func(ctx context.Context, _ empty) (selfupdate.Status, error) { return app.UpdateStatus(ctx) })
-	register(b, "yard_self_update_settings", "Configure self-updates", "Persist automatic-update settings. Enabling automatic updates can trigger a check that may install an update and restart Yard. This is not a read-only operation.", write, func(ctx context.Context, in updateSettings) (selfupdate.Status, error) {
+	register(b, "yard_self_update_settings", "Configure self-updates", "Compatibility tool: set NoX Yard's automatic-update enabled state while preserving its daily scheduled time. intervalMinutes remains a required legacy field but no longer drives a timer. Does not trigger an immediate check. Prefer yard_project_schedule_set with Yard's project ID to edit the daily time; use yard_self_update_check_and_update for immediate installation.", write, func(ctx context.Context, in updateSettings) (selfupdate.Status, error) {
 		return app.SetUpdateSettings(ctx, in.Automatic, in.IntervalMinutes)
 	})
 	register(b, "yard_self_update_check_and_update", "Check and update NoX Yard", "Queue a manual update check. If a newer image is available, it may install it and restart NoX Yard even when automatic updates are disabled. Returns accepted/current status; observe completion using yard_self_update_status.", write, func(ctx context.Context, _ empty) (selfupdate.Status, error) { return app.CheckAndUpdate(ctx) })
