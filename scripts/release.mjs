@@ -81,24 +81,20 @@ export function release(argv, {
     (original.toString('utf8').endsWith('\n') ? newline : ''));
   try {
     writeFileSync(versionPath, updated);
-    log(`Validating release ${tag}...`);
-    run('sh', ['scripts/ci-local.sh'], { inherit: true });
-    run('docker', ['buildx', 'build', '--platform', 'linux/amd64', '--load',
-      '--build-arg', `BUILD_SHA=${originalHead}`, '--build-arg', `BUILD_VERSION=${tag}`,
-      '-t', 'nox-yard:release-check', '.'], { inherit: true });
+    log(`Preparing release request ${tag}; GitHub CI must pass before publication...`);
     const unexpected = status().filter(({ code, path }) => path !== 'package.json' || code !== ' M');
     if (unexpected.length) {
-      throw new Error(`Checks changed unexpected files: ${unexpected.map(({ code, path }) => `${code} ${path}`).join(', ')}`);
+      throw new Error(`Unexpected concurrent changes: ${unexpected.map(({ code, path }) => `${code} ${path}`).join(', ')}`);
     }
-    if (!readFileSync(versionPath).equals(updated)) throw new Error('Checks changed package.json unexpectedly.');
+    if (!readFileSync(versionPath).equals(updated)) throw new Error('package.json changed unexpectedly.');
     if (git('rev-parse', 'HEAD') !== originalHead || git('symbolic-ref', '--short', 'HEAD') !== branch) {
-      throw new Error('HEAD or the current branch changed during validation.');
+      throw new Error('HEAD or the current branch changed while preparing the release.');
     }
     staged = true;
     git('add', '--', 'package.json');
     if (git('diff', '--cached', '--name-only') !== 'package.json') throw new Error('Release index must contain only package.json.');
     commitAttempted = true;
-    git('commit', '-m', `chore: release ${tag}`);
+    git('commit', '-m', `chore: release ${tag}`, '-m', `NoX-Yard-Release: ${tag}`);
     commit = git('rev-parse', 'HEAD');
     if (git('diff-tree', '--no-commit-id', '--name-only', '-r', commit) !== 'package.json' ||
         readVersion(git('show', `${commit}:package.json`)) !== version || status().length) {
@@ -123,7 +119,7 @@ export function release(argv, {
       : `git tag -a ${quote(tag)} -m ${quote(`Release ${tag}`)} ${quote(commit)}\n${pushCommand}`;
     throw new Error(`${error.message}\nRelease commit ${commit}${tagCreated ? ` and annotated tag ${tag}` : ' (without a release tag)'} remain local. No automatic reset was performed.\nInspect the local state, then recover in a POSIX shell (Git Bash on Windows):\n${recovery}`);
   }
-  log(`Pushed ${tag}. GitHub Actions will validate, publish the Docker image and create the GitHub Release.`);
+  log(`Pushed ${tag}. GitHub Actions will run CI first; only successful CI can publish the Docker image and GitHub Release.`);
   return { version, tag, branch, commit };
 }
 

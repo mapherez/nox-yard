@@ -8,6 +8,7 @@ import test from 'node:test';
 import { commandRunner, release } from './release.mjs';
 import { assertLatestStable, checkReleaseVersion, parseVersion } from './release-version.mjs';
 import { image, releaseMetadata, source, writeMetadataOutputs } from './release-metadata.mjs';
+import { publicationMarker, requestedRelease, shouldPublish } from './release-request.mjs';
 
 const scripts = dirname(fileURLToPath(import.meta.url));
 const sha = 'a'.repeat(40);
@@ -33,7 +34,7 @@ function fixture(t, original = '0.0.0\n') {
   writeFileSync(join(root, 'Dockerfile'), 'FROM scratch\n');
   writeFileSync(join(root, 'other.txt'), 'unchanged\n');
   writeFileSync(join(root, 'scripts', 'ci-local.sh'), '#!/bin/sh\nexit 0\n');
-  for (const name of ['release.mjs', 'release-version.mjs', 'release-metadata.mjs', 'check-release-version.mjs']) {
+  for (const name of ['release.mjs', 'release-version.mjs', 'release-metadata.mjs', 'release-request.mjs', 'check-release-version.mjs']) {
     copyFileSync(join(scripts, name), join(root, 'scripts', name));
   }
   git('add', '.');
@@ -47,8 +48,7 @@ function fixture(t, original = '0.0.0\n') {
   const controls = {};
   const run = (command, args) => {
     calls.push({ command, args });
-    if (command === 'sh') { controls.check?.(); return ''; }
-    if (command === 'docker') { controls.build?.(); return ''; }
+    if (command === 'sh' || command === 'docker') throw new Error('Release preparation must leave validation/builds to CI.');
     if (command === 'git' && args[0] === 'commit') controls.commit?.();
     if (command === 'git' && args[0] === 'tag' && args.includes('-a')) controls.tag?.();
     return realRun(command, args);
@@ -164,41 +164,14 @@ test('rejects a tag that exists only on origin', (t) => {
   assert.equal(f.git('rev-parse', 'HEAD'), f.originalHead);
 });
 
-for (const failure of ['check', 'build', 'commit']) {
-  test(`${failure} failure restores package.json byte-for-byte before any release`, (t) => {
-    const f = fixture(t, '0.0.0\r\n');
-    const original = f.packageContents();
-    f.controls[failure] = () => { throw new Error(`Simulated ${failure} failure`); };
-    assert.throws(() => f.release(), new RegExp(`Simulated ${failure} failure.*\\npackage.json restored`));
-    assert.deepEqual(f.packageContents(), original);
-    f.assertUnreleased();
-    assert.equal(f.git('status', '--porcelain'), '');
-  });
-}
-
-for (const staged of [false, true]) {
-  test(`unexpected ${staged ? 'staged' : 'working tree'} check changes abort and remain available for inspection`, (t) => {
-    const f = fixture(t);
-    f.controls.check = () => {
-      writeFileSync(join(f.root, 'other.txt'), 'check changed this\n');
-      if (staged) f.git('add', 'other.txt');
-    };
-    assert.throws(() => f.release(), /Checks changed unexpected files: .*other.txt/);
-    assert.equal(f.version(), '0.0.0');
-    assert.equal(readFileSync(join(f.root, 'other.txt'), 'utf8'), 'check changed this\n');
-    assert.equal(f.git('rev-parse', 'HEAD'), f.originalHead);
-    assert.equal(f.git('tag', '--list'), '');
-    assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), f.originalHead);
-    assert.equal(f.git('diff', '--cached', '--name-only'), staged ? 'other.txt' : '');
-  });
-}
-
-test('unexpected changes to package.json during checks also abort', (t) => {
-  const f = fixture(t);
-  f.controls.build = () => writeFileSync(join(f.root, 'package.json'), JSON.stringify({ name: 'nox-yard', version: '7.0.0' }));
-  assert.throws(() => f.release(), /Checks changed package.json unexpectedly/);
-  assert.equal(f.version(), '0.0.0');
+test('commit failure restores package.json byte-for-byte before any release', (t) => {
+  const f = fixture(t, '0.0.0\r\n');
+  const original = f.packageContents();
+  f.controls.commit = () => { throw new Error('Simulated commit failure'); };
+  assert.throws(() => f.release(), /Simulated commit failure.*\npackage.json restored/);
+  assert.deepEqual(f.packageContents(), original);
   f.assertUnreleased();
+  assert.equal(f.git('status', '--porcelain'), '');
 });
 
 for (const version of ['v1.0.0', '2.0.0-rc.1', '2.0.0-beta.2']) {
@@ -217,6 +190,7 @@ for (const version of ['v1.0.0', '2.0.0-rc.1', '2.0.0-beta.2']) {
     assert.equal(metadata.private, true);
     assert.deepEqual(metadata.scripts, { release: 'node scripts/release.mjs' });
     assert.equal(f.git('show', '-s', '--format=%s', result.commit), `chore: release ${tag}`);
+    assert.equal(f.git('show', '-s', '--format=%B', result.commit), `chore: release ${tag}\n\nNoX-Yard-Release: ${tag}`);
     assert.equal(f.git('diff-tree', '--no-commit-id', '--name-only', '-r', result.commit), 'package.json');
     assert.equal(f.git('rev-parse', `${result.commit}^`), f.originalHead);
     assert.equal(f.git('cat-file', '-t', `refs/tags/${tag}`), 'tag');
@@ -225,12 +199,8 @@ for (const version of ['v1.0.0', '2.0.0-rc.1', '2.0.0-beta.2']) {
     assert.equal(f.remoteGit('rev-parse', `refs/tags/${tag}^{commit}`), result.commit);
     assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), result.commit);
     assert.equal(f.git('status', '--porcelain'), '');
-    assert.deepEqual(f.calls.find(({ command }) => command === 'sh').args, ['scripts/ci-local.sh']);
-    assert.deepEqual(f.calls.find(({ command }) => command === 'docker').args, [
-      'buildx', 'build', '--platform', 'linux/amd64', '--load',
-      '--build-arg', `BUILD_SHA=${f.originalHead}`, '--build-arg', `BUILD_VERSION=${tag}`,
-      '-t', 'nox-yard:release-check', '.',
-    ]);
+    assert.equal(f.calls.some(({ command }) => command === 'sh' || command === 'docker'), false);
+    assert.equal(requestedRelease({ cwd: f.root, revision: result.commit, ref: 'refs/heads/delivery/topic' }), tag);
     assert.deepEqual(f.calls.find(({ command, args }) => command === 'git' && args[0] === 'push').args, [
       'push', '--atomic', 'origin', 'refs/heads/delivery/topic:refs/heads/delivery/topic', `refs/tags/${tag}:refs/tags/${tag}`,
     ]);
@@ -331,6 +301,73 @@ test('stable publication cannot move latest backwards; prereleases do not affect
   for (const newer of ['v2.0.0', 'v1.11.0', 'v1.10.1']) {
     assert.throws(() => assertLatestStable('v1.10.0', [newer]), /newer stable release/);
   }
+});
+
+test('normal pushes, version bumps and manual tags do not request publication', (t) => {
+  const f = fixture(t, '1.0.0');
+  f.git('tag', '-a', 'v1.0.0', '-m', 'Release v1.0.0');
+  for (const [event, ref] of [['push', 'refs/heads/delivery/topic'], ['push', 'refs/tags/v1.0.0'], ['pull_request', 'refs/pull/1/merge']]) {
+    assert.equal(requestedRelease({ cwd: f.root, revision: f.originalHead, ref, event }), '');
+  }
+});
+
+for (const invalid of ['lightweight', 'other commit', 'annotation', 'missing tag', 'version mismatch', 'extra files', 'duplicate marker']) {
+  test(`release request refuses ${invalid}`, (t) => {
+    const f = fixture(t);
+    let { commit } = f.release();
+    if (invalid === 'lightweight' || invalid === 'missing tag') {
+      f.git('tag', '-d', 'v1.0.0');
+      if (invalid === 'lightweight') f.git('tag', 'v1.0.0');
+    }
+    if (invalid === 'other commit') f.git('tag', '-f', '-a', 'v1.0.0', '-m', 'Release v1.0.0', f.originalHead);
+    if (invalid === 'annotation') f.git('tag', '-f', '-a', 'v1.0.0', '-m', 'Manual tag');
+    if (invalid === 'version mismatch') {
+      writeFileSync(join(f.root, 'package.json'), JSON.stringify({ name: 'nox-yard', version: '1.0.1' }));
+      f.git('add', 'package.json'); f.git('commit', '--amend', '--no-edit');
+      commit = f.git('rev-parse', 'HEAD');
+    }
+    if (invalid === 'extra files') {
+      writeFileSync(join(f.root, 'other.txt'), 'also changed');
+      f.git('add', 'other.txt'); f.git('commit', '--amend', '--no-edit');
+      commit = f.git('rev-parse', 'HEAD');
+    }
+    if (invalid === 'duplicate marker') {
+      f.git('commit', '--amend', '-m', 'chore: release v1.0.0', '-m', 'NoX-Yard-Release: v1.0.0\nNoX-Yard-Release: v1.0.0');
+      commit = f.git('rev-parse', 'HEAD');
+    }
+    assert.throws(() => requestedRelease({ cwd: f.root, revision: commit, ref: 'refs/heads/delivery/topic' }));
+  });
+}
+
+test('publication retries skip only an identical completed release and never overwrite conflicts', () => {
+  const published = { tag_name: 'v1.0.0', target_commitish: sha, body: publicationMarker(sha), draft: false, prerelease: false };
+  assert.equal(shouldPublish('v1.0.0', sha, []), true);
+  assert.equal(shouldPublish('v1.0.0', sha, [published]), false);
+  // GitHub may retain a branch name as target_commitish for an existing tag.
+  assert.equal(shouldPublish('v1.0.0', sha, [{ ...published, target_commitish: 'master' }]), false);
+  // A later release must not turn a retry into a downgrade of latest.
+  assert.equal(shouldPublish('v1.0.0', sha, [published, { tag_name: 'v2.0.0' }]), false);
+  for (const change of [{ draft: true }, { prerelease: true }, { body: '' }, { body: publicationMarker('b'.repeat(40)) }]) {
+    assert.throws(() => shouldPublish('v1.0.0', sha, [{ ...published, ...change }]), /different or unverified/);
+  }
+  assert.throws(() => shouldPublish('v1.0.0', sha, [{ tag_name: 'v2.0.0' }]), /newer stable release/);
+});
+
+test('request command writes only the validated tag to GitHub outputs', (t) => {
+  const f = fixture(t);
+  const output = join(f.directory, 'github-output');
+  const invoke = (revision) => {
+    const result = spawnSync(process.execPath, [join(f.root, 'scripts', 'release-request.mjs')], {
+      cwd: f.root, encoding: 'utf8',
+      env: { ...process.env, GITHUB_SHA: revision, GITHUB_REF: 'refs/heads/delivery/topic', GITHUB_EVENT_NAME: 'push', GITHUB_OUTPUT: output },
+    });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  invoke(f.originalHead);
+  assert.equal(readFileSync(output, 'utf8'), 'tag=\n');
+  const { commit } = f.release();
+  invoke(commit);
+  assert.equal(readFileSync(output, 'utf8'), 'tag=\ntag=v1.0.0\n');
 });
 
 test('real command entrypoints reject missing arguments and a mismatched tag without mutations', (t) => {

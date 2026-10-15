@@ -1,27 +1,27 @@
 name: CI
 
 on:
-  pull_request:
-    branches:
-      - master
   push:
     branches:
-      - master
+      - '**'
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   validate:
     name: Source validation
     runs-on: ubuntu-latest
+    concurrency:
+      group: ci-source-${{ github.ref }}-${{ github.sha }}
+      cancel-in-progress: true
+    outputs:
+      release_tag: ${{ steps.request.outputs.tag }}
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
@@ -33,6 +33,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Identify script release request
+        id: request
+        run: node scripts/release-request.mjs
       - name: Install frontend dependencies
         run: npm ci --prefix web
       - name: Install Chrome for frontend regressions
@@ -44,6 +47,9 @@ jobs:
     name: Docker builds and ARM64 smoke test
     needs: validate
     runs-on: ubuntu-latest
+    concurrency:
+      group: ci-docker-${{ github.ref }}-${{ github.sha }}
+      cancel-in-progress: true
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -51,8 +57,13 @@ jobs:
           fetch-depth: 0
       - name: Resolve application build version
         id: metadata
+        env:
+          REQUESTED_TAG: ${{ needs.validate.outputs.release_tag }}
         run: |
-          version=$(sh scripts/build-version.sh "$GITHUB_SHA")
+          version="$REQUESTED_TAG"
+          if [ -z "$version" ]; then
+            version=$(sh scripts/build-version.sh "$GITHUB_SHA")
+          fi
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -69,6 +80,8 @@ jobs:
           load: true
           push: false
           tags: nox-yard:ci-amd64
+          cache-from: type=gha,scope=ci-amd64
+          cache-to: type=gha,mode=max,scope=ci-amd64
           build-args: |
             BUILD_SHA=${{ github.sha }}
             BUILD_VERSION=${{ steps.metadata.outputs.version }}
@@ -80,8 +93,21 @@ jobs:
           load: true
           push: false
           tags: nox-yard:ci-arm64
+          cache-from: type=gha,scope=ci-arm64
+          cache-to: type=gha,mode=max,scope=ci-arm64
           build-args: |
             BUILD_SHA=${{ github.sha }}
             BUILD_VERSION=${{ steps.metadata.outputs.version }}
       - name: Check ARM64 executable and runtime health
         run: sh scripts/smoke-arm64.sh nox-yard:ci-arm64
+
+  release:
+    name: Release after successful CI
+    needs: [validate, docker]
+    if: needs.validate.outputs.release_tag != ''
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.validate.outputs.release_tag }}

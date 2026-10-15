@@ -3,40 +3,46 @@
 Run from the repository root with a completely clean working tree:
 
 ```sh
-npm run release -- 1.0.0
+npm run release -- X.Y.Z
 ```
 
-Prereleases use the same command, for example `npm run release -- 1.1.0-rc.1`. An optional initial `v` is normalized. The version must be valid SemVer; build metadata (`+...`) is not supported. The root `package.json` stores the version in its `version` field without `v`, and Git uses an annotated `v<version>` tag. The initial `0.0.0` is a baseline, not a published release.
+Prereleases use the same command, for example `npm run release -- 1.2.0-rc.1`. An optional initial `v` is normalized. The root `package.json` stores SemVer without `v`; Git uses an annotated `v<version>` tag. Build metadata (`+...`) is not supported.
 
-## Prerequisites
+## One pipeline, publication after CI
 
-Install Go from `go.mod`, Node.js from `.nvmrc`, Git, a POSIX shell, and Docker with Compose and Buildx. Run `npm ci --prefix web` first. On Windows, use Git Bash with these tools on PATH. Git author and committer identities must be usable, and `origin` must be accessible with permission to push the current branch and tags. The remote must support atomic pushes; branch protection still applies.
+Every branch push starts `.github/workflows/ci.yml`, including pushes to feature branches. Tag pushes do not start a separate pipeline. There is no second pull-request trigger for the same branch push.
 
-Commit the implementation and any other pending work before running the release command. The command rejects tracked, staged, or untracked changes, detached HEAD, an unchanged version, and a tag that already exists locally or on `origin`. A failed remote lookup aborts the release.
+The pipeline runs in this order:
+
+1. **Source validation** runs the shared Go, release-tooling and frontend checks.
+2. **Docker builds and ARM64 smoke test** builds both architectures and tests the ARM64 executable and runtime.
+3. **Release after successful CI** calls the reusable `.github/workflows/release.yml` only when the script requested publication for this exact commit. Failure or cancellation of either CI gate prevents this call.
+
+The release workflow has only `workflow_call`; it cannot independently start on a tag push or a manual dispatch. It checks the request identity again, publishes the multi-architecture image, then creates the GitHub Release. It does not repeat source tests. Docker publication imports the architecture-specific BuildKit caches populated by CI to reuse build layers. Publication uses the exact CI SHA and validated release tag, even if the branch advances.
 
 ## What the command does
 
-The command updates only the root `package.json` version, runs `sh scripts/ci-local.sh`, and builds `nox-yard:release-check` locally for `linux/amd64`. That validation build receives the full current commit SHA and the requested `v<version>` through the existing Docker build arguments; it is never pushed.
+The command requires Node.js from `.nvmrc`, Git, a usable Git identity and permission to push the current branch and tags to `origin`. The remote must support atomic pushes; branch protection still applies. An installed local pre-push hook may require the other project toolchains and run local checks once. CI remains the publication gate.
 
-After validation, the command refuses unexpected file changes, commits only `package.json` as `chore: release v<version>`, creates the annotated tag with message `Release v<version>`, and atomically pushes the current branch and tag to `origin`. It detects the branch dynamically.
+Commit implementation changes first. The command rejects tracked, staged or untracked changes, detached HEAD, an unchanged version, an existing local/remote tag, or an inaccessible origin. It updates only `package.json`, creates `chore: release v<version>` with the `NoX-Yard-Release: v<version>` trailer, creates the annotated tag with message `Release v<version>`, and atomically pushes the branch and tag. It does not explicitly rerun CI or build a validation image locally.
 
-The tag push starts `.github/workflows/release.yml`. On a clean runner it checks tag/package.json version agreement, refuses an existing GitHub Release, installs the project toolchains and frontend dependencies, and repeats the shared checks. It then builds and publishes `linux/amd64` and `linux/arm64`, followed by a GitHub Release with generated notes. The release binary receives the release tag and full release commit SHA. OCI labels record version, revision, source, and creation time.
+CI accepts the request only when the marker, commit subject, package version, annotated tag, annotation and exact target SHA agree, and the release commit changes only `package.json`. An ordinary version bump, old release commit without the marker, or manually pushed tag does not request publication. These are provenance checks within the repository's existing trusted-push model, not a cryptographic proof of which client command was used.
 
 | Version | GHCR tags | GitHub Release |
 | --- | --- | --- |
-| `1.0.0` | `v1.0.0`, `latest` | Stable |
-| `1.1.0-rc.1` | `v1.1.0-rc.1` only | Prerelease |
+| `1.2.0` | `v1.2.0`, `latest` | Stable |
+| `1.2.0-rc.1` | `v1.2.0-rc.1` only | Prerelease |
 
-Only stable releases update `latest`. Publication is serialized, and an older stable version cannot replace a newer published stable release. Normal installation and self-update continue to use `ghcr.io/mapherez/nox-yard:latest`. Ordinary pushes to `master` and pull requests validate source and Docker builds without publishing official images. `scripts/build-version.sh` remains available for normal builds.
+Stable publication cannot move `latest` behind a newer published stable version. Installation and Yard self-update continue to use `ghcr.io/mapherez/nox-yard:latest`.
 
-## Failure recovery
+## Duplicate runs and failure recovery
 
-Before a release commit exists, any validation, build, or commit failure restores `package.json` byte-for-byte and unstages the command's `package.json` change. No release tag or push is made. Unexpected files changed by checks are reported and retained for inspection.
+Source/build job concurrency is scoped to branch and SHA: duplicate deliveries may cancel redundant validation, while different pushed commits retain their checks. Publication is serialized globally and is never canceled by validation concurrency. The pipeline cannot prevent GitHub from creating duplicate event deliveries, but a duplicate publication of the same completed release becomes a successful skip. Each new release records its source SHA in a hidden body marker after the image push completes. Existing drafts, legacy releases without this marker, or mismatching markers remain conflicts and are never overwritten.
 
-If tag creation fails after the release commit, the commit is preserved locally. If the atomic push fails, both the release commit and annotated tag are preserved locally. There is no automatic reset or deletion. The error prints the exact commands to recover in a POSIX shell, including the branch/tag push. Resolve the reported problem, inspect the local state, and use those commands rather than rerunning the release command with an existing tag.
+Before a release commit exists, a preparation/commit failure restores `package.json` byte-for-byte and unstages only its change. Once a release commit exists, it and any created tag are preserved on failure. The script prints exact recovery commands; inspect the local state and use those commands instead of rerunning with an existing tag. It never automatically resets commits or deletes tags.
 
-Watch the GitHub Actions release run after a successful push. Docker publication and GitHub Release creation are separate remote operations: if image publication succeeds but GitHub Release creation fails, the published image remains. Fix the failure and rerun the failed workflow; an existing GitHub Release is always rejected rather than edited silently.
+After a successful push, inspect the **CI** run, including its dependent Release job. If CI fails, fix the code and issue a new release request, or rerun CI when the failure was environmental and the commit remains valid. Do not push an old tag expecting an independent Release workflow. If image publication succeeds but GitHub Release creation fails, the image remains; retry the failed job only after inspecting that state. The current request identity and downgrade/conflict guards still apply.
 
 ## Tooling validation
 
-`node --test scripts/release.test.mjs` exercises the production validation and metadata functions with disposable Git repositories and local bare remotes. Git operations, commits, annotated tags, and atomic pushes are real inside these fixtures; CI and Docker failure paths use an injected command runner. Tests never contact GitHub or GHCR and remove their fixtures on completion. These tests also run in `scripts/ci-local.sh` and normal CI.
+`node --test scripts/release.test.mjs` uses disposable Git repositories and local bare remotes. It exercises real commits, annotated tags, atomic pushes, failed commits/pushes, request identity, normal-push exclusion, metadata, duplicate publication and conflict/downgrade handling. Tests never publish to GitHub or GHCR. These tests also run in `scripts/ci-local.sh` and normal CI. Use actionlint to validate the caller/callee workflow syntax and job dependencies.

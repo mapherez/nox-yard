@@ -1,105 +1,110 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag validated by the successful CI run
+        required: true
+        type: string
 
 permissions:
   contents: write
   packages: write
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   release:
-    name: Validate and publish release
+    name: Publish release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
     runs-on: ubuntu-latest
     # Serialize official publication so two stable tags cannot race to replace latest.
     concurrency:
       group: nox-yard-official-publisher
       cancel-in-progress: false
     steps:
-      - name: Check out tagged source
+      - name: Check out the exact CI commit
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.sha }}
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Validate tag against package.json
+      - name: Recheck release request identity
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node scripts/check-release-version.mjs "$RELEASE_TAG"
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          node --input-type=module -e '
+            import { requestedRelease } from "./scripts/release-request.mjs";
+            const tag = requestedRelease({ revision: process.env.GITHUB_SHA, ref: process.env.GITHUB_REF, event: process.env.GITHUB_EVENT_NAME });
+            if (!tag || tag !== process.env.RELEASE_TAG) throw new Error("Release input does not match the CI commit request.");
+          '
       - name: Generate release metadata
         id: metadata
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: node scripts/release-metadata.mjs "$RELEASE_TAG" "$GITHUB_SHA"
-      - name: Refuse existing releases or an older stable version
+      - name: Skip completed publication and refuse conflicting releases
+        id: guard
         uses: actions/github-script@v8
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
         with:
           script: |
             const { pathToFileURL } = require('node:url');
-            const { assertLatestStable } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-version.mjs`).href);
+            const { shouldPublish } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-request.mjs`).href);
             const releases = await github.paginate(github.rest.repos.listReleases, { ...context.repo, per_page: 100 });
-            if (releases.some(release => release.tag_name === process.env.RELEASE_TAG)) {
-              throw new Error(`GitHub Release ${process.env.RELEASE_TAG} already exists; refusing to replace it.`);
-            }
-            assertLatestStable(process.env.RELEASE_TAG, releases.filter(release => !release.draft && !release.prerelease).map(release => release.tag_name));
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - name: Install frontend dependencies
-        run: npm ci --prefix web
-      - name: Install Chrome for frontend regressions
-        run: npx --yes --package @playwright/cli@0.1.22 playwright-cli install-browser chrome
-      - name: Validate tagged source
-        run: sh scripts/ci-local.sh
+            const publish = shouldPublish(process.env.RELEASE_TAG, context.sha, releases);
+            core.setOutput('publish', String(publish));
+            if (!publish) core.notice('This exact release was already published successfully; skipping duplicate publication.');
       - name: Set up QEMU
+        if: steps.guard.outputs.publish == 'true'
         uses: docker/setup-qemu-action@v4
         with:
           platforms: arm64
           cache-image: false
       - name: Set up Docker Buildx
+        if: steps.guard.outputs.publish == 'true'
         uses: docker/setup-buildx-action@v4
       - name: Log in to GitHub Container Registry
+        if: steps.guard.outputs.publish == 'true'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish release image
+        if: steps.guard.outputs.publish == 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          cache-from: |
+            type=gha,scope=ci-amd64
+            type=gha,scope=ci-arm64
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
           build-args: |
             BUILD_SHA=${{ github.sha }}
-            BUILD_VERSION=${{ github.ref_name }}
+            BUILD_VERSION=${{ inputs.tag }}
       - name: Create GitHub Release with generated notes
+        if: steps.guard.outputs.publish == 'true'
         uses: actions/github-script@v8
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_PRERELEASE: ${{ steps.metadata.outputs.prerelease }}
         with:
           script: |
+            const { pathToFileURL } = require('node:url');
+            const { publicationMarker } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-request.mjs`).href);
             await github.rest.repos.createRelease({
               ...context.repo,
               tag_name: process.env.RELEASE_TAG,
+              target_commitish: context.sha,
               name: process.env.RELEASE_TAG,
+              body: publicationMarker(context.sha),
               generate_release_notes: true,
               draft: false,
               prerelease: process.env.RELEASE_PRERELEASE === 'true',
