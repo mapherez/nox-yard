@@ -582,7 +582,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
       {terminalUnavailable && <p className={styles.terminalUnavailable} role="status">Terminal unavailable: /bin/sh is missing from this {project.containers.length === 1 ? "container" : "project's containers"}.</p>}
       <div ref={contentRef} id={`${tabsID}-${activeTab}-panel`} role="tabpanel" aria-labelledby={`${tabsID}-${activeTab}-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
         {activeTab === "details" ? <>
-        {project.kind === "managed-compose" && <ManagedProjectControls key={`managed:${project.id}`} project={project} csrfToken={csrfToken} onChanged={onChanged} busy={operations.blocked || configuration.blocked} onAccepted={operations.refresh} onRecreate={() => setRecreateTarget({id:project.id,name:project.name,operation:"recreate"})} onRemove={() => setRemovalTarget({kind:"project",id:project.id,name:project.name,managedName:project.name})} />}
+        {project.kind === "managed-compose" && !activeContainer && <ManagedProjectControls key={`managed:${project.id}`} project={project} csrfToken={csrfToken} onChanged={onChanged} busy={operations.blocked || configuration.blocked} onAccepted={operations.refresh} onRecreate={() => setRecreateTarget({id:project.id,name:project.name,operation:"recreate"})} onRemove={() => setRemovalTarget({kind:"project",id:project.id,name:project.name,managedName:project.name})} />}
         {activeContainer && (project.kind === "managed-compose" || project.kind === "external-compose" && project.containers.length > 1) && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}>← Back to project</button>}
         {!activeContainer && <>
           {project.kind === "external-compose" && <LifecycleControls
@@ -618,13 +618,12 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
               key={activeContainer.id}
               container={activeContainer}
               configuration={configuration}
-              hideActions={project.kind === "managed-compose"}
               csrfToken={csrfToken}
               busy={busyTarget !== null || Boolean(activeContainer.operation) || operations.blocked || configuration.blocked}
               selfTarget={project.name === "nox-yard" && activeContainer.service === "nox-yard"}
               helperTarget={activeContainer.name.startsWith("nox-yard-update-")}
               onRun={(action) => runAction("container", activeContainer.id, action)}
-              onRecreate={() => setRecreateTarget({id:project.id,name:project.name,operation:"recreate"})}
+              onRecreate={() => setRecreateTarget({id:project.id,name:project.name,service:project.id.startsWith("compose:") ? activeContainer.service : undefined,operation:"recreate"})}
               pullLabel="Pull"
               removeLabel={project.kind === "external-compose" && project.containers.length === 1 ? "Remove project" : "Remove container"}
               onPull={() => { void runMaintenance(project.kind === "external-compose" ? "project" : "container", project.kind === "external-compose" ? project.id : activeContainer.id); }}

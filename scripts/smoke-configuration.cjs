@@ -7,7 +7,7 @@ async (page) => {
   const container=(id,service)=>({...metrics,id,name:service+'-1',service,image:'fixture/app',state:'running',health:'healthy',terminalAvailable:true});
   const completed=(id,service)=>({...container(id,service),state:'exited',completed:true,health:'none'});
   const projects=[{...metrics,id:'compose:sample',name:'sample',kind:'managed-compose',state:'running',health:'healthy',containers:[container(id,'web'),completed('c'.repeat(64),'state-init'),completed('d'.repeat(64),'volume-init')]},{...metrics,id:'compose:nox-yard',name:'nox-yard',kind:'external-compose',state:'running',health:'healthy',containers:[container(yardID,'nox-yard')]}];
-  let state='migrating',writes=0,failOnce=true,currentValue='running-value',pending=false,checks=0;
+  let state='migrating',writes=0,failOnce=true,currentValue='running-value',pending=false,checks=0,servicePreviews=0,serviceSubmits=0;
   let compose='services:\n  web:\n    image: fixture/app\n    env_file: [app.env]\n';
   const view=(reveal)=>({available:state==='ready',state,directory:'/srv/sample',fingerprint:String(writes).padStart(64,'0'),files:state==='ready'?[{path:'compose.yaml',compose:true,content:reveal?compose:''},{path:'app.env',compose:false,content:reveal?'TOKEN='+currentValue+'\nOTHER=keep\n':''}]:[],variables:state==='ready'?[{name:'TOKEN',service:'web',value:reveal?currentValue:'',pending}]:[]});
   await page.route('**/api/**',route=>{
@@ -16,6 +16,15 @@ async (page) => {
     if(path==='/api/projects/events')return route.fulfill({contentType:'text/event-stream',body:'data: {"inventory":false,"metrics":false}\n\n'});
     if(path==='/api/projects')return route.fulfill({json:{projects,collectedAt:'2026-10-15T20:00:00Z'}});
     if(path==='/api/jobs')return route.fulfill({json:[]});
+    if(path==='/api/recreate/preview') {
+      const body=request.postDataJSON();if(body.id!=='compose:sample'||body.service!=='web'||body.operation!=='recreate')throw Error('managed container recreation widened to project');
+      servicePreviews++;
+      return route.fulfill({json:{fingerprint:'f'.repeat(64),order:['web'],items:[{id,name:'web-1',service:'web',image:'fixture/app',imageID:'sha256:fixture',running:true,preserved:['volumes','environment files'],environment:['TOKEN']}]}});
+    }
+    if(path==='/api/recreate/submit') {
+      const body=request.postDataJSON();if(body.id!=='compose:sample'||body.service!=='web'||body.operation!=='recreate'||body.fingerprint!=='f'.repeat(64)||!body.confirm)throw Error('managed service submission lost reviewed scope');
+      serviceSubmits++;return route.fulfill({status:202,json:{id:'service-job',projectName:'sample',targetID:'compose:sample',operation:'recreate',status:'succeeded'}});
+    }
     if(path==='/api/configuration-migration')return route.fulfill({json:[{name:'sample',state}]});
     if(path.endsWith('/configuration/read'))return route.fulfill({json:view(request.postDataJSON()?.reveal)});
     if(path.endsWith('/configuration/save')){
@@ -68,6 +77,18 @@ async (page) => {
   await yaml.locator('xpath=ancestor::form').getByRole('button',{name:'Save',exact:true}).click();
   await drawer.getByText('Saved. Use Recreate to apply the changes.',{exact:true}).waitFor();
   if(writes!==2)throw Error('Compose save missing');
+  await drawer.getByLabel('More actions',{exact:true}).click();
+  await drawer.getByRole('button',{name:'Recreate',exact:true}).click();
+  const serviceDialog=page.getByRole('dialog',{name:'Recreate service?',exact:true});
+  await serviceDialog.getByRole('button',{name:'Confirm recreate',exact:true}).waitFor();
+  await serviceDialog.getByText('sample / web',{exact:true}).waitFor();
+  if(await serviceDialog.getByRole('listitem').count()!==1)throw Error('service preview includes initializers');
+  for(const width of [1440,768,390,320]){await page.setViewportSize({width,height:1000});if(await serviceDialog.evaluate(el=>el.scrollWidth>el.clientWidth+1))throw Error('service confirmation overflows '+width)}
+  await page.keyboard.press('Escape');await serviceDialog.waitFor({state:'hidden'});
+  if(serviceSubmits!==0)throw Error('cancel submitted service recreation');
+  await drawer.getByLabel('More actions',{exact:true}).click();await drawer.getByRole('button',{name:'Recreate',exact:true}).click();
+  await serviceDialog.getByRole('button',{name:'Confirm recreate',exact:true}).click();await serviceDialog.waitFor({state:'hidden'});
+  if(servicePreviews!==2||serviceSubmits!==1)throw Error('service recreate not submitted once with scope');
   for(const width of [1440,768,390,320]){await page.setViewportSize({width,height:1000});if(await drawer.evaluate(el=>el.scrollWidth>el.clientWidth+1))throw Error('configuration overflows '+width);if(width===1440||width===320)await page.screenshot({path:'output/playwright/configuration-'+width+'.png'})}
   await page.keyboard.press('Escape');await page.setViewportSize({width:1440,height:1000});
   await page.getByRole('button',{name:/Compose running nox-yard/}).click();

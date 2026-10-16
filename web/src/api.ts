@@ -90,11 +90,11 @@ export type ManagedPreview = {
 export type ImageIdentity = { service?: string; containerID?: string; imageID: string; platform?: string; startedAt?: string; previousContainerID?: string; outcome?: string; state?: string };
 
 export type RecreatePreview = { fingerprint: string; items: { id: string; name: string; service?: string; image: string; imageID: string; running: boolean; preserved: string[]; environment: string[] }[]; order: string[] };
-export function previewRecreate(id: string, operation: "update" | "recreate", csrfToken: string): Promise<RecreatePreview> {
-  return request<RecreatePreview>("/api/recreate/preview", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ id, operation }) });
+export function previewRecreate(id: string, operation: "update" | "recreate", csrfToken: string, service?: string): Promise<RecreatePreview> {
+  return request<RecreatePreview>("/api/recreate/preview", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ id, operation, service }) });
 }
-export function submitRecreate(id: string, operation: "update" | "recreate", fingerprint: string, csrfToken: string): Promise<ManagedJob> {
-  return trackInventoryAction(id, operation, () => request<ManagedJob>("/api/recreate/submit", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ id, operation, fingerprint, confirm: true }) }));
+export function submitRecreate(id: string, operation: "update" | "recreate", fingerprint: string, csrfToken: string, service?: string): Promise<ManagedJob> {
+  return trackInventoryAction(id, operation, () => request<ManagedJob>("/api/recreate/submit", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ id, operation, service, fingerprint, confirm: true }) }));
 }
 export type ManagedJob = { id: string; projectName: string; targetID: string; domain: string; operation: string; status: "running" | "succeeded" | "failed"; stage: string; outcome?: string; scheduledFor?: number; error?: string; cleanupError?: string; rollback?: string; createdAt: number; startedAt?: number; completedAt?: number; updatedAt: number; deadlineAt?: number; workerID?: string; sourceImages?: ImageIdentity[]; targetImages?: ImageIdentity[] };
 

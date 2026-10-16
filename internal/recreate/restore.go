@@ -14,6 +14,10 @@ import (
 // restores exact Engine inspections rather than rereading edited host files.
 // No data volumes are removed. It is never called to apply normal operations.
 func RestoreRuntime(ctx context.Context, name string, previous []container.InspectResponse) error {
+	return RestoreServiceRuntime(ctx, name, "", previous)
+}
+
+func RestoreServiceRuntime(ctx context.Context, name, service string, previous []container.InspectResponse) error {
 	cli, err := client.New(client.WithHost("unix:///var/run/docker.sock"))
 	if err != nil {
 		return err
@@ -28,6 +32,9 @@ func RestoreRuntime(ctx context.Context, name string, previous []container.Inspe
 		return err
 	}
 	for _, item := range listed.Items {
+		if service != "" && item.Labels["com.docker.compose.service"] != service {
+			continue
+		}
 		if wanted[item.ID] {
 			continue
 		}
@@ -37,9 +44,14 @@ func RestoreRuntime(ctx context.Context, name string, previous []container.Inspe
 		}
 	}
 	entries := []*entry{}
+	dependencies := []container.InspectResponse{}
 	for _, old := range previous {
 		if old.Config == nil || old.HostConfig == nil || old.State == nil {
 			return fmt.Errorf("previous container inspection is incomplete")
+		}
+		if service != "" && old.Config.Labels["com.docker.compose.service"] != service {
+			dependencies = append(dependencies, old)
+			continue
 		}
 		image, err := cli.ImageInspect(ctx, old.Image)
 		if err != nil {
@@ -51,7 +63,7 @@ func RestoreRuntime(ctx context.Context, name string, previous []container.Inspe
 		}
 		entries = append(entries, &entry{Old: old, Reference: imageidentity.Reference(old.Config.Image, old.Config.Labels), TargetImage: old.Image, Platform: platform})
 	}
-	order, err := dependencyOrder(entries)
+	order, err := scopedDependencyOrder(entries, dependencies)
 	if err != nil {
 		return err
 	}

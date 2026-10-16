@@ -30,6 +30,7 @@ const TargetLabel = "nox-yard.target"
 
 type Request struct {
 	ID          string `json:"id"`
+	Service     string `json:"service,omitempty"`
 	Operation   string `json:"operation"`
 	Fingerprint string `json:"fingerprint,omitempty"`
 	Confirm     bool   `json:"confirm,omitempty"`
@@ -60,10 +61,11 @@ type entry struct {
 	OneShot     bool
 }
 type journal struct {
-	Request Request
-	Entries []*entry
-	Order   []int
-	Mutated bool
+	Request      Request
+	Entries      []*entry
+	Dependencies []container.InspectResponse
+	Order        []int
+	Mutated      bool
 }
 type Manager struct {
 	data   *store.Store
@@ -203,13 +205,16 @@ func (m *Manager) snapshot(ctx context.Context, input Request) (*journal, Previe
 	if (!compose || name == "") && (!single || id == "") {
 		return nil, Preview{}, ErrInvalid
 	}
+	if input.Service != "" && (!compose || input.Operation != "recreate") {
+		return nil, Preview{}, ErrInvalid
+	}
 	listed, err := m.client.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, Preview{}, err
 	}
 	state := &journal{Request: input}
 	for _, summary := range listed.Items {
-		if (compose && summary.Labels["com.docker.compose.project"] == name) || (single && summary.ID == id) {
+		if (compose && summary.Labels["com.docker.compose.project"] == name && (input.Service == "" || summary.Labels["com.docker.compose.service"] == input.Service)) || (single && summary.ID == id) {
 			inspect, err := m.client.ContainerInspect(ctx, summary.ID, client.ContainerInspectOptions{})
 			if errdefs.IsNotFound(err) {
 				return nil, Preview{}, lifecycle.ErrChanged
@@ -289,6 +294,9 @@ func (m *Manager) snapshot(ctx context.Context, input Request) (*journal, Previe
 		if host == nil {
 			return nil, Preview{}, fmt.Errorf("%w: incoming dependencies cannot be assessed", ErrUnsupported)
 		}
+		if input.Service != "" && inspected.Container.Config != nil && inspected.Container.Config.Labels["com.docker.compose.project"] == name && !strings.EqualFold(inspected.Container.Config.Labels["com.docker.compose.oneoff"], "true") {
+			state.Dependencies = append(state.Dependencies, inspected.Container)
+		}
 		for _, value := range append(append([]string{string(host.NetworkMode), string(host.IpcMode), string(host.PidMode)}, host.VolumesFrom...), host.Links...) {
 			for _, target := range state.Entries {
 				ref := strings.TrimPrefix(value, "container:")
@@ -300,7 +308,8 @@ func (m *Manager) snapshot(ctx context.Context, input Request) (*journal, Previe
 			}
 		}
 	}
-	order, err := dependencyOrder(state.Entries)
+	sort.Slice(state.Dependencies, func(i, j int) bool { return state.Dependencies[i].ID < state.Dependencies[j].ID })
+	order, err := scopedDependencyOrder(state.Entries, state.Dependencies)
 	if err != nil {
 		return nil, Preview{}, err
 	}
@@ -323,8 +332,12 @@ func (m *Manager) snapshot(ctx context.Context, input Request) (*journal, Previe
 }
 
 func fingerprint(state *journal) string {
-	values := []any{state.Request.ID, state.Request.Operation}
-	for _, target := range state.Entries {
+	values := []any{state.Request.ID, state.Request.Operation, state.Request.Service}
+	all := append([]*entry{}, state.Entries...)
+	for _, item := range state.Dependencies {
+		all = append(all, &entry{Old: item})
+	}
+	for _, target := range all {
 		item := target.Old
 		networkIDs := map[string]string{}
 		if item.NetworkSettings != nil {
@@ -408,6 +421,28 @@ func dependencyOrder(entries []*entry) ([]int, error) {
 		}
 	}
 	return order, nil
+}
+
+// External service dependencies participate in assessment, never replacement.
+func scopedDependencyOrder(entries []*entry, dependencies []container.InspectResponse) ([]int, error) {
+	all := append([]*entry{}, entries...)
+	for _, item := range dependencies {
+		if item.Config == nil || item.State == nil {
+			return nil, ErrUnsupported
+		}
+		all = append(all, &entry{Old: item})
+	}
+	order, err := dependencyOrder(all)
+	if err != nil {
+		return nil, err
+	}
+	selected := []int{}
+	for _, i := range order {
+		if i < len(entries) {
+			selected = append(selected, i)
+		}
+	}
+	return selected, nil
 }
 
 func (m *Manager) Preview(ctx context.Context, input Request) (Preview, error) {

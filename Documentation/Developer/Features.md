@@ -74,6 +74,8 @@ Removal opens a confirmation dialog backed by `GET /api/projects/{id}/remove/pre
 
 ## Contextual operation history
 
+Recreate in a container's details selects its Compose service (all replicas) for managed and external projects. The confirmation identifies that scope; dependencies and initializers remain untouched by execution and rollback. Project-level Recreate still covers the whole project. Current Compose/env files and local cached images are used without pull/build, and `image:` plus development `build:` metadata is supported without changing host files. Missing-file Engine fallback retains service scope. See [Configuration files](Configuration-Files.md).
+
 The existing Details drawer has an Operations section with persisted stage/outcome and the latest 30 contextual records, including rollback and cleanup information. Reloading the browser or reopening the drawer restores this state from `GET /api/jobs?target=...`; managed operations and Yard restart survive web-process interruption in independent workers. Shared resource reservations reject overlapping managed/Engine/Yard mutations across browser, MCP and Control API adapters.
 
 An exited worker is verified without replay when possible; otherwise its recovery-required failure keeps actions reserved for host inspection. The drawer requires explicit acknowledgement of that review before releasing the reservation. Acknowledgement changes no containers/files and does not report the failed operation as successful. Unavailable history blocks actions and offers Retry. See [Durable operations](Operation-Jobs.md) for the API, secret handling and recovery procedure.

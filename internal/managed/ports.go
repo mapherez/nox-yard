@@ -22,6 +22,10 @@ type hostPortClaim struct {
 }
 
 func (m *Manager) assessPorts(ctx context.Context, name string, model composeModel) error {
+	return m.assessServicePorts(ctx, name, "", model)
+}
+
+func (m *Manager) assessServicePorts(ctx context.Context, name, service string, model composeModel) error {
 	claims, err := desiredHostPorts(model)
 	if err != nil || len(claims) == 0 {
 		return err
@@ -37,7 +41,7 @@ func (m *Manager) assessPorts(ctx context.Context, name string, model composeMod
 	if err != nil {
 		return fmt.Errorf("host port availability could not be checked")
 	}
-	return compareHostPorts(name, claims, listed.Items)
+	return compareServiceHostPorts(name, service, claims, listed.Items)
 }
 
 func desiredHostPorts(model composeModel) ([]hostPortClaim, error) {
@@ -104,6 +108,10 @@ func overlappingHostPorts(a, b hostPortClaim) bool {
 // This detects Docker-published ports, not arbitrary host processes. It is a
 // preflight, not a reservation; Docker remains authoritative for binding races.
 func compareHostPorts(name string, claims []hostPortClaim, items []container.Summary) error {
+	return compareServiceHostPorts(name, "", claims, items)
+}
+
+func compareServiceHostPorts(name, service string, claims []hostPortClaim, items []container.Summary) error {
 	for index, claim := range claims {
 		for _, prior := range claims[:index] {
 			if prior.owner != claim.owner && overlappingHostPorts(prior, claim) {
@@ -111,7 +119,7 @@ func compareHostPorts(name string, claims []hostPortClaim, items []container.Sum
 			}
 		}
 		for _, item := range items {
-			if item.Labels["com.docker.compose.project"] == name || (item.State != "running" && item.State != "paused" && item.State != "restarting") {
+			if (item.Labels["com.docker.compose.project"] == name && (service == "" || item.Labels["com.docker.compose.service"] == service)) || (item.State != "running" && item.State != "paused" && item.State != "restarting") {
 				continue
 			}
 			for _, port := range item.Ports {

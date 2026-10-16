@@ -357,14 +357,14 @@ func resolveFileSnapshot(ctx context.Context, snapshot *FileSnapshot) error {
 	if !ok || len(services) == 0 {
 		return ErrInvalidSource
 	}
-	for _, raw := range services {
+	for name, raw := range services {
 		service := raw.(map[string]any)
-		if service["build"] != nil {
-			return fmt.Errorf("%w: this action uses prebuilt images; builds are not performed", ErrInvalidSource)
-		}
 		if image, _ := service["image"].(string); image == "" {
-			return ErrInvalidSource
+			return fmt.Errorf("%w: service %s needs an explicit prebuilt image; builds are not performed", ErrInvalidSource, name)
 		}
+		// A development build definition does not prevent using its prebuilt
+		// image. Strip it only from the private execution model, never host files.
+		delete(service, "build")
 		if volumes, ok := service["volumes"].([]any); ok {
 			for _, raw := range volumes {
 				volume, ok := raw.(map[string]any)

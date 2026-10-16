@@ -161,6 +161,8 @@ See [Host validation](Host-Validation.md) for the prepared Pi 5 handoff, native-
 
 ## File configuration verification
 
+Run `python scripts/smoke-service-recreate.py --image IMAGE` to validate optional service scope through the real MCP/shared facade and independent workers. The generated local project has two app replicas, a running dependency, a completed initializer and Yard. Assertions cover `image:` with a deliberately unavailable development build context, current env edits, unavailable unrelated image references, scope-bound confirmations, unknown services, incoming shared namespaces from outside the project, service-only failed-start recovery, stopped replicas and missing-file Engine fallback after retained-container cleanup. Dependency IDs/start times and the initializer run count must remain unchanged. Fixtures never connect to a homelab Yard.
+
 Run `python scripts/smoke-configuration.py --image IMAGE` with a freshly built Linux Yard image to test authenticated file reveal/save, no mutation on Save, current-file self-recreation, daily schedule/session persistence and SQLite/runtime recovery after invalid Yard startup. Resources have generated local fixture names and do not target a running homelab.
 
 `smoke-managed.py` additionally covers verified DB export, inline environment edits, stale fingerprints, cached-only Recreate with the fixture registry stopped, original multi-file merge order, terminal edits, stopped services, source-preserving runtime rollback, UID ownership, interrupted export, manual conflicts and repair of invalid local YAML. `smoke-recreate.py` verifies the assessed Engine fallback when files are unavailable.

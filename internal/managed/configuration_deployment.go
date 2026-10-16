@@ -20,6 +20,7 @@ import (
 
 type fileDeployment struct {
 	Self           bool
+	Service        string
 	Source         FileSnapshot
 	Runtime        []container.InspectResponse
 	Targets        map[string]string
@@ -29,6 +30,13 @@ type fileDeployment struct {
 }
 
 func (m *Manager) FilePreview(ctx context.Context, name, operation string) (recreate.Preview, error) {
+	return m.ServiceFilePreview(ctx, name, operation, "")
+}
+
+func (m *Manager) ServiceFilePreview(ctx context.Context, name, operation, service string) (recreate.Preview, error) {
+	if service != "" && operation != "recreate" {
+		return recreate.Preview{}, ErrInvalidSource
+	}
 	if operation != "recreate" && operation != "update" && operation != "pull" {
 		return recreate.Preview{}, ErrInvalidSource
 	}
@@ -43,8 +51,17 @@ func (m *Manager) FilePreview(ctx context.Context, name, operation string) (recr
 	if err != nil {
 		return recreate.Preview{}, err
 	}
+	selected, err := fileServiceRuntime(source, runtime, service)
+	if err != nil {
+		return recreate.Preview{}, err
+	}
+	if service != "" {
+		if err := recreate.CheckServiceIsolation(ctx, selected); err != nil {
+			return recreate.Preview{}, err
+		}
+	}
 	view := recreate.Preview{Items: []recreate.Item{}, Order: []string{}}
-	for _, item := range runtime {
+	for _, item := range selected {
 		if item.Config == nil || item.State == nil || item.HostConfig == nil || item.State.Paused || item.State.Restarting {
 			return view, fmt.Errorf("%w: stabilize the existing containers before recreation", ErrConflict)
 		}
@@ -60,27 +77,31 @@ func (m *Manager) FilePreview(ctx context.Context, name, operation string) (recr
 		view.Items = append(view.Items, recreate.Item{ID: item.ID, Name: strings.TrimPrefix(item.Name, "/"), Service: item.Config.Labels["com.docker.compose.service"], Image: item.Config.Image, ImageID: item.Image, Running: item.State.Running, Environment: keys, Preserved: []string{"host Compose files", "environment files", "volumes", "bind data", "running/stopped state"}})
 		view.Order = append(view.Order, item.Config.Labels["com.docker.compose.service"])
 	}
-	var model composeModel
-	decoded, _ := decodedComposeModel(source.Resolved)
-	_ = json.Unmarshal(decoded, &model)
+	preview := scopedFilePreview(source, service)
 	if operation != "pull" {
-		if err := m.assessPorts(ctx, name, model); err != nil {
+		if err := m.assessServicePorts(ctx, name, service, preview.model); err != nil {
 			return view, err
 		}
 	}
-	encoded, _ := json.Marshal(struct{ Files, Runtime, Operation string }{source.Fingerprint, adoptionRuntimeFingerprint(runtime), operation})
-	view.Fingerprint = fingerprint(encoded)
+	view.Fingerprint = fileOperationFingerprint(source, runtime, operation, service)
 	return view, nil
 }
 
 func (m *Manager) FileOperation(ctx context.Context, name, operation, confirmedFingerprint string) (store.Job, error) {
+	return m.ServiceFileOperation(ctx, name, operation, "", confirmedFingerprint)
+}
+
+func (m *Manager) ServiceFileOperation(ctx context.Context, name, operation, service, confirmedFingerprint string) (store.Job, error) {
+	if service != "" && operation != "recreate" {
+		return store.Job{}, ErrInvalidSource
+	}
 	if operation != "pull" && operation != "recreate" && operation != "update" {
 		return store.Job{}, ErrInvalidSource
 	}
 	if err := m.configurationReady(name); err != nil {
 		return store.Job{}, err
 	}
-	preview, err := m.FilePreview(ctx, name, operation)
+	preview, err := m.ServiceFilePreview(ctx, name, operation, service)
 	if err != nil {
 		return store.Job{}, err
 	}
@@ -95,8 +116,7 @@ func (m *Manager) FileOperation(ctx context.Context, name, operation, confirmedF
 	if err != nil {
 		return store.Job{}, err
 	}
-	encoded, _ := json.Marshal(struct{ Files, Runtime, Operation string }{source.Fingerprint, adoptionRuntimeFingerprint(runtime), operation})
-	if fingerprint(encoded) != preview.Fingerprint {
+	if fileOperationFingerprint(source, runtime, operation, service) != preview.Fingerprint {
 		return store.Job{}, fmt.Errorf("%w: project changed during confirmation; review again", ErrConflict)
 	}
 	location, _ := json.Marshal(source.ComposeFiles)
@@ -106,7 +126,11 @@ func (m *Manager) FileOperation(ctx context.Context, name, operation, confirmedF
 	project := store.ManagedProject{Name: name, ProjectDir: source.Directory, YAML: string(source.Resolved), VariablesJSON: "{}", EnvFilesJSON: "{}"}
 	hostname, _ := os.Hostname()
 	self := false
-	for _, item := range runtime {
+	selected, err := fileServiceRuntime(source, runtime, service)
+	if err != nil {
+		return store.Job{}, err
+	}
+	for _, item := range selected {
 		if strings.HasPrefix(item.ID, hostname) && item.Config != nil && item.Config.Labels["com.docker.compose.service"] == "nox-yard" {
 			self = true
 		}
@@ -116,7 +140,7 @@ func (m *Manager) FileOperation(ctx context.Context, name, operation, confirmedF
 			return store.Job{}, err
 		}
 	}
-	return m.enqueue(ctx, project, operation, workerPayload{Project: project, FileJob: &fileDeployment{Self: self, Source: source, Runtime: runtime}, RuntimeFingerprint: adoptionRuntimeFingerprint(runtime)})
+	return m.enqueue(ctx, project, operation, workerPayload{Project: project, FileJob: &fileDeployment{Self: self, Service: service, Source: source, Runtime: runtime}, RuntimeFingerprint: adoptionRuntimeFingerprint(runtime)})
 }
 
 func validateSelfFileConfiguration(preview Preview, runtime []container.InspectResponse, directory string) error {
@@ -160,7 +184,8 @@ func filePreview(source FileSnapshot) Preview {
 
 func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payload workerPayload) error {
 	work := payload.FileJob
-	preview := filePreview(work.Source)
+	preview := scopedFilePreview(work.Source, work.Service)
+	selected := serviceRuntime(work.Runtime, work.Service)
 	fail := func(message string) error {
 		outcome, rollback := "failed", "not_needed"
 		inspection, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -182,7 +207,7 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 						if err != nil {
 							restoreErr = err
 						}
-						for _, item := range current {
+						for _, item := range serviceRuntime(current, work.Service) {
 							if _, err := cli.ContainerStop(recovery, item.ID, client.ContainerStopOptions{}); err != nil {
 								restoreErr = err
 							}
@@ -206,7 +231,7 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 				}
 			}
 			if restoreErr == nil {
-				restoreErr = recreate.RestoreRuntime(recovery, job.ProjectName, work.Runtime)
+				restoreErr = recreate.RestoreServiceRuntime(recovery, job.ProjectName, work.Service, work.Runtime)
 			}
 			if restoreErr != nil {
 				outcome, rollback = "recovery_required", "failed"
@@ -230,11 +255,11 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 		return fail("Host configuration changed before execution; review the current files.")
 	}
 	runtime, err := m.runtime(ctx, job.ProjectName)
-	if err != nil || adoptionRuntimeFingerprint(runtime) != adoptionRuntimeFingerprint(work.Runtime) {
+	if err != nil || adoptionRuntimeFingerprint(runtime) != adoptionRuntimeFingerprint(work.Runtime) || !sameRunningState(runtime, work.Runtime) {
 		return fail("Existing containers changed before execution; review again.")
 	}
 	if job.Operation != "pull" {
-		payload.Deployment = &deploymentSnapshot{Runtime: work.Runtime}
+		payload.Deployment = &deploymentSnapshot{Runtime: selected}
 		if err := m.retainDeploymentImages(ctx, job, payload); err != nil {
 			return fail("Previous images could not be retained for recovery.")
 		}
@@ -283,12 +308,17 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 	if err != nil {
 		return fail("Resolved configuration could not be prepared.")
 	}
-	if err := m.assessPorts(ctx, job.ProjectName, preview.model); err != nil {
+	if err := m.assessServicePorts(ctx, job.ProjectName, work.Service, preview.model); err != nil {
 		return fail(err.Error())
 	}
 	current, err = m.readFileSnapshot(ctx, job.ProjectName)
 	if err != nil || current.Fingerprint != work.Source.Fingerprint {
 		return fail("Host configuration changed during preparation; review again.")
+	}
+	if work.Service != "" {
+		if err := recreate.CheckServiceIsolation(ctx, selected); err != nil {
+			return fail("Service dependencies changed before recreation; review again.")
+		}
 	}
 	if job.ScheduleKey != "" {
 		runtime, err = m.runtime(ctx, job.ProjectName)
@@ -316,7 +346,7 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 		if err != nil {
 			return fail("Docker is unavailable.")
 		}
-		for _, item := range work.Runtime {
+		for _, item := range selected {
 			if _, err = cli.ContainerStop(ctx, item.ID, client.ContainerStopOptions{}); err != nil {
 				break
 			}
@@ -329,15 +359,12 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 			return fail("The Yard database snapshot could not be created.")
 		}
 	}
-	args := []string{"up", "--no-start", "--no-build", "--pull", "never", "--remove-orphans"}
-	if job.Operation == "recreate" {
-		args = append(args, "--force-recreate")
-	}
+	args := fileCreateArgs(job.Operation, work.Service)
 	if err := runResolvedCompose(ctx, job.ProjectName, work.Source.Directory, work.Definition, args...); err != nil {
 		return fail("Recreate failed: " + err.Error())
 	}
 	wanted, existed := map[string]bool{}, map[string]bool{}
-	for _, item := range work.Runtime {
+	for _, item := range selected {
 		service := item.Config.Labels["com.docker.compose.service"]
 		existed[service] = true
 		if item.State.Running {
@@ -358,6 +385,9 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 	sort.Strings(services)
 	if len(services) > 0 {
 		args = []string{"up", "-d", "--no-recreate", "--no-build", "--pull", "never"}
+		if work.Service != "" {
+			args = append(args, "--no-deps")
+		}
 		args = append(args, services...)
 		if err := runResolvedCompose(ctx, job.ProjectName, work.Source.Directory, work.Definition, args...); err != nil {
 			return fail("Starting recreated services failed: " + err.Error())
@@ -366,13 +396,13 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 	if err := m.saveDeployment(job, payload, "verifying"); err != nil {
 		return err
 	}
-	verification := fileVerification(preview, work.Runtime)
+	verification := fileServiceVerification(preview, selected, work.Service)
 	if len(expectedServices(verification.model)) > 0 {
 		if err := m.verify(ctx, job.ProjectName, verification); err != nil {
 			return fail("Recreate verification failed: " + err.Error())
 		}
 	}
-	if err := m.verifyDeploymentImages(ctx, job.ProjectName, verification.model, targets); err != nil {
+	if err := m.verifyFileDeployment(ctx, job.ProjectName, verification.model, targets, work); err != nil {
 		return fail("Recreated images did not match the prepared local images.")
 	}
 	if err := m.data.FinishJob(job.ID, job.Owner, "succeeded", "verified", "", ""); err != nil {

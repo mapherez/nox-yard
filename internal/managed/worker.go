@@ -63,7 +63,9 @@ func (m *Manager) enqueue(ctx context.Context, project store.ManagedProject, ope
 			if item.State != nil {
 				identity.StartedAt = item.State.StartedAt
 			}
-			job.SourceImages = append(job.SourceImages, identity)
+			if payload.FileJob == nil || payload.FileJob.Service == "" || identity.Service == payload.FileJob.Service {
+				job.SourceImages = append(job.SourceImages, identity)
+			}
 		}
 		if payload.RuntimeFingerprint != "" && adoptionRuntimeFingerprint(runtime) != payload.RuntimeFingerprint {
 			return store.Job{}, ErrConflict
@@ -337,9 +339,9 @@ func (m *Manager) Reconcile(ctx context.Context, job store.Job) error {
 		if err != nil || source.Fingerprint != work.Source.Fingerprint {
 			return store.ErrJobChanged
 		}
-		preview := filePreview(work.Source)
-		preview = fileVerification(preview, work.Runtime)
-		if err := m.verifyDeploymentImages(ctx, job.ProjectName, preview.model, work.Targets); err != nil {
+		preview := scopedFilePreview(work.Source, work.Service)
+		preview = fileServiceVerification(preview, serviceRuntime(work.Runtime, work.Service), work.Service)
+		if err := m.verifyFileDeployment(ctx, job.ProjectName, preview.model, work.Targets, work); err != nil {
 			return err
 		}
 		if len(expectedServices(preview.model)) > 0 {

@@ -21,7 +21,11 @@ Saving changes files only. The activation flow is **edit → Save → Recreate**
 
 The UI has no Update action. The legacy update APIs and daily automatic jobs remain compatible and pull before applying the current configuration. URL Sync remains an explicitly previewed source refresh. Single-file legacy Sync reads its previous inputs from disk; multi-file projects use the individual file editors.
 
-Missing Compose files permit the existing assessed Engine fallback, preserving runtime configuration. Recreate still selects local images using the original reference, including images downloaded by Pull. Inaccessible/symlinked files or an incompatible existing configuration produce an error instead of fallback. Builds, unresolved file dependencies and files escaping the project directory are refused. Individual files are limited to 1 MiB; reads have an aggregate bound. Files outside this supported contract require host editing/deployment.
+Recreate in a container's details targets its Compose service and all that service's replicas, for both managed and external projects. The confirmation names the project/service and lists only selected containers. Recreate at project level still targets the whole project. Service operations use `--no-deps`, omit orphan removal and never start/recreate other services or rerun their initializers. Stopped services remain stopped; mixed running/stopped replicas must be stabilized first. Scope, current file contents and runtime identities/state are bound to the confirmation fingerprint. The independent worker, recovery and restart reconciliation retain that scope, and verify that unselected containers and their running states remain unchanged. Project-level reservations still serialize competing operations safely.
+
+A Compose service may declare both `image:` and a development `build:`. Yard uses the named local image and removes build metadata only from its private execution model; original host files remain unchanged. Services without an explicit prebuilt image still fail validation. An unavailable local image fails without building or pulling.
+
+Missing Compose files permit the existing assessed Engine fallback, preserving runtime configuration and any explicitly selected service scope. Recreate still selects local images using the original reference, including images downloaded by Pull. Inaccessible/symlinked files or an incompatible existing configuration produce an error instead of fallback. Build-only services, unresolved file dependencies and files escaping the project directory are refused. Individual files are limited to 1 MiB; reads have an aggregate bound. Files outside this supported contract require host editing/deployment.
 
 File-backed recreation runs in the independent worker. It journals actual old Engine inspections and retains old images before mutation. Native Compose receives the full resolved definition with immutable image IDs, original image references and original relative-bind base. Existing stopped services remain stopped; new services start. Bounded readiness and image verification precede success. Ordinary failure restores the previous runtime from the private inspections without undoing the user's saved source edits. Named/anonymous volumes and bind data are never deleted by recovery. Shared application writes and database migrations are not undone. Interrupted/uncertain workers retain recovery reservations; observers do not replay commands.
 
@@ -49,6 +53,8 @@ All configuration POSTs require the existing session, exact Origin and CSRF toke
 - Authenticated `GET /api/configuration-migration` exposes per-project migration metadata only.
 
 IDs use `compose:NAME`. Contents/values do not enter public job records, previews or error logs. The existing Control API v1 remains unchanged. Internal recovery snapshots remain sensitive native Yard data.
+
+Existing `POST /api/recreate/preview` and `/api/recreate/submit` also accept optional `service` for `operation:recreate` with a Compose project ID. Omission preserves whole-project behavior; submission must use the same service and reviewed fingerprint. Invalid/unknown services fail without widening to the project. MCP's existing recreate tools expose the same optional field through the shared facade.
 
 ## Yard itself
 
