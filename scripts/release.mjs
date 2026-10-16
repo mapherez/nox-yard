@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline';
 import { isMain, parseVersion, readVersion } from './release-version.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -37,7 +38,7 @@ function changedFiles(status) {
 export function release(argv, {
   cwd = process.cwd(), root = repositoryRoot, run = commandRunner(cwd), log = console.log,
 } = {}) {
-  if (argv.length !== 1) throw new Error('Usage: npm run release -- <version> (exactly one argument).');
+  if (argv.length !== 1) throw new Error('Run npm run release to enter a version interactively, or npm run release -- <version> (exactly one argument).');
   const { version, tag } = parseVersion(argv[0]);
   const git = (...args) => run('git', args).trim();
   const status = () => changedFiles(run('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all']));
@@ -123,7 +124,30 @@ export function release(argv, {
   return { version, tag, branch, commit };
 }
 
+function promptVersion() {
+  return new Promise((resolve, reject) => {
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    const cancelled = () => reject(new Error('Release cancelled. No new version was provided.'));
+    prompt.once('close', cancelled);
+    prompt.once('SIGINT', () => prompt.close());
+    prompt.question('New version: ', (answer) => {
+      prompt.removeListener('close', cancelled);
+      prompt.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+export async function releaseCLI(argv, options = {}) {
+  if (argv.length) return release(argv, options);
+  const current = readVersion(readFileSync(join(options.root ?? repositoryRoot, 'package.json')));
+  (options.log ?? console.log)(`Current version: ${current}`);
+  const version = await promptVersion();
+  if (!version) throw new Error('Release cancelled. No new version was provided.');
+  return release([version], options);
+}
+
 if (isMain(import.meta.url)) {
-  try { release(process.argv.slice(2)); }
+  try { await releaseCLI(process.argv.slice(2)); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

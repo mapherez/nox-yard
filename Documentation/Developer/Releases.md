@@ -3,10 +3,10 @@
 Run from the repository root with a completely clean working tree:
 
 ```sh
-npm run release -- X.Y.Z
+npm run release
 ```
 
-Prereleases use the same command, for example `npm run release -- 1.2.0-rc.1`. An optional initial `v` is normalized. The root `package.json` stores SemVer without `v`; Git uses an annotated `v<version>` tag. Build metadata (`+...`) is not supported.
+The script shows the current version from the root `package.json` and asks for the new version. Enter a SemVer such as `1.3.0` or `1.3.0-rc.1`; the normal release flow starts after that answer. Empty input, EOF or Ctrl+C cancels before making changes. An optional initial `v` is normalized. The root `package.json` stores SemVer without `v`; Git uses an annotated `v<version>` tag. Build metadata (`+...`) is not supported. Explicit arguments remain supported for automation: `npm run release -- X.Y.Z`.
 
 ## One pipeline, publication after CI
 

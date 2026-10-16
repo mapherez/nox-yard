@@ -370,10 +370,10 @@ test('request command writes only the validated tag to GitHub outputs', (t) => {
   assert.equal(readFileSync(output, 'utf8'), 'tag=\ntag=v1.0.0\n');
 });
 
-test('real command entrypoints reject missing arguments and a mismatched tag without mutations', (t) => {
+test('real command entrypoints cancel an unanswered prompt and reject mismatched tags without mutations', (t) => {
   const f = fixture(t);
   for (const [script, args, message] of [
-    ['release.mjs', [], /exactly one argument/],
+    ['release.mjs', [], /Release cancelled/],
     ['check-release-version.mjs', ['v1.0.0'], /does not match package.json/],
     ['release-metadata.mjs', ['vfoo', sha], /Invalid SemVer/],
   ]) {
@@ -383,3 +383,31 @@ test('real command entrypoints reject missing arguments and a mismatched tag wit
   }
   f.assertUnreleased();
 });
+
+test('interactive release shows the package version and pushes the entered version to a local fixture remote', (t) => {
+  const f = fixture(t, '1.2.0');
+  const result = spawnSync(process.execPath, [join(f.root, 'scripts', 'release.mjs')], {
+    cwd: f.root, encoding: 'utf8', input: '  v1.3.0-rc.1  \n', timeout: 15_000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Current version: 1\.2\.0/);
+  assert.match(result.stdout, /New version:/);
+  assert.equal(f.version(), '1.3.0-rc.1');
+  assert.equal(f.remoteGit('tag', '--list'), 'v1.3.0-rc.1');
+  assert.match(f.git('log', '-1', '--format=%B'), /NoX-Yard-Release: v1\.3\.0-rc\.1/);
+  assert.equal(f.git('status', '--porcelain'), '');
+});
+
+for (const [input, message] of [['\n', /Release cancelled/], ['', /Release cancelled/], ['invalid\n', /Invalid SemVer/], ['1.2.0\n', /already 1\.2\.0/]]) {
+  test(`interactive release rejects ${JSON.stringify(input)} without mutations`, (t) => {
+    const f = fixture(t, '1.2.0');
+    const result = spawnSync(process.execPath, [join(f.root, 'scripts', 'release.mjs')], {
+      cwd: f.root, encoding: 'utf8', input, timeout: 15_000,
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stdout, /Current version: 1\.2\.0/);
+    assert.match(result.stderr, message);
+    assert.equal(f.version(), '1.2.0');
+    f.assertUnreleased();
+  });
+}
