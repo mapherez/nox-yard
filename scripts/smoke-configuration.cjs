@@ -5,7 +5,8 @@ async (page) => {
   const id='a'.repeat(64),yardID='b'.repeat(64);
   const metrics={cpuPercent:null,memoryBytes:null,uptimeSeconds:null,networkRxBytes:null,networkTxBytes:null};
   const container=(id,service)=>({...metrics,id,name:service+'-1',service,image:'fixture/app',state:'running',health:'healthy',terminalAvailable:true});
-  const projects=[{...metrics,id:'compose:sample',name:'sample',kind:'managed-compose',state:'running',health:'healthy',containers:[container(id,'web')]},{...metrics,id:'compose:nox-yard',name:'nox-yard',kind:'external-compose',state:'running',health:'healthy',containers:[container(yardID,'nox-yard')]}];
+  const completed=(id,service)=>({...container(id,service),state:'exited',completed:true,health:'none'});
+  const projects=[{...metrics,id:'compose:sample',name:'sample',kind:'managed-compose',state:'running',health:'healthy',containers:[container(id,'web'),completed('c'.repeat(64),'state-init'),completed('d'.repeat(64),'volume-init')]},{...metrics,id:'compose:nox-yard',name:'nox-yard',kind:'external-compose',state:'running',health:'healthy',containers:[container(yardID,'nox-yard')]}];
   let state='migrating',writes=0,failOnce=true,currentValue='running-value',pending=false,checks=0;
   let compose='services:\n  web:\n    image: fixture/app\n    env_file: [app.env]\n';
   const view=(reveal)=>({available:state==='ready',state,directory:'/srv/sample',fingerprint:String(writes).padStart(64,'0'),files:state==='ready'?[{path:'compose.yaml',compose:true,content:reveal?compose:''},{path:'app.env',compose:false,content:reveal?'TOKEN='+currentValue+'\nOTHER=keep\n':''}]:[],variables:state==='ready'?[{name:'TOKEN',service:'web',value:reveal?currentValue:'',pending}]:[]});
@@ -33,6 +34,8 @@ async (page) => {
   await page.emulateMedia({reducedMotion:'reduce'});await page.setViewportSize({width:1440,height:1000});await page.goto('http://127.0.0.1:5173');
   await page.getByRole('button',{name:/Managed Compose running sample/}).click();
   const drawer=page.getByRole('dialog',{name:'sample',exact:true});
+  await drawer.getByRole('button',{name:/state-init state-init-1 completed/}).waitFor();
+  await drawer.getByRole('button',{name:/volume-init volume-init-1 completed/}).waitFor();
   await drawer.getByText('Migrating configuration…',{exact:true}).waitFor();
   await drawer.getByLabel('More actions',{exact:true}).click();
   if(!await drawer.getByRole('button',{name:'Recreate',exact:true}).isDisabled())throw Error('migration did not gate Recreate');

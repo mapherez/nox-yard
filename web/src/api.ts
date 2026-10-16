@@ -18,6 +18,7 @@ export type Container = {
   service?: string;
   image: string;
   state: string;
+  completed?: boolean;
   operation?: string;
   health: string;
   terminalAvailable: boolean | null;

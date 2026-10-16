@@ -1,6 +1,6 @@
 # Current checkpoint
 
-**Updated:** 2026-10-15
+**Updated:** 2026-10-16
 
 **Phase:** C6 — Local acceptance and preparation for real-host validation
 
@@ -9,6 +9,8 @@ The [MVP completion plan](Completion-Plan.md) is the execution path for remainin
 Repository review on 2026-10-08 established the clean `v1.0.1` baseline and identified incorrect managed health outcomes and missing adoption directories. C1 corrects those defects; C2 adds durable ownership, interruption observation and contextual history; C3 builds managed image comparison, source staging and rollback on that ownership; C4 adds assessed external replacement and explicit safe removal. C5 adds project-level opt-in scheduling; Phase 4 still needs its real-host acceptance evidence. The connected `v1.0.1` instance was only inspected; it has not received these changes. See [Repository review](Repository-Review-2026-10-08.md) for the historical findings and validation limits.
 
 ## Host configuration implementation
+
+Initializer inventory correction (D-033): deployed Compose completion dependencies and explicit oneshot labels now distinguish successful initializers from stopped services. Projects with running services and completed initializers show Running; the drawer shows Completed without changing raw Docker state. Failed, unknown or unstarted initializers remain unsatisfied, and fully stopped projects stay Stopped. All Go tests, vet, frontend typecheck/build and the five browser fixtures passed, including Completed badges and existing desktop/mobile/keyboard coverage. Mock Engine tests verify project isolation, failed reruns and container-list-only inventory. The local Docker daemon was unavailable for an additional real-container run; no homelab containers were changed.
 
 The approved file-configuration plan is implemented in the working tree: host Compose/environment source of truth, inline variables and collapsed editors, fingerprinted authenticated writes, automatic verified migration with conflict resolution and active DB cleanup, host-owner access, uniform Pull/Recreate/Restart semantics, current-file Yard recreation with SQLite recovery, daily Yard scheduling and compact Settings. Native recovery snapshots remain in SQLite as requested. See [Configuration files](Configuration-Files.md) and decision D-031.
 

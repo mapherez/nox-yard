@@ -87,6 +87,7 @@ type Container struct {
 	Service           string   `json:"service,omitempty"`
 	Image             string   `json:"image"`
 	State             string   `json:"state"`
+	Completed         bool     `json:"completed,omitempty"`
 	Operation         string   `json:"operation,omitempty"`
 	Health            string   `json:"health"`
 	TerminalAvailable *bool    `json:"terminalAvailable"`
@@ -272,11 +273,13 @@ func (r *DockerReader) Snapshot(ctx context.Context) (Snapshot, error) {
 
 func group(items []container.Summary, containers []Container, collectedAt time.Time) Snapshot {
 	projects := make(map[string]*Project)
+	completed := completedInitializers(items)
 	for index, summary := range items {
 		if summary.Labels["nox-yard.role"] == "managed-helper" || summary.Labels["nox-yard.role"] == "operation-worker" {
 			continue
 		}
 		item := containers[index]
+		item.Completed = completed[summary.ID]
 		name := strings.TrimSpace(summary.Labels[composeProjectLabel])
 		key, kind := "container:"+item.ID, "standalone"
 		if name != "" {
@@ -334,6 +337,7 @@ func describe(summary container.Summary) Container {
 
 func summarize(project *Project) {
 	running := 0
+	completed := 0
 	transitional := false
 	health := "none"
 	var cpu float64
@@ -341,6 +345,9 @@ func summarize(project *Project) {
 	var networkRx, networkTx uint64
 	metricsComplete := true
 	for _, item := range project.Containers {
+		if item.Completed && item.State == "exited" {
+			completed++
+		}
 		if item.State == "running" {
 			running++
 			if item.UptimeSeconds != nil && (project.UptimeSeconds == nil || *item.UptimeSeconds < *project.UptimeSeconds) {
@@ -377,7 +384,7 @@ func summarize(project *Project) {
 		}
 	}
 	project.Health = health
-	if running == len(project.Containers) {
+	if running > 0 && running+completed == len(project.Containers) {
 		project.State = "running"
 	} else if running == 0 && !transitional {
 		project.State = "stopped"

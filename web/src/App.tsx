@@ -637,7 +637,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
               <div className={styles.containerList}>
                 {project.containers.map((container) => <button key={container.id} ref={(element) => { containerButtonsRef.current[container.id] = element; }} type="button" className={styles.containerChoice} onClick={() => showContainer(container.id)}>
                   <span className={styles.containerChoiceName}><strong>{container.service || container.name}</strong>{container.service && <small>{container.name}</small>}</span>
-                  <span className={`${styles.statusBadge} ${statusClass(container.operation || container.state)}`}>{container.operation || container.state}</span>
+                  <span className={`${styles.statusBadge} ${statusClass(containerStatus(container))}`}>{containerStatus(container)}</span>
                   <span className={styles.containerChoiceArrow} aria-hidden="true">›</span>
                 </button>)}
               </div>
@@ -1212,7 +1212,7 @@ function ContainerRow({ container }: { container: Container }) {
   return <article className={styles.containerRow}>
     <div className={styles.containerHeading}>
       <div><h3>{container.service || container.name}</h3>{container.service && <span>{container.name}</span>}</div>
-      <span className={`${styles.statusBadge} ${statusClass(container.operation || container.state)}`}>{container.operation || container.state}</span>
+      <span className={`${styles.statusBadge} ${statusClass(containerStatus(container))}`}>{containerStatus(container)}</span>
     </div>
     <p className={styles.imageName} title={container.image}>{container.image}</p>
     <p className={styles.containerHealth}>Health: {healthLabel(container.health)}</p>
@@ -1284,8 +1284,12 @@ function ContainerInspectionView({
   </>;
 }
 
+function containerStatus(container: Container): string {
+  return container.operation || (container.completed ? "completed" : container.state);
+}
+
 function statusClass(state: string): string {
-  if (state === "running") return styles.statusRunning;
+  if (state === "running" || state === "completed") return styles.statusRunning;
   if (state === "stopped" || state === "exited" || state === "dead") return styles.statusStopped;
   return styles.statusPartial;
 }
