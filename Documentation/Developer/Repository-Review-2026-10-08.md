@@ -1,5 +1,7 @@
 # Repository review — 2026-10-08
 
+Historical audit of v1.0.1. Its missing-feature findings describe that commit and have since been addressed in C0–C5. Use [Progress](Progress.md) for current status and the [2026-10-20 review](Repository-Review-2026-10-20.md) for the latest comparison; this report preserves its original evidence.
+
 Reviewed commit: `5904a448bce10d421b2d965a6367173853dea404` (`master`, `v1.0.1`). The working tree was clean and matched the locally recorded `origin/master` at the start of this review; no remote fetch or GitHub workflow-status verification was performed. Current milestone status belongs in [Progress](Progress.md).
 
 This review examined source, canonical documentation, release tooling and CI, ran local validations, and exercised disposable Docker Desktop Linux fixtures. The connected Yard instance was queried only through read-only MCP health/status tools. No deployed project, installation or setting was changed. Application code and dependencies were not changed.

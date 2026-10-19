@@ -2,11 +2,11 @@
 
 Use this procedure on the Raspberry Pi 5 and a designated Linux amd64 host. Docker Desktop and ARM64 emulation are local preparation evidence; they do not close the physical-host gates in [the completion plan](Completion-Plan.md). Record results in [Progress](Progress.md).
 
-## Prepared Pi 5 handoff
+## Prepare a versioned Pi 5 handoff
 
-The local preparation produces `.tmp/c6-pi5/` containing `nox-yard-c6-pi5.tar`, `nox-yard-c6-source.zip`, `SHA256SUMS` and `manifest.json`. The image tags are `nox-yard:c6-arm64-20261008` and `nox-yard:c6-v1.0.1-arm64`. The current image contains the C6 working tree based on C5 commit `05f1752`; it is a local validation build, not a published release. The manifest records image IDs, architecture, baseline tag and source archive checksum. The source archive includes the uncommitted C6 changes and excludes ignored data, dependencies and local secrets. Commit/push the changes separately before preparing a formal release.
+Prepare a fresh handoff from the exact revision under review. The old `.tmp/c6-pi5/` bundle and `c6-*-20261008` images describe historical preparation and must not be used as evidence for newer source. Rebuild and test matching current/baseline images first, use a new output directory, and retain the manifest with their exact IDs, source commit, dirty state and archive checksum. The packaging script includes tracked/untracked non-ignored source and excludes ignored data, dependencies and local secrets; do not reuse an older archive after code or toolchain changes.
 
-To reproduce the handoff after building/testing the images from the current source, run `python scripts/prepare-host-validation.py --image nox-yard:c6-arm64-20261008 --legacy-image nox-yard:c6-v1.0.1-arm64 --output .tmp/c6-pi5` from a Git checkout. It refuses an existing output directory, includes current tracked/untracked non-ignored source, normalizes text to LF and records whether the source has uncommitted changes. Keep image/source versions aligned before packaging.
+To reproduce the handoff after building/testing the images from the current source, run `python scripts/prepare-host-validation.py --image nox-yard:validation-arm64-20261020 --legacy-image nox-yard:baseline-v1.0.1-arm64 --output .tmp/host-validation-20261020` from a Git checkout. It refuses an existing output directory, includes current tracked/untracked non-ignored source, normalizes text to LF and records whether the source has uncommitted changes. Keep image/source versions aligned before packaging.
 
 Copy that directory to a new directory on the Pi, for example `~/nox-yard-c6-validation`. Prerequisites are a 64-bit Linux OS, Docker with its Compose plugin, Python 3, curl and access to public fixture/build images. The fixture suite builds Linux Go runners and retains Go build/module cache volumes; allow time and disk space for these images on the Pi. Browser checks run on a desktop against the Pi's validation instance.
 
@@ -21,16 +21,16 @@ docker load -i nox-yard-c6-pi5.tar
 python3 -m zipfile -e nox-yard-c6-source.zip .
 cd nox-yard-c6-source
 python3 scripts/acceptance.py \
-  --image nox-yard:c6-arm64-20261008 \
-  --legacy-image nox-yard:c6-v1.0.1-arm64 \
+  --image nox-yard:validation-arm64-20261020 \
+  --legacy-image nox-yard:baseline-v1.0.1-arm64 \
   --report .tmp/pi5-acceptance-results.json
 ```
 
-Keep the resulting JSON report. It records the host model/kernel, Engine version, exact image IDs and each gate's outcome/duration. `complete` means the isolated runtime gates passed; the manual host checklist below remains separate. The harness refuses images for the wrong Engine architecture and stops on the first failed gate. Repeat an individual script to diagnose a failure, then rerun the suite for a complete report.
+Keep the resulting JSON report. It records the host model/kernel, Engine version, exact image IDs and each gate's outcome/duration. `complete` means the isolated runtime gates passed; the manual host checklist below remains separate. The harness refuses images for the wrong Engine architecture and stops on the first failed gate. It runs seven legacy suites; additionally run `python3 scripts/smoke-configuration.py --image CURRENT` and `python3 scripts/smoke-service-recreate.py --image CURRENT` for current file-backed Yard recovery and service scope. Those two suites are not yet aggregated into its report. Repeat an individual script to diagnose a failure, then rerun the suite for a complete report.
 
 The suite creates random fixture identities and deletes only its own recorded containers, networks, volumes, helper images and temporary source directories. It does not select an existing Yard or user stack. It exercises:
 
-- Real v1.0.1 initialization/deployment; schema 6→8; preserved account/session, managed source/variables/env files, history and unchanged application containers/data.
+- Real v1.0.1 initialization/deployment; schema 6→9; preserved account/session, managed source/variables/env files, history and unchanged application containers/data.
 - Interrupted legacy job reconciliation and explicit recovery acknowledgement after inspecting the disposable target; missing host-directory records fail without deploying guessed paths.
 - The actual password-reset CLI through a Linux pseudo-terminal, no password echo, refusal of non-interactive input, revocation and persistence.
 - Three-part backup/restore of SQLite, original source/env/bind files and representative named-volume data, followed by repeat migration and credential verification.
@@ -45,7 +45,7 @@ After the isolated suite passes, create a separate instance with its own state, 
 
 ```sh
 mkdir -p .tmp/pi5-ui/data
-NOX_VALIDATION_IMAGE=nox-yard:c6-arm64-20261008 \
+NOX_VALIDATION_IMAGE=nox-yard:validation-arm64-20261020 \
   docker compose -f scripts/fixtures/host-validation.yaml up -d
 ```
 
@@ -74,7 +74,7 @@ docker exec -it nox-yard-c6-validation-yard nox-yard reset-admin-password
 To stop this validation instance while retaining its data:
 
 ```sh
-NOX_VALIDATION_IMAGE=nox-yard:c6-arm64-20261008 \
+NOX_VALIDATION_IMAGE=nox-yard:validation-arm64-20261020 \
   docker compose -f scripts/fixtures/host-validation.yaml down
 ```
 
@@ -82,14 +82,14 @@ Remove any manually created sample stacks using their explicit fixture names. Th
 
 ## Native Linux amd64
 
-Use the same source and scripts with native amd64 images. On the prepared workstation these are `nox-yard:c6-20261008` and `nox-yard:c6-v1.0.1`; transfer them with `docker save` / `docker load`, or rebuild from the same source snapshot and an archived `v1.0.1` tag. Run `scripts/acceptance.py` with those two references and retain a separate host report. A Windows client using Docker Desktop is not this real-host checkpoint.
+Use the same source and scripts with native amd64 images. Use freshly tested tags such as `nox-yard:validation-amd64-20261020` and `nox-yard:baseline-v1.0.1-amd64`; transfer them with `docker save` / `docker load`, or rebuild from the same source snapshot and an archived `v1.0.1` tag. Run `scripts/acceptance.py` with those two references and retain a separate host report. A Windows client using Docker Desktop is not this real-host checkpoint.
 
 ## Backup and upgrade boundaries
 
 Yard state, original project directories and application storage are separate backup parts. Before a real upgrade, stop admissions, disable automatic schedules/self-update, let workers finish, stop Yard and quiesce application writers. Record image IDs and the exact bind/volume layout. Take a consistent SQLite backup, preserve original source/env/interpolation settings and ownership/permissions, and use each application's supported data backup method. Protect backups as credentials: SQLite and env files contain authentication state and secrets.
 
-Restore into an isolated instance first. Preserve the original host paths, volume identities and directory roots for bind mounts; restore file contents in place. Deleting/recreating a bind-mounted directory while containers exist can leave their mounts pointing at the old directory inode. Do not assume reverting the image downgrades schema 8 to schema 6: reverting to v1.0.1 requires its pre-upgrade database backup and corresponding source/application data. Yard's self-update rollback snapshots SQLite and restores the previous Yard container; it is not an application-data rollback.
+Restore into an isolated instance first. Preserve the original host paths, volume identities and directory roots for bind mounts; restore file contents in place. Deleting/recreating a bind-mounted directory while containers exist can leave their mounts pointing at the old directory inode. Do not assume reverting the image downgrades schema 9 to schema 6: reverting to v1.0.1 requires its pre-upgrade database backup and corresponding source/application data. Yard's self-update rollback snapshots SQLite and restores the previous Yard container; it is not an application-data rollback.
 
-Old managed records without an original host project directory fail conservatively. Restore/locate the original files and record this case for recovery review; do not guess a new path or claim it was upgraded successfully. Restoring SQLite also restores historical password hashes and sessions. After a restore, run the interactive reset if those credentials/sessions should no longer be valid.
+Legacy records recover their original directory and ordered Compose filenames from usable Docker labels during configuration migration. An unresolvable location or conflicting local files remains Needs attention. Restore/locate the original files and review Retry migration or Use current files; do not guess a new path or claim a failed export is Ready. See [Configuration files](Configuration-Files.md). Restoring SQLite also restores historical password hashes and sessions. After a restore, run the interactive reset if those credentials/sessions should no longer be valid.
 
 Keep the image IDs, source archive checksum, host report and completed manual checklist together. C6 remains open until both designated native hosts and the original acceptance cases have evidence; C7 handles CI/publication gates and the formal release.

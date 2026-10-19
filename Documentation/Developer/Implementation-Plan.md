@@ -2,6 +2,8 @@
 
 This plan records the MVP scope and acceptance checkpoints. Current work is tracked in [Progress](Progress.md). The [MVP completion plan](Completion-Plan.md) defines the ordered implementation packages for remaining work identified in the 2026-10-08 review.
 
+This is the original scope contract, not an implementation-status report. Later decisions D-029–D-034 refine publication, host-file persistence, daily Yard scheduling, initializer display and service-scoped Recreate. Use [Configuration files](Configuration-Files.md), [Features](Features.md) and [Releases](Releases.md) for current behavior; the original acceptance gates still apply.
+
 ## Outcome and constraints
 
 Deliver an English-only, dark-only, responsive Docker management application for a single local Linux host. Raspberry Pi 5 is the primary target. Install through Docker Compose; use public registry images for the MVP. Reach the UI on a trusted LAN/VPN, with HTTPS supplied by a user-managed reverse proxy when needed.

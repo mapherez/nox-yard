@@ -29,8 +29,8 @@ Keep the existing trusted LAN/VPN or HTTPS reverse-proxy deployment boundary. Th
 | `GET /v1/containers/{id}` | Bearer | Container ports, mounts, and networks. |
 | `POST /v1/containers/{id}/actions` | Bearer | Start, stop, or restart a container. |
 | `POST /v1/projects/{id}/actions` | Bearer | Start, stop, or restart a group. |
-| `POST /v1/containers/{id}/pull` | Bearer | Pull the configured image. |
-| `POST /v1/projects/{id}/pull` | Bearer | Pull distinct configured group images. |
+| `POST /v1/containers/{id}/pull` | Bearer | Pull its current Compose service reference, or runtime reference when files are missing. |
+| `POST /v1/projects/{id}/pull` | Bearer | Pull current Compose file images, or distinct runtime references when files are missing. |
 
 Only these methods are supported. HEAD and OPTIONS return 405 on known routes. Responses use JSON with `Cache-Control: no-store`. Unknown routes return JSON 404, never the frontend application. Route resolution precedes activation/authentication, then method checking and validation. An unauthenticated incorrect method on a protected route therefore returns an authentication error first. Noncanonical paths return JSON 404 instead of redirects.
 
@@ -127,9 +127,11 @@ Each failure has `target` (container ID or image reference), stable `code`, and 
 
 HTTP 200 means no failures, including skips for targets already in the relevant state. HTTP 202 with `queued>0` means a restart helper was launched, not that it completed. There is no machine job-polling endpoint.
 
-Managed projects with existing containers use the same generic Engine operations as other groups. A stored managed project without containers remains listed, but generic actions/pulls return `TARGET_NOT_FOUND`. These routes do not dispatch to Compose `up` or deploy missing services. Operations now persist shared ownership/history records, while v1 response shapes and routes stay unchanged; uncertain interrupted actions retain reservations for [host recovery review](Operation-Jobs.md).
+Lifecycle actions remain generic Engine operations, including managed projects. A stored managed project without containers remains listed, but generic lifecycle actions return `TARGET_NOT_FOUND`. These routes do not run Compose `up` or deploy missing services.
 
-Existing protections apply: Yard stop/pull and protected maintenance workers are blocked. Yard restart uses the existing independent helper. Protected group stop is rejected before mutating other members.
+Pull currently shares the browser/MCP file-aware facade: project Pull uses current host Compose files, and a Compose member's Pull selects only that service. Missing files permit runtime-reference fallback; invalid/inaccessible existing files fail. A saved managed project with an identifiable directory can therefore pull its file images even without deployed containers. Pull does not apply edits or replace containers. Authentication, routes and response DTOs remain v1-compatible, but this image-selection behavior supersedes the original runtime-only pull description. See [Configuration files](Configuration-Files.md).
+
+Operations persist shared ownership/history records; uncertain interrupted actions retain reservations for [host recovery review](Operation-Jobs.md). Yard Stop and protected maintenance-worker operations remain blocked. Yard Pull can use its current files; the missing-file generic Engine path still protects Yard. Yard restart uses the independent helper. Protected group stop is rejected before mutating other members.
 
 ## Stable errors and partial completion
 

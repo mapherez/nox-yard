@@ -6,6 +6,8 @@ This is the planned execution path for completing the existing MVP, based on the
 
 The original plan remains the scope contract. This document breaks its remaining work into ordered implementation packages with dependencies, deliverables and acceptance gates. Each package should be delivered in focused changes that include the relevant backend, adapters, frontend, tests and documentation.
 
+The packages below preserve their 2026-10-08 baseline wording. Later decisions D-029–D-034 supersede their runtime-only/stored-DB and separate Yard interval assumptions: current host files are authoritative, browser updates use Pull → Recreate, and Yard shares daily scheduling. The CI release pipeline is implemented, while disposable Docker regression gates and native-host evidence remain separate acceptance requirements. Consult Progress before treating a package as outstanding.
+
 ## Scope and constraints
 
 Keep the single local Linux Docker host, Raspberry Pi 5 priority, amd64 support, English-only copy, dark-only responsive UI, public prebuilt-image MVP, and trusted LAN/VPN boundary. Reuse the application facade and notifier across browser HTTP and MCP. Preserve the independent authentication and contracts of browser HTTP, Control API v1 and MCP.

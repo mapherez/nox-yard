@@ -50,6 +50,8 @@ The account avatar and small status dots are intentionally circular. Status dots
 | [`global.css`](../../web/src/styles/global.css) | Base page styles, native control typography, focus outlines, text selection, and scroll locking. |
 | [`App.module.css`](../../web/src/App.module.css) | Authentication, app shell, project cards, settings, details, dialogs, and log/terminal surfaces. |
 | [`NewProjectDrawer.module.css`](../../web/src/NewProjectDrawer.module.css) | Source selection, Compose fields, environment forms, and deployment preview. |
+| [`ProjectConfiguration.module.css`](../../web/src/ProjectConfiguration.module.css) | Inline variable controls, migration feedback and collapsed host-file editors. |
+| [`ProjectSchedule.module.css`](../../web/src/ProjectSchedule.module.css) | Daily project and Yard schedule controls. |
 | [`main.tsx`](../../web/src/main.tsx) | Global stylesheet and self-hosted icon-font imports. |
 
 ## Component and CSS rules
@@ -83,7 +85,7 @@ These values are starting points, not device identities. Check narrow screens, 2
 - Show a project's aggregate state, health, container count, CPU, memory, and uptime on its card. Selecting a card opens a drawer with its container details already visible. Keep the card action target and per-card action menu distinct when an action menu is added.
 - The dashboard has a compact visible Projects heading and icon actions. Keep inventory counts and the update time in a secondary metadata row. Card metrics use tabular numerals and subtle separators; project names remain the strongest text within each card.
 - The **New Project** flow is a source step, variable entry, validation/preview, then confirmation. Show service/image/port/volume/network changes before a URL sync or adoption.
-- Use present-tense, concise English labels: “Pull images”, “Update project”, “Remove project”. Destructive confirmations must name the affected project and whether volumes will be deleted.
+- Use present-tense, concise English labels: “Pull images”, “Recreate”, “Remove project”. Save writes configuration; Recreate applies it. Keep the legacy Update operation out of browser menus. Destructive confirmations must name the affected project and whether volumes will be deleted.
 - Mask environment and configuration values that may contain credentials. Reveal only after an explicit action in an authenticated session; avoid copying sensitive values into toasts or URLs.
 - Surface job progress and errors in a persistent, reconnectable view. Do not treat a request acknowledgment as successful completion.
 

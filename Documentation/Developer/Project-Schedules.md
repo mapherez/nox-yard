@@ -25,7 +25,7 @@ Rollback restores the supported container/configuration state, not application w
 - `GET /api/projects/{id}/schedule` requires a browser session.
 - `PUT /api/projects/{id}/schedule` requires session, exact Origin, CSRF and `{ "enabled": true|false, "time": "06:45" }`; the flag is required, and omitting `time` preserves the saved time.
 - MCP tools `yard_project_schedule_get` and `yard_project_schedule_set` expose the same setting/status, with required `id` and set's `enabled` flag, plus optional `time` in HH:MM. Existing MCP access rules apply.
-- Control API v1 is unchanged. Yard self-update settings are separate.
+- Control API v1 has no schedule routes. Legacy Yard self-update settings synchronize on/off with Yard's daily row; the interval field remains for compatibility and no longer runs a timer.
 
 IDs are `compose:NAME` or `container:FULL_ID`. Status includes `targetID`, `enabled`, `time`, `timezone`, `eligible`, optional availability/protection `reason`, and persisted `nextAt`, `lastAt`, `lastOutcome`, `lastReason`, `lastJobID`. Times are Unix seconds. For an admitted check, `lastAt` identifies its due slot; job execution timestamps record when work actually ran. A deferral records the time of its first check. Eligibility indicates availability/protection; enabling also performs full runtime/source assessment. Missing rows read disabled without creating a schedule.
 

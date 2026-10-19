@@ -2,7 +2,7 @@
 
 ## Toolchains
 
-- Go 1.26.6 or later in the 1.26 series for the root module `github.com/mapherez/nox-yard`; this patch floor addresses the standard-library advisories identified by the completion baseline scan.
+- Go 1.26.9 or later in the 1.26 series for the root module `github.com/mapherez/nox-yard`; this patch floor addresses the standard-library advisories found in the 2026-10-20 review. See the [official Go release history](https://go.dev/doc/devel/release#go1.26).
 - Node.js 24 for `web/` (`.nvmrc`), with npm and the committed `web/package-lock.json`.
 - Docker Engine and the Compose plugin on a Linux integration host. Raspberry Pi 5 (`linux/arm64`) is the primary release target; `linux/amd64` is also intended.
 
@@ -22,8 +22,8 @@
 - `scripts/smoke-arm64.sh`: CI-only ARM64 executable and runtime health validation.
 - `scripts/build-version.sh`: exact-commit Git tag/full-SHA version metadata for normal builds.
 - `package.json`, `scripts/release*.mjs`: formal release version, command, shared validation, metadata, and tests.
-- `.github/workflows/ci.yml`: source checks, Docker builds, and ARM64 smoke test, without publication.
-- `.github/workflows/release.yml`: tagged-source validation, multi-architecture GHCR publication, and GitHub Releases.
+- `.github/workflows/ci.yml`: source checks, Docker builds and ARM64 smoke; calls the publisher only for a validated script release request.
+- `.github/workflows/release.yml`: reusable publication workflow, request-identity recheck, multi-architecture GHCR publication and GitHub Releases.
 - `Documentation/Developer/`: canonical architecture, implementation, style, decision, progress, and feature documentation.
 
 Keep Go packages and frontend modules small and named for their responsibilities. Prefer typed application models at HTTP boundaries. Do not send Docker SDK structs, credentials, or host-only details to the browser unless a user decision requires them.
@@ -58,7 +58,7 @@ Managed mutations and durable Yard restart require the container backend, its ex
 
 ## Local validation and pre-push
 
-Install Go 1.26.6 or a later patch, Node.js 24, Docker with the Compose plugin, and frontend dependencies. From the repository root:
+Install Go 1.26.9 or a later patch, Node.js 24, Docker with the Compose plugin, and frontend dependencies. From the repository root:
 
 ```sh
 npm ci --prefix web
@@ -67,7 +67,7 @@ sh scripts/install-hooks.sh
 
 Run the installer from Git Bash on Windows, or from a POSIX shell on Linux. It installs a minimal `.git/hooks/pre-push` that calls `scripts/ci-local.sh`. Hooks are local to each clone, so repeat the installer in every new clone. The installer refuses to overwrite an existing pre-push hook or a custom `core.hooksPath`; in that case, add `sh "$(git rev-parse --show-toplevel)/scripts/ci-local.sh"` to the existing hook setup. The hook blocks a push when any check fails. It can be bypassed locally with `git push --no-verify`, but GitHub CI still runs.
 
-The same checks can be run at any time with `sh scripts/ci-local.sh`. Each check prints its name and a `[pass]` or `[FAIL]` result; a failure includes the command's own diagnostic output. The main script sends output to stderr so Git clients show the actual failure instead of only `failed to push some refs`. `check.sh` validates tracked Go files with `gofmt`, runs `go vet ./...`, and validates Compose with `docker compose config --quiet`. `test.sh` runs `go test ./...`, release tooling tests, the frontend type-check/build and `npm test`. The frontend test runner starts its own production preview on an ephemeral loopback port and uses pinned Playwright CLI 0.1.22 with Chrome to run deterministic history/recovery, recreate, schedule and session-expiry assertions. Install Chrome and make `npx` available; a missing browser or failing assertion fails validation. The CLI package may be fetched on its first invocation. CI source validation explicitly installs Chrome through the same pinned CLI before these checks. Undefined optional lint/stylelint scripts are not reported as checks. The local scripts do not build Docker images or start application services; browser testing starts only its disposable frontend preview. The frontend build creates the ignored `web/dist/` directory.
+The same checks can be run at any time with `sh scripts/ci-local.sh`. Each check prints its name and a `[pass]` or `[FAIL]` result; a failure includes the command's own diagnostic output. The main script sends output to stderr so Git clients show the actual failure instead of only `failed to push some refs`. `check.sh` validates tracked Go files with `gofmt`, runs `go vet ./...`, and validates Compose with `docker compose config --quiet`. `test.sh` runs `go test ./...`, release tooling tests, the frontend type-check/build and `npm test`. The frontend test runner starts its own production preview on an ephemeral loopback port and uses pinned Playwright CLI 0.1.22 with Chrome to run deterministic history/recovery, recreate, schedule, session-expiry and file-configuration assertions. Install Chrome and make `npx` available; a missing browser or failing assertion fails validation. The CLI package may be fetched on its first invocation. CI source validation explicitly installs Chrome through the same pinned CLI before these checks. Undefined optional lint/stylelint scripts are not reported as checks. The local scripts do not build Docker images or start application services; browser testing starts only its disposable frontend preview. The frontend build creates the ignored `web/dist/` directory.
 
 ## Explicit durable-job acceptance
 
@@ -94,7 +94,7 @@ npx --yes --package @playwright/cli playwright-cli -s=history run-code --filenam
 npx --yes --package @playwright/cli playwright-cli -s=history close
 ```
 
-The script mocks API responses in the test browser only; it checks reload/reopening, action blocking, keyboard acknowledgement/conflict/retry/focus, rollback/cleanup details and 1440/768/390/320px layouts. Screenshots go to ignored `output/playwright/`. Real Docker interruption remains the jobs fixture's responsibility. Wiring these runtime gates into release CI remains C7 work.
+The scripts mock API responses in the test browser only; they check reload/reopening, action blocking, keyboard acknowledgement/conflict/retry/focus, rollback/cleanup details and 1440/768/390/320px layouts. Screenshots go to ignored `output/playwright/`. The mandatory runner covers five fixtures: history, recreate, schedules, session expiry and file configuration. Real Docker interruption remains the jobs fixture's responsibility. Wiring disposable Docker runtime gates into release CI remains C7 work; browser regressions and ARM64 health smoke already run there.
 
 ## GitHub CI and image publication
 
@@ -157,7 +157,7 @@ The scheduling fixture uses a disposable registry, application images, named sta
 
 ## Host upgrade and recovery acceptance
 
-See [Host validation](Host-Validation.md) for the prepared Pi 5 handoff, native-host suite/report and manual UI checklist. `scripts/smoke-upgrade.py --image CURRENT --legacy-image LEGACY` uses a real v1.0.1 image, disposable state/application storage, the actual interactive password CLI and a three-part backup/restore. `scripts/acceptance.py` runs all isolated runtime fixtures against native current/legacy images and records exact platform/image evidence. `scripts/smoke-self-update.py` checks real independent Yard replacement and failed replacement/SQLite recovery while redirecting only the fixture binary's restore tag; production GHCR discovery/pull is checked through the release path separately. No fixture uses existing user stacks.
+See [Host validation](Host-Validation.md) for preparing a fresh Pi 5 handoff, native-host suite/report and manual UI checklist. `scripts/smoke-upgrade.py --image CURRENT --legacy-image LEGACY` uses a real v1.0.1 image, disposable state/application storage, the actual interactive password CLI and a three-part backup/restore. `scripts/acceptance.py` runs seven isolated runtime suites against native current/legacy images and records exact platform/image evidence. Run `smoke-configuration.py` and `smoke-service-recreate.py` separately as well; they are not yet included in the aggregate report. `scripts/smoke-self-update.py` checks real independent Yard replacement and failed replacement/SQLite recovery while redirecting only the fixture binary's restore tag; production GHCR discovery/pull is checked through the release path separately. No fixture uses existing user stacks.
 
 ## File configuration verification
 

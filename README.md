@@ -46,7 +46,8 @@ Manage existing workloads directly from the interface.
 
 - Start, stop, and restart projects or individual containers.
 - Pull container images from their configured registries.
-- Update images or recreate containers for supported workloads.
+- Pull images, then recreate supported workloads to apply them.
+- Edit supported Compose and environment files directly in the project drawer.
 - Remove containers and projects through reviewed confirmation dialogs.
 - Inspect detailed container configurations and runtime information.
 
@@ -76,7 +77,7 @@ Before anything is created, a validation and preview step displays the proposed 
 
 Once confirmed, NoX Yard prepares the project files on the Docker host, pulls the required images, and deploys the stack.
 
-Managed projects retain their Compose source and configuration for subsequent operations.
+Managed projects retain their original host file locations for subsequent operations. Current Compose and environment files are authoritative; SQLite holds application metadata, history, and private recovery snapshots. Legacy database configuration is exported through a verified migration.
 
 **Note:** Compose deployments have validation requirements. Image builds and unresolved local file dependencies are not supported through the new-project workflow. See the [feature documentation](Documentation/Developer/Features.md) for the supported configurations.
 
@@ -118,19 +119,15 @@ Environment variable values are hidden by default and can be explicitly revealed
 
 ### Image updates and container recreation
 
-NoX Yard provides more than a basic image pull.
+**Pull** downloads the images referenced by the current Compose files without replacing containers. Standalone containers and Compose projects whose files cannot be located use their runtime image references.
 
-For supported projects and containers, you can request an image update or recreation with configuration checks and a review of the proposed operation.
+**Recreate** applies current saved configuration and locally cached images without pulling or building. It deliberately replaces containers even when the image has not changed. To update manually, use **Pull → Recreate** and review the confirmation.
 
-**Update images** pulls the configured images and compares their actual Docker image identities with the deployed versions.
+In a Compose container's details, Recreate targets that service and all its replicas, leaving dependencies and initializers untouched. At project level it targets the whole project.
 
-If nothing has changed, the existing containers are preserved.
+Supported Compose projects expose inline environment editing and a collapsed **Compose and environment files** editor. **Save** validates and writes files; use Recreate to apply the changes. Restart only restarts existing containers.
 
-When replacements are required, NoX Yard uses an assessed workflow to preserve supported runtime configuration, verify the resulting containers, and attempt rollback if the operation fails.
-
-**Recreate containers** replaces supported containers using their existing deployed images, without requiring a new image pull.
-
-For managed Compose projects, image updates use the saved Compose configuration. Source synchronization is a separate, explicitly reviewed operation.
+The assessed workflow preserves supported configuration, verifies resulting containers, and attempts rollback after ordinary replacement failures. If Compose files are missing, the supported Engine reconstruction path remains available. URL source synchronization is a separate, explicitly reviewed operation.
 
 Some configurations cannot be safely reconstructed and will be rejected rather than silently modified.
 
@@ -169,16 +166,13 @@ When an interrupted operation requires host inspection, NoX Yard can retain the 
 
 NoX Yard can also maintain its own installation.
 
-From **Settings**, you can:
+From **Settings**, view build/update status and select **Check now** to check and install immediately, even when automatic updates are disabled.
 
-- View application build and update status.
-- Check for a new stable release manually.
-- Enable or disable automatic updates.
-- Configure the automatic update-check interval.
+Enable automatic updates and choose the daily check time in NoX Yard's own project **Details** drawer, using the same schedule controls as other projects. The initial time is 03:00 in the server timezone; the former interval timer no longer runs.
 
 Self-updates use the published stable `latest` image from GitHub Container Registry.
 
-The update process uses a temporary Docker worker to replace the application and verify its health, with an attempt to restore the previous installation if replacement fails.
+The update process uses an independent Docker worker to apply supported current host configuration and verify health, with runtime and SQLite recovery after ordinary replacement failures. The runtime-based self-update path remains available when host files cannot be located. See [Self-update](Documentation/Developer/Self-Update.md) for pinned image references and recovery limits.
 
 Automatic self-updates are disabled by default.
 

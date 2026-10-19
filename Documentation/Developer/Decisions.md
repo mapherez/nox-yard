@@ -2,6 +2,8 @@
 
 Record decisions here when they change the architecture, security model, product behavior, or development conventions. Add a date, decision, reason, and consequences; do not silently replace an earlier decision. The initial decisions were agreed during planning on **2026-09-24**; later entries carry their own dates.
 
+Entries preserve the decision made at their date. For current behavior, D-029 supersedes the publication/check/concurrency details in D-011–D-013/D-019; D-031 supersedes DB-active configuration and interval-based/separate Yard scheduling in D-004/D-007/D-014/D-015/D-022/D-026. D-033/D-034 extend initializer inventory and Recreate scope. Read these later entries together with the linked feature contracts, rather than treating every historical statement as current.
+
 ## D-001 — English-only project
 
 All UI text, API messages, code comments, and documentation are in English. There is no localization framework or language switch in the MVP. This keeps copy, design, and maintenance simple for the intended audience.
@@ -160,7 +162,7 @@ An omitted Sync input preserves its saved value while the variable/file remains 
 
 Check fixed host bindings against other active Docker containers during actionable preview/confirmation and immediately before replacement, allowing the target project's current bindings. Report the port/protocol, requesting service and occupying container. Also reject overlapping fixed candidate bindings across services. A late conflict fails without mutation or rollback. Docker remains authoritative for races, ephemeral/range allocation, arbitrary host processes and host-network listeners. Acceptance uses disposable real port owners to verify omission preserves a saved override despite an occupied source default, and that conflicts before/after confirmation preserve running containers and source. See [Managed updates](Managed-Updates.md).
 
-## D-031 ? Host configuration and uniform project management (2026-10-15)
+## D-031 — Host configuration and uniform project management (2026-10-15)
 
 Host Compose, `.env` and service environment files become authoritative. Reuse Docker's original paths and ordered Compose labels, retaining location metadata for stdin deployments. Inline variable editing and a collapsed full-file accordion validate and write with fingerprint concurrency checks; Save does not restart. Start/Stop/Restart affect existing containers; Pull only downloads; Recreate applies current files and cached images without pull/build, including unchanged images. Remove Update from menus while retaining API/schedule compatibility. Missing files keep assessed Engine management; invalid/inaccessible files must fail instead of selecting stale state.
 
