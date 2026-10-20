@@ -223,6 +223,82 @@ test('tag creation failure preserves the release commit and prints recovery', (t
   assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), f.originalHead);
 });
 
+test('release includes clean local commits that have not been pushed yet', (t) => {
+  const f = fixture(t);
+  writeFileSync(join(f.root, 'other.txt'), 'first pending change\n');
+  f.git('add', 'other.txt'); f.git('commit', '-m', 'First pending change');
+  writeFileSync(join(f.root, 'pending.txt'), 'second pending change\n');
+  f.git('add', 'pending.txt'); f.git('commit', '-m', 'Second pending change');
+  const source = f.git('rev-parse', 'HEAD');
+  assert.equal(f.git('status', '--porcelain'), '');
+  assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), f.originalHead);
+  const result = f.release();
+  assert.equal(f.git('rev-parse', `${result.commit}^`), source);
+  assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), result.commit);
+  assert.equal(f.remoteGit('show', `${result.commit}:pending.txt`), 'second pending change');
+  assert.equal(requestedRelease({cwd:f.root,revision:result.commit,ref:'refs/heads/delivery/topic'}), 'v1.0.0');
+});
+
+function hookFixture(t) {
+  const f = fixture(t);
+  copyFileSync(join(scripts, 'install-hooks.sh'), join(f.root, 'scripts', 'install-hooks.sh'));
+  f.git('config', '--unset', 'core.hooksPath');
+  const env = {...process.env, GIT_CONFIG_NOSYSTEM:'1', GIT_CONFIG_GLOBAL:join(f.directory, 'empty.gitconfig')};
+  const shell = process.platform === 'win32' ? 'C:/Program Files/Git/bin/sh.exe' : 'sh';
+  const install = () => {
+    const result = spawnSync(shell, [join(f.root, 'scripts', 'install-hooks.sh').replaceAll('\\', '/')], {cwd:f.root,env,encoding:'utf8'});
+    assert.ifError(result.error);
+    return result;
+  };
+  const push = () => spawnSync('git', ['push', 'origin', 'HEAD:refs/heads/delivery/topic'], {cwd:f.root,env,encoding:'utf8'});
+  const hook = join(f.root, '.git', 'hooks', 'pre-push');
+  mkdirSync(dirname(hook), {recursive:true});
+  return {...f, install, push, hook};
+}
+
+test('hook migration leaves a new clone without a pre-push hook', (t) => {
+  const f = hookFixture(t);
+  assert.equal(f.install().status, 0);
+  assert.throws(() => readFileSync(f.hook), {code:'ENOENT'});
+});
+
+for (const newline of ['\n', '\r\n']) {
+  test(`hook migration removes only the legacy Yard hook (${JSON.stringify(newline)}) and is idempotent`, (t) => {
+    const f = hookFixture(t);
+    writeFileSync(f.hook, ['#!/bin/sh', 'set -eu', 'repo_root=$(git rev-parse --show-toplevel)', 'exec sh "$repo_root/scripts/ci-local.sh"', ''].join(newline));
+    chmodSync(f.hook, 0o755);
+    // A remaining validation call would fail the real disposable push.
+    writeFileSync(join(f.root, 'scripts', 'ci-local.sh'), '#!/bin/sh\nexit 97\n');
+    assert.equal(f.install().status, 0);
+    assert.throws(() => readFileSync(f.hook), {code:'ENOENT'});
+    assert.equal(f.install().status, 0);
+    f.git('add', '.'); f.git('commit', '-m', 'CI-only validation');
+    const pushed = f.push();
+    assert.equal(pushed.status, 0, pushed.stderr);
+    assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), f.git('rev-parse', 'HEAD'));
+  });
+}
+
+test('hook migration preserves an unrecognized custom hook', (t) => {
+  const f = hookFixture(t);
+  const custom = '#!/bin/sh\necho user hook\n';
+  writeFileSync(f.hook, custom);
+  const result = f.install();
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /unrecognized.*not modified/);
+  assert.equal(readFileSync(f.hook, 'utf8'), custom);
+});
+
+test('hook migration preserves custom core.hooksPath', (t) => {
+  const f = hookFixture(t);
+  const custom = join(f.directory, 'custom-hooks');
+  f.git('config', 'core.hooksPath', custom);
+  const result = f.install();
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /custom core.hooksPath.*not modified/);
+  assert.equal(f.git('config', '--get', 'core.hooksPath'), custom);
+});
+
 test('an atomic push rejected for the tag preserves local commit/tag and updates neither remote ref', (t) => {
   const f = fixture(t);
   const hook = join(f.remote, 'hooks', 'pre-receive');

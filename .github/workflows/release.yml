@@ -17,10 +17,7 @@ jobs:
     name: Publish release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
     runs-on: ubuntu-latest
-    # Serialize official publication so two stable tags cannot race to replace latest.
-    concurrency:
-      group: nox-yard-official-publisher
-      cancel-in-progress: false
+    # The calling CI workflow holds the repository-wide pipeline concurrency lane.
     steps:
       - name: Check out the exact CI commit
         uses: actions/checkout@v6

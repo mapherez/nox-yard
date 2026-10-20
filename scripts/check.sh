@@ -16,4 +16,5 @@ check_gofmt() {
 
 run_check 'gofmt' check_gofmt
 run_check 'go vet ./...' go vet ./...
+run_check 'GitHub Actions workflows' go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= .github/workflows/ci.yml .github/workflows/release.yml
 run_check 'Docker Compose configuration' docker compose config --quiet

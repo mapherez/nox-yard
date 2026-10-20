@@ -2,6 +2,8 @@
 
 Record decisions here when they change the architecture, security model, product behavior, or development conventions. Add a date, decision, reason, and consequences; do not silently replace an earlier decision. The initial decisions were agreed during planning on **2026-09-24**; later entries carry their own dates.
 
+For push/release validation and concurrency, D-036 supersedes the local-hook and concurrency details in D-013/D-029.
+
 Entries preserve the decision made at their date. For current behavior, D-029 supersedes the publication/check/concurrency details in D-011–D-013/D-019; D-031 supersedes DB-active configuration and interval-based/separate Yard scheduling in D-004/D-007/D-014/D-015/D-022/D-026. D-033/D-034 extend initializer inventory and Recreate scope. Read these later entries together with the linked feature contracts, rather than treating every historical statement as current.
 
 ## D-001 — English-only project
@@ -189,3 +191,11 @@ Permit development `build:` alongside an explicit `image:` by removing build met
 ## D-035 — Yard product identity (2026-10-20)
 
 The application is named **Yard** and belongs to the **NoX** environment. Use Yard in product copy, documentation, logs, errors and human-facing MCP titles/descriptions. Keep `nox-yard` for the repository, module/package names, executable, Docker images/services/labels, stored data and protocol identifiers, and retain existing `NOX_*` environment variables and release markers. This is a presentation change with no identifier/data migration. Use a text-only Yard wordmark and a white Y favicon on blue; see [Design system](Design-System.md).
+
+## D-036 — CI-only automatic validation and a single pipeline lane (2026-10-20)
+
+Supersede D-013's automatic full-suite pre-push hook and D-029's branch/SHA-specific job concurrency plus separate noncancelable publisher. Pushes run no project tests/builds locally. Retain focused/manual source checks; the complete existing source/frontend/release checks, workflow lint, both architecture builds and ARM64 smoke remain CI gates before publication. `scripts/install-hooks.sh` is a compatibility migrator that removes only its recognized old hook, preserving custom configurations. New clones install no hook.
+
+Use one constant workflow-level concurrency group for the entire CI caller, including the reusable publisher. A newer branch push cancels the older pipeline and replaces an older pending run repository-wide. Chain source validation, Docker builds/smoke and conditional release through job dependencies; never run a separate tag-triggered publisher or reuse the parent's concurrency group inside the callee. Tests are not repeated by publication. Image publication retains the existing CI cache reuse and exact validated source SHA/tag.
+
+The release command still checks a clean working tree/index, SemVer, Git identity and local/remote tag conflicts before preparing its version-only commit. Clean local commits ahead of origin are supported and travel in the same atomic push as the release commit/tag. Missing remote commits must be integrated first; no force push is added. A canceled publication cannot undo already written registry/GitHub resources; preserve the existing completed-publication identity and conflict checks on retry. See [Releases](Releases.md) and [Development](Development.md).

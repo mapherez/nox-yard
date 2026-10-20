@@ -4,9 +4,9 @@
 
 **Phase:** C6 native-host acceptance and C7 runtime publication gates remain open.
 
-The reviewed baseline is `ed6d7b35c26b4b90305ed816ce636b22839dacf8` on `master`, tagged `v1.2.1`; root `package.json` also says `1.2.1`. The checkout was clean at review start. C0–C6 local implementation is committed in this baseline, including current-file configuration, initializer completion and service-scoped Recreate. The previous claims that C6/configuration changes were uncommitted and unreleased are obsolete. Local tags establish source history, not successful GitHub/GHCR publication or the version deployed to the homelab; those external states were not queried in this review.
+The current local source baseline is `33f201151a4bb61808de42a32f24f6fe01f40133`, the `v1.3.0` release request after the Yard product rename. The earlier 2026-10-20 audit reviewed `ed6d7b3` (`v1.2.1`); its historical evidence remains in the [repository review](Repository-Review-2026-10-20.md). Source tags and local package versions do not establish completed remote publication or deployment.
 
-This review updates documentation and raises the minimum Go patch to 1.26.9 in the working tree. No release, push or host deployment was performed. The [2026-10-20 repository review](Repository-Review-2026-10-20.md) records the document inventory, findings, verification and limits. The [completion plan](Completion-Plan.md) retains original acceptance gates; later decisions refine its implementation assumptions.
+The working tree now contains D-036's CI-only automatic validation and single global pipeline lane. This change does not push, create a release or deploy to a host. The [completion plan](Completion-Plan.md) retains its original native-host/runtime acceptance gates; later decisions refine implementation assumptions.
 
 ## Implemented behavior
 
@@ -36,6 +36,12 @@ Current manual actions are **Save → Recreate** for configuration and **Pull �
 The product is named **Yard**, part of the **NoX** environment (D-035). Product prose, browser titles, accessible labels, errors/logs and MCP display copy now use Yard. The login uses a larger text-only wordmark, with extra separation above the mobile form. Both expanded and collapsed sidebars retain the Yard name; the former N badge is removed. The favicon uses a white Y on the existing blue background. Technical repository/runtime identifiers, environment variables and persisted data are unchanged.
 
 Validation passed Go tests/vet, 53 release-tooling tests, frontend typecheck/build and all five existing browser fixtures. Separate visual QA covered login at 1440/768/390/320 px, setup at 320 px, expanded/collapsed and mobile sidebars, Tab/Enter expansion, Escape dismissal, titles, overflow and favicon rendering. Screenshots were inspected. No former product-name references remain in tracked text. This presentation change does not close native-host acceptance or publish/deploy a release.
+
+## CI-only push validation
+
+D-036 removes automatic project tests/builds from push. The recognized legacy Yard pre-push hook was retired in this clone; the compatibility installer safely handles older clones and preserves custom hooks. Full checks remain available manually and mandatory in CI. Pinned actionlint is now part of those source checks. One workflow-level repository-wide lane covers source validation → Docker builds/ARM64 smoke → conditional publication, with a newer push canceling/replacing the preceding run. The publisher adds no independent lane or repeated source suite.
+
+All 59 release/hook tests passed, including clean unpushed commits traveling with the release, LF/CRLF hook migration, repeated cleanup and custom-hook preservation. Both workflows passed actionlint 1.7.12, changed shell scripts passed syntax checks and diff whitespace checks passed. These are local implementation checks using temporary Git remotes, not a live observation of GitHub cancellation/publication; the updated policy takes effect remotely only after these source changes are pushed. No release or push was performed here. Native-host acceptance remains open.
 
 ## Previously recorded evidence
 

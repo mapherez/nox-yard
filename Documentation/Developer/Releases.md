@@ -1,12 +1,14 @@
 # Formal releases
 
-Run from the repository root with a completely clean working tree:
+Run from the repository root with no modified, staged or untracked files:
 
 ```sh
 npm run release
 ```
 
 The script shows the current version from the root `package.json` and asks for the new version. Enter a SemVer such as `1.3.0` or `1.3.0-rc.1`; the normal release flow starts after that answer. Empty input, EOF or Ctrl+C cancels before making changes. An optional initial `v` is normalized. The root `package.json` stores SemVer without `v`; Git uses an annotated `v<version>` tag. Build metadata (`+...`) is not supported. Explicit arguments remain supported for automation: `npm run release -- X.Y.Z`.
+
+Clean source control does not mean every commit must already be pushed. Clean local commits ahead of the remote are supported: the script adds the version-only release commit and sends the branch history plus its annotated tag in the same atomic push. If the remote contains commits missing locally, fetch/integrate them first; Git will reject a non-fast-forward push. The script never force-pushes. Avoid running VS Code Push/Sync and the release command at the same time.
 
 ## One pipeline, publication after CI
 
@@ -22,7 +24,7 @@ The release workflow has only `workflow_call`; it cannot independently start on 
 
 ## What the command does
 
-The command requires Node.js from `.nvmrc`, Git, a usable Git identity and permission to push the current branch and tags to `origin`. The remote must support atomic pushes; branch protection still applies. An installed local pre-push hook may require the other project toolchains and run local checks once. CI remains the publication gate.
+The command requires Node.js from `.nvmrc`, Git, a usable Git identity and permission to push the current branch and tags to `origin`. The remote must support atomic pushes; branch protection still applies. Project validation runs only after the push in CI. An older clone must retire the legacy Yard hook with `sh scripts/install-hooks.sh`; that command preserves custom hooks. No Go, Docker, frontend install or Chrome is needed locally for the release command itself. CI remains the publication gate.
 
 Commit implementation changes first. The command rejects tracked, staged or untracked changes, detached HEAD, an unchanged version, an existing local/remote tag, or an inaccessible origin. It updates only `package.json`, creates `chore: release v<version>` with the `NoX-Yard-Release: v<version>` trailer, creates the annotated tag with message `Release v<version>`, and atomically pushes the branch and tag. It does not explicitly rerun CI or build a validation image locally.
 
@@ -37,7 +39,9 @@ Stable publication cannot move `latest` behind a newer published stable version.
 
 ## Duplicate runs and failure recovery
 
-Source/build job concurrency is scoped to branch and SHA: duplicate deliveries may cancel redundant validation, while different pushed commits retain their checks. Publication is serialized globally and is never canceled by validation concurrency. The pipeline cannot prevent GitHub from creating duplicate event deliveries, but a duplicate publication of the same completed release becomes a successful skip. Each new release records its source SHA in a hidden body marker after the image push completes. Existing drafts, legacy releases without this marker, or mismatching markers remain conflicts and are never overwritten.
+The entire caller workflow uses one repository-wide `nox-yard-pipeline` concurrency group with `cancel-in-progress:true`. A newer push cancels the previous pipeline and replaces an older pending run, across branches and commits. Source checks, Docker builds/smoke and publication share that one lane. Publication starts only after both CI gates succeed for the exact source commit. The reusable workflow defines no second concurrency group, avoiding self-cancellation or overlap with another pipeline. See [GitHub concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency). The pipeline cannot prevent GitHub from creating duplicate event deliveries, but a duplicate publication of the same completed release becomes a successful skip. Each new release records its source SHA in a hidden body marker after the image push completes. Existing drafts, legacy releases without this marker, or mismatching markers remain conflicts and are never overwritten.
+
+A new push can cancel a run during publication too. Cancellation does not undo image tags or a GitHub Release already written. Inspect that state before retrying; matching completed publication is skipped and conflicting metadata remains blocked.
 
 Before a release commit exists, a preparation/commit failure restores `package.json` byte-for-byte and unstages only its change. Once a release commit exists, it and any created tag are preserved on failure. The script prints exact recovery commands; inspect the local state and use those commands instead of rerunning with an existing tag. It never automatically resets commits or deletes tags.
 

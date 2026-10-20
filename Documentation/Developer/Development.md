@@ -18,7 +18,7 @@
 - `web/src/`: typed API client, React views, and CSS Modules. Shared tokens and global rules are in `web/src/styles/`.
 - `Dockerfile`, `compose.yaml`, `compose.dev.yaml`, `.env.example`: production and local development images and Compose configurations.
 - `scripts/check.sh`, `scripts/test.sh`, `scripts/ci-local.sh`: shared local and CI validation.
-- `scripts/install-hooks.sh`: installs the local pre-push hook in a clone.
+- `scripts/install-hooks.sh`: compatibility command that removes only the recognized legacy Yard pre-push hook; new clones install no hook.
 - `scripts/smoke-arm64.sh`: CI-only ARM64 executable and runtime health validation.
 - `scripts/build-version.sh`: exact-commit Git tag/full-SHA version metadata for normal builds.
 - `package.json`, `scripts/release*.mjs`: formal release version, command, shared validation, metadata, and tests.
@@ -56,18 +56,26 @@ For frontend development, run `npm run dev` from `web/`. Vite proxies `/api` to 
 
 Managed mutations and durable Yard restart require the container backend, its exact running image and a writable persistent state mount plus Docker socket. A host `go run` process cannot provide that independent-worker transport; use `compose.dev.yaml` for those flows.
 
-## Local validation and pre-push
+## CI validation and optional local checks
 
-Install Go 1.26.9 or a later patch, Node.js 24, Docker with the Compose plugin, and frontend dependencies. From the repository root:
+Pushes run no project tests or builds locally. Ordinary Git pushes need Git and remote access; `npm run release` additionally needs Node.js 24 and a usable Git identity. Docker/Compose, Go, frontend dependencies and Chrome are not prerequisites for sending a push or release request. Keep the relevant development tools installed when working on the code itself.
+
+The complete automatic checks run in CI after the push. Manual focused tests remain available while developing. To run the full source suite voluntarily, install Go 1.26.9+, Node.js 24, Docker CLI with Compose, frontend dependencies and Chrome, then run from the repository root:
 
 ```sh
 npm ci --prefix web
+sh scripts/ci-local.sh
+```
+
+`check.sh` checks tracked Go formatting, runs vet, validates both workflows with pinned actionlint 1.7.12 and validates Compose. `test.sh` runs Go and release-tooling tests, frontend typecheck/build and all five deterministic browser fixtures. Compose configuration requires the CLI/plugin, but not a running daemon. Real Docker acceptance needs an Engine. The frontend runner starts an ephemeral loopback preview with pinned Playwright CLI 0.1.22/Chrome; CI installs Chrome before invoking it. Manual failures remain failures; no optional check is silently reported as passed. The frontend build creates ignored `web/dist/` output.
+
+Older clones may still have the full-suite pre-push hook. Retire it once using Git Bash on Windows or a POSIX shell:
+
+```sh
 sh scripts/install-hooks.sh
 ```
 
-Run the installer from Git Bash on Windows, or from a POSIX shell on Linux. It installs a minimal `.git/hooks/pre-push` that calls `scripts/ci-local.sh`. Hooks are local to each clone, so repeat the installer in every new clone. The installer refuses to overwrite an existing pre-push hook or a custom `core.hooksPath`; in that case, add `sh "$(git rev-parse --show-toplevel)/scripts/ci-local.sh"` to the existing hook setup. The hook blocks a push when any check fails. It can be bypassed locally with `git push --no-verify`, but GitHub CI still runs.
-
-The same checks can be run at any time with `sh scripts/ci-local.sh`. Each check prints its name and a `[pass]` or `[FAIL]` result; a failure includes the command's own diagnostic output. The main script sends output to stderr so Git clients show the actual failure instead of only `failed to push some refs`. `check.sh` validates tracked Go files with `gofmt`, runs `go vet ./...`, and validates Compose with `docker compose config --quiet`. `test.sh` runs `go test ./...`, release tooling tests, the frontend type-check/build and `npm test`. The frontend test runner starts its own production preview on an ephemeral loopback port and uses pinned Playwright CLI 0.1.22 with Chrome to run deterministic history/recovery, recreate, schedule, session-expiry and file-configuration assertions. Install Chrome and make `npx` available; a missing browser or failing assertion fails validation. The CLI package may be fetched on its first invocation. CI source validation explicitly installs Chrome through the same pinned CLI before these checks. Undefined optional lint/stylelint scripts are not reported as checks. The local scripts do not build Docker images or start application services; browser testing starts only its disposable frontend preview. The frontend build creates the ignored `web/dist/` directory.
+Despite its historical name, this compatibility command creates no hook. It removes only the exact old Yard hook (LF or CRLF), is safe to repeat, and refuses custom hooks, symlinks and custom `core.hooksPath` configurations. Remove a Yard validation call from a custom hook manually. New clones need no hook setup. Do not add `ci-local.sh` back to pre-push; it remains a CI/manual entry point.
 
 ## Explicit durable-job acceptance
 
@@ -102,7 +110,7 @@ Every branch push starts the CI pipeline with the shared source checks, explicit
 
 Formal releases use `npm run release` from the clean repository root: the script shows the current package version and prompts for the new one. Explicit `npm run release -- X.Y.Z` arguments remain available for automation. The script pushes a marked release commit and its annotated tag. Only after both CI jobs succeed does CI call the reusable [release workflow](Releases.md), using the exact validated SHA/tag. Ordinary pushes run CI and skip publication. The publisher reuses CI's Docker build caches and does not repeat source checks. Stable releases publish the version tag and `latest`; prereleases publish only their version tag.
 
-Validation concurrency cancels duplicates for the same branch and SHA, preserving checks for different pushed commits. Publication has separate global serialization and is never canceled by validation concurrency; an identical completed publication is skipped successfully. Release tooling tests run through `scripts/test.sh` in local checks and CI. For branch protection, require **Source validation** and **Docker builds and ARM64 smoke test** before merging. A failed or canceled CI gate prevents publication.
+One repository-wide workflow concurrency group covers source checks, Docker builds/smoke and the called publisher. A newer branch push cancels the previous pipeline, including its publication stage if active, and replaces any pending run. Branch/SHA-specific job groups are not used. Within a run, source validation must pass before Docker starts, and both gates must pass before publication. The reusable publisher has no independent trigger or competing concurrency group; an identical completed publication is skipped successfully. Release tooling tests run through `scripts/test.sh` in local checks and CI. For branch protection, require **Source validation** and **Docker builds and ARM64 smoke test** before merging. A failed or canceled CI gate prevents publication.
 
 The image package may be private. Set its visibility to public in GitHub package settings for an unauthenticated host pull. For a private package, authenticate the host to `ghcr.io` with a token that has `read:packages` access. The Compose file references the published image and has no local `build:` context, so the host needs only `compose.yaml` and optional `.env` configuration. Run `docker compose pull` followed by `docker compose up -d` to deploy the latest stable release.
 

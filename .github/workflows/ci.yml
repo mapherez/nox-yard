@@ -8,13 +8,16 @@ on:
 permissions:
   contents: read
 
+# One repository-wide lane covers source checks, Docker and the called publisher.
+# A newer push replaces the previous pipeline, even when it is on another branch.
+concurrency:
+  group: nox-yard-pipeline
+  cancel-in-progress: true
+
 jobs:
   validate:
     name: Source validation
     runs-on: ubuntu-latest
-    concurrency:
-      group: ci-source-${{ github.ref }}-${{ github.sha }}
-      cancel-in-progress: true
     outputs:
       release_tag: ${{ steps.request.outputs.tag }}
     steps:
@@ -47,9 +50,6 @@ jobs:
     name: Docker builds and ARM64 smoke test
     needs: validate
     runs-on: ubuntu-latest
-    concurrency:
-      group: ci-docker-${{ github.ref }}-${{ github.sha }}
-      cancel-in-progress: true
     steps:
       - name: Check out source
         uses: actions/checkout@v6
