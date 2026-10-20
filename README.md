@@ -9,7 +9,7 @@ Built for personal homelabs, it brings container monitoring, project deployment,
 
 Designed for Linux hosts, with Raspberry Pi and x86-64 support.
 
-**Self-hosted · Docker-native · Lightweight · Open source**
+**Self-hosted · Docker-native · Lightweight · Source-available**
 
 ---
 
@@ -352,3 +352,22 @@ Its functionality includes local Docker discovery and management, managed Compos
 Support for certain Docker configurations is intentionally restricted where an operation cannot be safely assessed or reconstructed.
 
 For implementation progress, outstanding validation work, and known limitations, refer to the [project progress documentation](Documentation/Developer/Progress.md).
+
+## License & Attribution
+
+This project is licensed under the **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)** license.
+
+### How to Credit This Project
+
+If you use, fork, or modify this code, you **must** provide attribution by linking back to my GitHub profile. Please include the following credit notice prominently in your repository or project documentation:
+
+> **Based on [nox-yard](https://github.com/mapherez/nox-yard) by [mapherez](https://github.com/mapherez)**
+> This project includes code from [nox-yard](https://github.com/mapherez/nox-yard), used under the CC BY-NC-SA 4.0 license.
+
+---
+
+*For more details on what you can and cannot do, please refer to the [LICENSE](LICENSE) file in this repository.*
+
+## Disclaimer of Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
