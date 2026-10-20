@@ -1145,7 +1145,11 @@
   .projectSortButton > i:last-child { display: none; }
   .projectSortButton { min-inline-size: 2.7rem; }
   .projectViewToggle button { min-inline-size: 2.35rem; min-block-size: 2.35rem; }
-  .projectCard .cardMetrics { gap: var(--space-2); }
+  .projectCard .cardMetrics {
+    /* Reserve Memory's content width across different system fonts. */
+    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+    gap: var(--space-2);
+  }
   .projectCard .cardMetrics .metric + .metric { padding-inline-start: var(--space-2); }
 }
 

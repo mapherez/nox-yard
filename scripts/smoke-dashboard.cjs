@@ -35,6 +35,10 @@ async (page) => {
   const items=()=>collection.locator('[data-project-id]');
   const item=name=>collection.locator(`[data-project-id="compose:${name}"]`);
   const handle=name=>item(name).locator('[data-drag-handle]');
+  const assertMetricsFit=async label=>{
+    const truncated=await items().evaluateAll(items=>items.flatMap(el=>Array.from(el.querySelectorAll('strong')).filter(value=>value.scrollWidth>value.clientWidth+1).map(value=>({text:value.textContent,needed:value.scrollWidth,available:value.clientWidth}))));
+    if(truncated.length)throw Error(`${label}: ${JSON.stringify(truncated)}`);
+  };
   const search=page.getByRole('searchbox',{name:'Search projects and containers'});
   const expectOrder=async expected=>{
     await page.waitForFunction(expected=>{
@@ -139,8 +143,13 @@ async (page) => {
       await page.setViewportSize({width,height:1000});await page.evaluate(()=>scrollTo(0,0));
       if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error(`${layout} overflows at ${width}px`);
       if(await items().evaluateAll(items=>items.some(el=>el.scrollWidth>el.clientWidth+1)))throw Error(`${layout} item overflows at ${width}px`);
-      const truncated=await items().evaluateAll(items=>items.flatMap(el=>Array.from(el.querySelectorAll('strong')).filter(value=>value.scrollWidth>value.clientWidth+1).map(value=>({text:value.textContent,needed:value.scrollWidth,available:value.clientWidth}))));
-      if(truncated.length)throw Error(`${layout} metric values truncated at ${width}px: ${JSON.stringify(truncated)}`);
+      await assertMetricsFit(`${layout} metric values truncated at ${width}px`);
+      if(layout==='grid'&&width===320){
+        // Exercise wider numeric glyphs even on hosts whose system font fits.
+        const widerFont=await page.addStyleTag({content:'[data-layout="grid"] [data-project-id] strong { font-family: monospace; letter-spacing: 0.075em; }'});
+        await assertMetricsFit('Grid metrics truncated with wider fallback font at 320px');
+        await widerFont.evaluate(el=>el.remove());
+      }
       if(layout==='list'){
         const heights=await items().evaluateAll(items=>items.map(el=>el.getBoundingClientRect().height));
         if(heights.some(height=>height>48))throw Error('Table stacked or expanded rows at '+width+'px');
