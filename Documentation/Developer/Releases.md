@@ -20,7 +20,7 @@ The pipeline runs in this order:
 2. **Docker builds and ARM64 smoke test** builds both architectures and tests the ARM64 executable and runtime.
 3. **Release after successful CI** calls the reusable `.github/workflows/release.yml` only when the script requested publication for this exact commit. Failure or cancellation of either CI gate prevents this call.
 
-The release workflow has only `workflow_call`; it cannot independently start on a tag push or a manual dispatch. It checks the request identity again, publishes the multi-architecture image, then creates the GitHub Release. It does not repeat source tests. Docker publication imports the architecture-specific BuildKit caches populated by CI to reuse build layers. Publication uses the exact CI SHA and validated release tag, even if the branch advances.
+The release workflow has only `workflow_call`; it cannot independently start on a tag push or a manual dispatch. It checks the request identity again, publishes the multi-architecture image with BuildKit provenance, signs its digest with Cosign, verifies the signature and expected workflow identity, then creates the GitHub Release. It does not repeat source tests. Docker publication imports the architecture-specific BuildKit caches populated by CI to reuse build layers. Publication uses the exact CI SHA and validated release tag, even if the branch advances.
 
 ## What the command does
 
@@ -37,15 +37,70 @@ CI accepts the request only when the marker, commit subject, package version, an
 
 Stable publication cannot move `latest` behind a newer published stable version. Installation and Yard self-update continue to use `ghcr.io/mapherez/nox-yard:latest`.
 
+## Image signing and build provenance
+
+New releases use keyless Cosign signing with GitHub Actions OIDC and the public Sigstore services (Fulcio and Rekor). There is no persistent signing key or extra repository secret to configure. The caller grants `id-token: write` only to the release job; the called publisher also declares that permission. Ordinary CI jobs retain read-only repository access and cannot request an OIDC token.
+
+The publisher signs the exact multi-architecture index digest returned by Buildx, with the release tag and source commit as signed annotations. A stable version tag and `latest` initially point to that same digest, so they do not need separate signatures. Prereleases remain version-tagged only. The signature covers the index, including its references to the platform images and BuildKit provenance attestations. It does not separately sign each platform manifest or the annotated Git tag.
+
+Buildx explicitly generates SLSA provenance with `mode=max`, recording build inputs and instructions for both architectures. This does not claim a particular SLSA assurance level. Build arguments are public in this mode: the current release passes only `BUILD_SHA` and `BUILD_VERSION`; credentials must use BuildKit secret mounts instead of build arguments. A second `cosign attest` statement is unnecessary for this index-contained provenance.
+
+Before creating the GitHub Release, verification requires the GitHub Actions issuer, this repository's reusable `release.yml` identity on the triggering branch, the exact commit SHA, the push trigger and matching signed release/revision annotations. Signature, certificate and transparency-log checks remain enabled. A signing or verification failure blocks GitHub Release creation. The release notes record the immutable image reference, source SHA and signing identity. Existing releases are not signed retroactively.
+
+### Verify a release image
+
+Install Cosign v3 using the [official installation instructions](https://docs.sigstore.dev/cosign/system_config/installation/). Copy the image digest, source commit and signer from the GitHub Release notes. For a release published from `master`, run in Bash:
+
+```sh
+IMAGE='ghcr.io/mapherez/nox-yard@sha256:REPLACE_WITH_RELEASE_DIGEST'
+RELEASE_TAG='vX.Y.Z'
+REVISION='REPLACE_WITH_FULL_SOURCE_COMMIT'
+SIGNER='https://github.com/mapherez/nox-yard/.github/workflows/release.yml@refs/heads/master'
+
+cosign verify \
+  --certificate-identity "$SIGNER" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-github-workflow-repository mapherez/nox-yard \
+  --certificate-github-workflow-sha "$REVISION" \
+  --certificate-github-workflow-trigger push \
+  -a "release=$RELEASE_TAG" -a "revision=$REVISION" \
+  "$IMAGE"
+```
+
+Use the exact signer recorded in the release notes if publication used another branch. Do not replace the identity with an unrestricted regular expression or disable certificate, claim or transparency-log verification. Verification must finish successfully before relying on the image. Docker pull/Compose and Yard's current auto-update do not enforce Cosign verification; integrating it into auto-update is a separate change.
+
+With Docker Buildx installed, inspect the provenance attached to that same verified digest:
+
+```sh
+docker buildx imagetools inspect "$IMAGE" --format '{{ json .Provenance }}'
+```
+
+Provenance inspection alone is not signature verification. The immutable index reference links the inspected attestations to the verified image. See [Sigstore verification](https://docs.sigstore.dev/cosign/verifying/verify/), [BuildKit provenance](https://docs.docker.com/build/metadata/attestations/slsa-provenance/) and [Buildx inspection](https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/).
+
+### Choose an update policy in Compose
+
+The main `compose.yaml` keeps `ghcr.io/mapherez/nox-yard:latest` for the normal stable-channel installation and optional automatic updates. To control upgrades manually, change the service's `image` reference in your local Compose file:
+
+```yaml
+# Choose a published version; replace this example with your desired release.
+image: ghcr.io/mapherez/nox-yard:v1.3.1
+
+# Alternatively, fix the exact verified multi-architecture image.
+# Replace the placeholder with the digest recorded in a signed release.
+# image: ghcr.io/mapherez/nox-yard@sha256:REPLACE_WITH_RELEASE_DIGEST
+```
+
+`latest` can move to a new stable release on a future pull. A version tag keeps the selected version under this repository's no-overwrite publication policy, but registry tags are not inherently immutable. A digest fixes the exact image content. The file-backed Yard updater respects an explicitly pinned Compose reference and does not rewrite it to `latest`; upgrading a pinned installation requires changing that reference. Pinning and signature verification solve different problems, and neither implies the other.
+
 ## Duplicate runs and failure recovery
 
-The entire caller workflow uses one repository-wide `nox-yard-pipeline` concurrency group with `cancel-in-progress:true`. A newer push cancels the previous pipeline and replaces an older pending run, across branches and commits. Source checks, Docker builds/smoke and publication share that one lane. Publication starts only after both CI gates succeed for the exact source commit. The reusable workflow defines no second concurrency group, avoiding self-cancellation or overlap with another pipeline. See [GitHub concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency). The pipeline cannot prevent GitHub from creating duplicate event deliveries, but a duplicate publication of the same completed release becomes a successful skip. Each new release records its source SHA in a hidden body marker after the image push completes. Existing drafts, legacy releases without this marker, or mismatching markers remain conflicts and are never overwritten.
+The entire caller workflow uses one repository-wide `nox-yard-pipeline` concurrency group with `cancel-in-progress:true`. A newer push cancels the previous pipeline and replaces an older pending run, across branches and commits. Source checks, Docker builds/smoke and publication share that one lane. Publication starts only after both CI gates succeed for the exact source commit. The reusable workflow defines no second concurrency group, avoiding self-cancellation or overlap with another pipeline. See [GitHub concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency). The pipeline cannot prevent GitHub from creating duplicate event deliveries, but a duplicate publication of the same completed release becomes a successful skip. Each new release records its source SHA in a hidden body marker after image publication, signing and verification complete. Existing drafts, legacy releases without this marker, or mismatching markers remain conflicts and are never overwritten.
 
 A new push can cancel a run during publication too. Cancellation does not undo image tags or a GitHub Release already written. Inspect that state before retrying; matching completed publication is skipped and conflicting metadata remains blocked.
 
 Before a release commit exists, a preparation/commit failure restores `package.json` byte-for-byte and unstages only its change. Once a release commit exists, it and any created tag are preserved on failure. The script prints exact recovery commands; inspect the local state and use those commands instead of rerunning with an existing tag. It never automatically resets commits or deletes tags.
 
-After a successful push, inspect the **CI** run, including its dependent Release job. If CI fails, fix the code and issue a new release request, or rerun CI when the failure was environmental and the commit remains valid. Do not push an old tag expecting an independent Release workflow. If image publication succeeds but GitHub Release creation fails, the image remains; retry the failed job only after inspecting that state. The current request identity and downgrade/conflict guards still apply.
+After a successful push, inspect the **CI** run, including its dependent Release job. If CI fails, fix the code and issue a new release request, or rerun CI when the failure was environmental and the commit remains valid. Do not push an old tag expecting an independent Release workflow. If image publication succeeds but signing, verification or GitHub Release creation fails, the image remains and its tags (including `latest` for a stable release) may already have moved. Image publication and GitHub Release creation are not one transaction. Do not treat the image as a completed signed release until verification succeeds. Retry the failed job only after inspecting that state; the current request identity and downgrade/conflict guards still apply. Recovery can rebuild a different index digest, so use the digest from the completed release notes rather than an earlier failed attempt.
 
 ### Reuse an unpublished version after a source correction
 
