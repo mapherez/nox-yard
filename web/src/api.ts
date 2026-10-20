@@ -259,6 +259,14 @@ export function containerLogsURL(id: string): string {
   return `/api/containers/${encodeURIComponent(id)}/logs`;
 }
 
+export type LogExportStatus = { available: boolean; directory?: string; filename?: string; exportedAt?: string; reason?: string };
+export function getLogExportStatus(projectID: string, signal?: AbortSignal): Promise<LogExportStatus> {
+  return request(`/api/projects/${encodeURIComponent(projectID)}/logs/export`, { signal });
+}
+export function exportCurrentLogs(projectID: string, containerID: string, content: string, csrfToken: string): Promise<LogExportStatus> {
+  return request(`/api/projects/${encodeURIComponent(projectID)}/logs/export`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ confirm: true, containerID, content }) });
+}
+
 export function runContainerAction(id: string, action: LifecycleAction, csrfToken: string): Promise<LifecycleResult> {
   return trackInventoryAction(`container:${id}`, action, () => request<LifecycleResult>(`/api/containers/${encodeURIComponent(id)}/actions`, {
     method: "POST",

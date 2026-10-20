@@ -1,13 +1,21 @@
-.panel { border-block-start: 1px solid var(--color-border); padding-block: 1rem; overflow-wrap: anywhere; }
-.panel h3 { margin-block: 0 .6rem; }
-.panel p { font-size: .85rem; line-height: 1.5; }
-.choice { display: flex; align-items: center; gap: .65rem; min-block-size: 2.75rem; font-size: .85rem; }
-.choice input { flex: none; min-inline-size: 1.5rem; min-block-size: 1.5rem; accent-color: var(--color-accent); }
-.timeField { display: grid; gap: .4rem; margin-block: .75rem; font-size: .85rem; }
-.timeField input { box-sizing: border-box; inline-size: 10rem; max-inline-size: 100%; min-block-size: 3rem; padding: .5rem .75rem; border: 1px solid var(--color-border); border-radius: .45rem; background: var(--color-surface-2); color: inherit; color-scheme: dark; font: inherit; font-size: 1rem; }
-.panel button { min-block-size: 2.75rem; border: 1px solid var(--color-border); border-radius: .45rem; padding: .5rem .75rem; background: var(--color-surface-2); color: inherit; cursor: pointer; }
-.panel button:disabled { opacity: .55; cursor: default; }
+.panel { display: grid; gap: var(--space-3); min-inline-size: 0; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-1); overflow-wrap: anywhere; }
+.heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.heading > i { color: var(--color-accent); font-size: 1.1rem; }
+.panel h3 { margin: 0; font-size: .92rem; font-weight: 650; }
+.panel p { margin: 0; font-size: .78rem; line-height: 1.5; }
+.body { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); align-items: start; gap: var(--space-4); }
+.heading .choice { margin-inline-start: auto; min-block-size: 1.5rem; }
+.controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); }
+.choice { display: flex; align-items: center; gap: var(--space-2); min-block-size: 2.5rem; font-size: .8rem; }
+.choice input { flex: none; inline-size: 1.15rem; block-size: 1.15rem; accent-color: var(--color-accent); }
+.timeField { display: grid; flex: 1 1 8rem; gap: var(--space-1); min-inline-size: 0; font-size: .75rem; }
+.timeField label > span { color: var(--color-text-muted); }
+.timeField input { box-sizing: border-box; inline-size: 100%; min-inline-size: 0; min-block-size: 2.5rem; padding: .4rem .65rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-2); color: inherit; color-scheme: dark; font: inherit; font-size: .9rem; }
+.panel button { display: inline-flex; align-items: center; gap: var(--space-2); min-block-size: 2.5rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); padding: .4rem .75rem; background: var(--color-surface-2); color: inherit; font-size: .8rem; }
+.panel button:disabled { opacity: .5; cursor: default; }
 .panel :is(input, button):focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
-.panel dl { display: grid; grid-template-columns: minmax(0, 6rem) minmax(0, 1fr); gap: .6rem; font-size: .8rem; line-height: 1.5; }
-.panel dd { margin: 0; }
-.panel dd p { margin-block: .3rem 0; font-size: inherit; }
+.results { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: var(--space-3); margin: 0; padding-block-start: var(--space-1); font-size: .78rem; }
+.results dt { margin-block-end: var(--space-1); color: var(--color-text-muted); font-size: .7rem; }
+.results dd { margin: 0; }
+.panel .hint { color: var(--color-text-muted); font-size: .7rem; }
+.reason { color: var(--color-warning); }

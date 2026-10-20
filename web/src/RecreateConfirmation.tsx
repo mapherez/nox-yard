@@ -54,7 +54,7 @@ export function RecreateConfirmation({ target, csrfToken, onClose, onAccepted }:
       {loading && <p role="status">Assessing configuration and dependencies…</p>}
       {error && <p className={styles.inventoryError} role="alert">{error}</p>}
       {preview && <>
-        <p>Replacement order: {preview.order.join(" → ")}</p>
+        <p>Replacement order: {preview.order.map((service, index) => <span key={service}>{index > 0 && <> <i className="ph-bold ph-arrow-right" aria-hidden="true" /> </>}{service}</span>)}</p>
         <ul className={styles.removalList} aria-label="Containers to preserve">
           {preview.items.map((item) => <li key={item.id} className={styles.removalItem}>
             <strong>{item.name}</strong><code>{item.image}</code>

@@ -39,7 +39,7 @@ export function OperationHistory({ history, error, loading, csrfToken, onRefresh
       <button type="button" className={styles.inspectButton} disabled={busy || loading || Boolean(error) || reviewed !== recovery.id} onClick={() => { void acknowledge(recovery); }}>Acknowledge recovery</button>
     </div>}
     {actionError && <p className={styles.inventoryError} role="alert">{actionError}</p>}
-    {history.length > 0 && <details><summary>Recent operations ({history.length})</summary><ol className={styles.operationList}>
+    {history.length > 0 && <details><summary><i className="ph-bold ph-caret-right" aria-hidden="true" />Recent operations ({history.length})</summary><ol className={styles.operationList}>
       {history.map(job => <li key={job.id}>
         <strong>{job.scheduledFor ? "Automatic " : ""}{job.operation} · {operationStage(job)}</strong>
         <time dateTime={new Date(job.createdAt * 1000).toISOString()}>{new Date(job.createdAt * 1000).toLocaleString()}</time>
@@ -47,7 +47,7 @@ export function OperationHistory({ history, error, loading, csrfToken, onRefresh
         {job.rollback && <p>Rollback: {job.rollback.replaceAll("_", " ")}</p>}
         {job.cleanupError && <p>Cleanup: {job.cleanupError}</p>}
         {job.targetImages?.some(item => item.previousContainerID) && <ul aria-label="Container outcomes">{job.targetImages.map(item => <li key={item.previousContainerID || item.containerID}>
-          <code>{item.service || item.previousContainerID?.slice(0, 12)} → {item.containerID?.slice(0, 12)}</code> · {item.outcome?.replaceAll("_", " ")} · {item.state}
+          <code>{item.service || item.previousContainerID?.slice(0, 12)} <i className="ph-bold ph-arrow-right" aria-hidden="true" /> {item.containerID?.slice(0, 12)}</code> · {item.outcome?.replaceAll("_", " ")} · {item.state}
         </li>)}</ul>}
       </li>)}
     </ol></details>}

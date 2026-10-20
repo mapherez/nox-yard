@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type MouseEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { useProjectConfiguration, ComposeConfiguration, ConfigurationMigrationStatus, EnvironmentValue, type ConfigurationControl } from "./ProjectConfiguration";
 import {
   checkSelfUpdateNow,
-  containerLogsURL,
   createAdministrator,
   getBootstrap,
   getContainerInspection,
@@ -21,7 +20,6 @@ import {
   runManagedOperation,
   signIn,
   signOut,
-  notifySessionExpired,
   sessionExpiredEvent,
   type Bootstrap,
   type Container,
@@ -36,6 +34,7 @@ import {
 import styles from "./App.module.css";
 import { useDrawerSwipe } from "./useDrawerSwipe";
 import { TerminalPanel } from "./TerminalPanel";
+import { LogsPanel } from "./LogsPanel";
 import { NewProjectDrawer } from "./NewProjectDrawer";
 import { useProjects } from "./useProjects";
 import { useOperationHistory } from "./useOperationHistory";
@@ -478,8 +477,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     else if (lastSelectionRef.current) containerButtonsRef.current[lastSelectionRef.current]?.focus();
   }, [selectedContainerID]);
 
-  const activeContainer = project?.kind === "managed-compose" && !selectedContainerID ? undefined : project?.containers.length === 1
-    ? project.containers[0]
+  const activeContainer = project?.kind === "standalone" ? project.containers[0]
     : project?.containers.find((container) => container.id === selectedContainerID);
   const terminalUnavailable = Boolean(project && (project.containers.length === 0 || project.containers.every((container) => container.terminalAvailable === false)));
 
@@ -564,7 +562,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     {project && <div className={styles.settingsBody}>
       <header className={styles.settingsHeader}>
         <h2 id="project-drawer-title">{project.name}</h2>
-        <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close project details">×</button>
+        <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close project details"><i className="ph-bold ph-x" aria-hidden="true" /></button>
       </header>
       <div className={styles.projectTabs} role="tablist" aria-label={`${project.name} sections`} onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -578,10 +576,10 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
         <button ref={terminalTabRef} id={`${tabsID}-terminal-tab`} type="button" role="tab" aria-selected={activeTab === "terminal"} aria-controls={`${tabsID}-terminal-panel`} tabIndex={activeTab === "terminal" ? 0 : -1} className={styles.projectTab} disabled={terminalUnavailable} title={terminalUnavailable ? "Terminal unavailable: /bin/sh is missing" : undefined} onClick={() => selectTab("terminal")}>Terminal</button>
       </div>
       {terminalUnavailable && <p className={styles.terminalUnavailable} role="status">Terminal unavailable: /bin/sh is missing from this {project.containers.length === 1 ? "container" : "project's containers"}.</p>}
-      <div ref={contentRef} id={`${tabsID}-${activeTab}-panel`} role="tabpanel" aria-labelledby={`${tabsID}-${activeTab}-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent}`}>
+      <div ref={contentRef} id={`${tabsID}-${activeTab}-panel`} role="tabpanel" aria-labelledby={`${tabsID}-${activeTab}-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent} ${activeTab !== "details" ? styles.consoleContent : ""}`}>
         {activeTab === "details" ? <>
         {project.kind === "managed-compose" && !activeContainer && <ManagedProjectControls key={`managed:${project.id}`} project={project} csrfToken={csrfToken} onChanged={onChanged} busy={operations.blocked || configuration.blocked} onAccepted={operations.refresh} onRecreate={() => setRecreateTarget({id:project.id,name:project.name,operation:"recreate"})} onRemove={() => setRemovalTarget({kind:"project",id:project.id,name:project.name,managedName:project.name})} />}
-        {activeContainer && (project.kind === "managed-compose" || project.kind === "external-compose" && project.containers.length > 1) && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}>← Back to project</button>}
+        {activeContainer && project.kind !== "standalone" && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}><i className="ph-bold ph-arrow-left" aria-hidden="true" />Back to project</button>}
         {!activeContainer && <>
           {project.kind === "external-compose" && <LifecycleControls
             name={project.name}
@@ -596,6 +594,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
             onRecreate={() => setRecreateTarget({id:project.id,name:project.name,operation:"recreate"})}
           />}
           <section className={styles.projectOverview} aria-label="Project overview">
+            <h3>Overview</h3>
             <p className={styles.detailSummary}>
               {project.containers.length} {project.containers.length === 1 ? "container" : "containers"} · {project.operation || project.state} · Health: {healthLabel(project.health)}
             </p>
@@ -608,9 +607,6 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
         </>}
         {actionMessage && <p className={styles.actionMessage} role="status">{actionMessage}</p>}
         {actionError && <p className={styles.inventoryError} role="alert">{actionError}</p>}
-        <ComposeConfiguration key={`configuration:${project.id}`} control={configuration} />
-        <ProjectSchedule key={`schedule:${project.id}`} target={project.id} revision={operations.history.map(job => `${job.id}:${job.updatedAt}:${job.outcome}`).join("|")} csrfToken={csrfToken} onChanged={onChanged} />
-        <OperationHistory key={`history:${project.id}`} history={operations.history} error={operations.error} loading={operations.loading} csrfToken={csrfToken} onRefresh={operations.refresh} />
         {activeContainer
           ? <ContainerDetails
               key={activeContainer.id}
@@ -635,12 +631,17 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
                 {project.containers.map((container) => <button key={container.id} ref={(element) => { containerButtonsRef.current[container.id] = element; }} type="button" className={styles.containerChoice} onClick={() => showContainer(container.id)}>
                   <span className={styles.containerChoiceName}><strong>{container.service || container.name}</strong>{container.service && <small>{container.name}</small>}</span>
                   <span className={`${styles.statusBadge} ${statusClass(containerStatus(container))}`}>{containerStatus(container)}</span>
-                  <span className={styles.containerChoiceArrow} aria-hidden="true">›</span>
+                  <i className={`ph-bold ph-caret-right ${styles.containerChoiceArrow}`} aria-hidden="true" />
                 </button>)}
               </div>
             </section>}
+        <div className={styles.projectSupplemental}>
+          {(!activeContainer || project.kind === "standalone") && <ProjectSchedule key={`schedule:${project.id}`} target={project.id} revision={operations.history.map(job => `${job.id}:${job.updatedAt}:${job.outcome}`).join("|")} csrfToken={csrfToken} onChanged={onChanged} />}
+          <ComposeConfiguration key={`configuration:${project.id}`} control={configuration} />
+        </div>
+        <OperationHistory key={`history:${project.id}`} history={operations.history} error={operations.error} loading={operations.loading} csrfToken={csrfToken} onRefresh={operations.refresh} />
         </> : activeTab === "logs"
-          ? <LogsPanel key={project.id} project={project} preferredContainerID={activeContainer?.id} onSelectContainer={setSelectedContainerID} />
+          ? <LogsPanel key={project.id} project={project} preferredContainerID={activeContainer?.id} csrfToken={csrfToken} onSelectContainer={setSelectedContainerID} />
           : <TerminalPanel key={project.id} project={project} preferredContainerID={activeContainer?.id} csrfToken={csrfToken} onSelectContainer={setSelectedContainerID} />}
       </div>
     </div>}
@@ -680,7 +681,7 @@ function ManagedProjectControls({ project, csrfToken, onChanged, busy: historyBu
       <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Start ${project.name}`} title="Start" disabled={busy || project.state === "running"} onClick={() => { void run("start"); }}><i className="ph-fill ph-play" aria-hidden="true" /></button>
       <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Stop ${project.name}`} title="Stop" disabled={busy || project.state === "stopped"} onClick={() => ask("stop")}><i className="ph-fill ph-stop" aria-hidden="true" /></button>
       <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Restart ${project.name}`} title="Restart" disabled={busy || project.state === "stopped"} onClick={() => ask("restart")}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
-      <details ref={menuRef} className={styles.maintenanceMenu}><summary className={styles.inspectButton} aria-label="More actions">···</summary><div className={styles.maintenanceOptions}>
+      <details ref={menuRef} className={styles.maintenanceMenu}><summary className={styles.inspectButton} aria-label="More actions"><i className="ph-bold ph-dots-three" aria-hidden="true" /></summary><div className={styles.maintenanceOptions}>
         <button type="button" disabled={busy} onClick={() => { if (menuRef.current) menuRef.current.open = false; void run("pull"); }}>Pull</button>
         <button type="button" disabled={busy} onClick={() => { if (menuRef.current) menuRef.current.open = false; onRecreate(); }}>Recreate</button>
         <button type="button" className={styles.maintenanceRemove} disabled={busy} onClick={() => { if(menuRef.current) menuRef.current.open=false; onRemove(); }}>Remove project</button>
@@ -691,106 +692,6 @@ function ManagedProjectControls({ project, csrfToken, onChanged, busy: historyBu
     </div>}
     {error && <p className={styles.inventoryError} role="alert">{error}</p>}
   </div>;
-}
-
-type LogLine = { stream: "stdout" | "stderr"; text: string };
-type LogStatus = "connecting" | "live" | "reconnecting" | "ended" | "paused" | "error";
-
-function LogsPanel({ project, preferredContainerID, onSelectContainer }: {
-  project: Project;
-  preferredContainerID?: string;
-  onSelectContainer: (id: string) => void;
-}) {
-  const [selectedID, setSelectedID] = useState(preferredContainerID || project.containers[0]?.id || "");
-  const [lines, setLines] = useState<LogLine[]>([]);
-  const [status, setStatus] = useState<LogStatus>("connecting");
-  const [error, setError] = useState("");
-  const [retryKey, setRetryKey] = useState(0);
-  const [visible, setVisible] = useState(document.visibilityState === "visible");
-  const [followOutput, setFollowOutput] = useState(true);
-  const outputRef = useRef<HTMLPreElement>(null);
-  const container = project.containers.find((item) => item.id === selectedID) || project.containers[0];
-
-  useEffect(() => {
-    const sync = () => setVisible(document.visibilityState === "visible");
-    document.addEventListener("visibilitychange", sync);
-    return () => document.removeEventListener("visibilitychange", sync);
-  }, []);
-
-  useEffect(() => {
-    if (!container || !visible) {
-      setStatus("paused");
-      return;
-    }
-    setLines([]);
-    setError("");
-    setStatus("connecting");
-    const source = new EventSource(containerLogsURL(container.id));
-    source.onopen = () => {
-      setLines([]);
-      setStatus("live");
-      setError("");
-    };
-    source.addEventListener("log", (event) => {
-      try {
-        const line: unknown = JSON.parse((event as MessageEvent).data);
-        if (!line || typeof line !== "object" || !("text" in line) || typeof line.text !== "string" ||
-            !("stream" in line) || (line.stream !== "stdout" && line.stream !== "stderr")) return;
-        setLines((current) => [...current, line as LogLine].slice(-500));
-      } catch { /* Ignore a malformed event and keep the stream open. */ }
-    });
-    source.addEventListener("end", () => {
-      setStatus("ended");
-      source.close();
-    });
-    source.addEventListener("stream-error", () => {
-      setStatus("error");
-      setError("Docker stopped the log stream. Reconnect to try again.");
-      source.close();
-    });
-    source.addEventListener("session-expired", () => {
-      source.close();
-      notifySessionExpired();
-    });
-    source.onerror = () => {
-      if (source.readyState !== EventSource.CLOSED) {
-        setStatus("reconnecting");
-        setError("Cannot connect to logs. Check Docker access or the container's logging driver.");
-      }
-    };
-    return () => source.close();
-  }, [container?.id, retryKey, visible]);
-
-  useEffect(() => {
-    if (followOutput && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
-  }, [lines, followOutput]);
-
-  const statusLabels: Record<LogStatus, string> = {
-    connecting: "Connecting…", live: "Live", reconnecting: "Reconnecting…",
-    ended: "Stream ended", paused: "Paused while this tab is hidden", error: "Disconnected",
-  };
-
-  if (!container) return <p className={styles.detailSummary}>No containers are available for logs.</p>;
-
-  return <section className={styles.logsPanel} aria-label="Container logs">
-    <div className={styles.logsToolbar}>
-      {project.containers.length > 1
-        ? <label className={styles.logsSelector}>Container
-            <select value={container.id} onChange={(event) => { setSelectedID(event.target.value); onSelectContainer(event.target.value); }}>
-              {project.containers.map((item) => <option key={item.id} value={item.id}>{item.service ? `${item.service} · ${item.name}` : item.name}</option>)}
-            </select>
-          </label>
-        : <strong className={styles.logsContainerName}>{container.service || container.name}</strong>}
-      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect logs" title="Reconnect logs" onClick={() => setRetryKey((key) => key + 1)}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
-    </div>
-    <p className={styles.logStatus} role="status">{statusLabels[status]}</p>
-    {error && <p className={styles.inventoryError} role="alert">{error}</p>}
-    <pre ref={outputRef} className={styles.logOutput} aria-label={`${container.service || container.name} log output`} onScroll={(event) => {
-      const output = event.currentTarget;
-      setFollowOutput(output.scrollHeight - output.scrollTop - output.clientHeight < 32);
-    }}>{lines.length ? lines.map((line, index) => <span key={index} className={line.stream === "stderr" ? styles.logErrorLine : undefined}>{line.text}{"\n"}</span>) : status === "ended" ? "No recent logs.\n" : "Waiting for log output…\n"}</pre>
-    <label className={styles.followOutput}><input type="checkbox" checked={followOutput} onChange={(event) => setFollowOutput(event.target.checked)} /> Follow output</label>
-  </section>;
 }
 
 function ContainerDetails({ container, csrfToken, busy, selfTarget, helperTarget, onRun, pullLabel, removeLabel, onPull, onRemove, onUpdate, onRecreate, hideActions = false, configuration }: {
@@ -944,7 +845,7 @@ function MaintenanceMenu({ busy, pullLabel, removeLabel, canPull, canRemove, onP
       ref.current.querySelector("summary")?.focus();
     }
   }}>
-    <summary className={styles.inspectButton} aria-label="More actions" aria-disabled={busy} onClick={(event) => { if (busy) event.preventDefault(); }} title="More actions">···</summary>
+    <summary className={styles.inspectButton} aria-label="More actions" aria-disabled={busy} onClick={(event) => { if (busy) event.preventDefault(); }} title="More actions"><i className="ph-bold ph-dots-three" aria-hidden="true" /></summary>
     <div className={styles.maintenanceOptions}>
       {onRecreate && <button type="button" disabled={busy || !canPull} onClick={() => { if(ref.current) ref.current.open=false; onRecreate(); }}>Recreate</button>}
       <button type="button" disabled={busy || !canPull} onClick={() => { if (ref.current) ref.current.open = false; onPull(); }}>{pullLabel}</button>
@@ -1163,7 +1064,7 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
           <span className={styles.sectionLabel}>PREFERENCES</span>
           <h2 id="settings-title">Settings</h2>
         </div>
-        <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close settings">×</button>
+        <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close settings"><i className="ph-bold ph-x" aria-hidden="true" /></button>
       </header>
       <div className={styles.settingsContent}>
 		<section aria-labelledby="projects-directory-title" className={styles.settingsSection}>
@@ -1201,7 +1102,7 @@ function dismissDrawerBackdrop(event: MouseEvent<HTMLDialogElement>) {
   }
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value }: { label: ReactNode; value: string }) {
   return <span className={styles.metric}><span>{label}</span><strong>{value}</strong></span>;
 }
 
@@ -1217,7 +1118,7 @@ function ContainerRow({ container }: { container: Container }) {
       <Metric label="CPU" value={formatCPU(container.cpuPercent)} />
       <Metric label="Memory" value={formatBytes(container.memoryBytes)} />
       <Metric label="Uptime" value={formatUptime(container.uptimeSeconds)} />
-      <Metric label="Network ↓ / ↑" value={`${formatBytes(container.networkRxBytes)} / ${formatBytes(container.networkTxBytes)}`} />
+      <Metric label={<span aria-label="Network received / sent">Network <i className="ph-bold ph-arrow-down" aria-hidden="true" /> / <i className="ph-bold ph-arrow-up" aria-hidden="true" /></span>} value={`${formatBytes(container.networkRxBytes)} / ${formatBytes(container.networkTxBytes)}`} />
     </div>
   </article>;
 }

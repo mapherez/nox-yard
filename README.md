@@ -94,6 +94,8 @@ Investigate running containers without opening a separate SSH session.
 - Follow new log entries in real time.
 - Inspect standard output and error messages.
 - Switch between containers within a project.
+- Search the displayed logs with highlighted matches.
+- Confirm an export of the current log buffer to `BASE/PROJECT_NAME/logs` on the Docker host, with the latest export time visible below the output.
 
 **Interactive terminal**
 

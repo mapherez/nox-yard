@@ -157,7 +157,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
 
   return <><dialog ref={drawer} id="new-project-drawer" className={`${appStyles.settingsDrawer} ${appStyles.projectDrawer}`} aria-labelledby="new-project-title" onClose={onClose} onClick={(event) => { if (event.target === drawer.current) drawer.current.close(); }}>
     <div className={appStyles.settingsBody}>
-      <header className={appStyles.settingsHeader}><div><span className={appStyles.sectionLabel}>MANAGED COMPOSE</span><h2 id="new-project-title">New Project</h2></div><button type="button" className={appStyles.closeButton} autoFocus onClick={() => drawer.current?.close()} aria-label="Close New Project">×</button></header>
+      <header className={appStyles.settingsHeader}><div><span className={appStyles.sectionLabel}>MANAGED COMPOSE</span><h2 id="new-project-title">New Project</h2></div><button type="button" className={appStyles.closeButton} autoFocus onClick={() => drawer.current?.close()} aria-label="Close New Project"><i className="ph-bold ph-x" aria-hidden="true" /></button></header>
       <div className={`${appStyles.settingsContent} ${styles.content}`}>
         <p className={styles.intro}>Choose a Compose source, enter its variables, then review the project before deployment.</p>
         <form className={styles.form} onSubmit={(event) => { void readSource(event); }}>

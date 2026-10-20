@@ -54,6 +54,7 @@ The account avatar and small status dots are intentionally circular. Status dots
 | [`NewProjectDrawer.module.css`](../../web/src/NewProjectDrawer.module.css) | Source selection, Compose fields, environment forms, and deployment preview. |
 | [`ProjectConfiguration.module.css`](../../web/src/ProjectConfiguration.module.css) | Inline variable controls, migration feedback and collapsed host-file editors. |
 | [`ProjectSchedule.module.css`](../../web/src/ProjectSchedule.module.css) | Daily project and Yard schedule controls. |
+| [`LogsPanel.module.css`](../../web/src/LogsPanel.module.css) | Full-height log output, search highlights and snapshot export confirmation. |
 | [`main.tsx`](../../web/src/main.tsx) | Global stylesheet and self-hosted icon-font imports. |
 
 ## Component and CSS rules
@@ -82,9 +83,11 @@ On touch devices, drawers also close by swiping toward their entry edge: left fo
 
 These values are starting points, not device identities. Check narrow screens, 200% zoom, long project names, many services, and keyboard-only navigation. Logs and terminals should scroll within their own bounded panels rather than widening the page.
 
+Project, Settings and New Project drawers always share a width: `min(50dvw, 60rem)` at viewports of at least 1280px, `min(56rem, calc(100dvw - 2rem))` from 768px through 1279px, and fullscreen below 768px. Keep the close button's Phosphor X centered with grid alignment. Emphasize the three project tabs with 1rem semibold text and a muted selected background. Within Details, keep actions first, then overview/container information, configuration/scheduling and history. Use section headings and subtle panel borders within the existing palette. Schedule time/save and result metadata may sit side by side. Ports and environment cells use row-major wrapping grids, never newspaper-style columns; adapt to the drawer's own width. Logs and terminal flex to fill the remaining height, with internal output scrolling.
+
 ## Interaction and copy
 
-- Show a project's aggregate state, health, container count, CPU, memory, and uptime on its card. Selecting a card opens a drawer with its container details already visible. Keep the card action target and per-card action menu distinct when an action menu is added.
+- Show a project's aggregate state, health, container count, CPU, memory, and uptime on its card. Every Compose card opens the same overview and container picker, including single-container projects; standalone cards open container details. Keep the card action target and per-card action menu distinct when an action menu is added.
 - The dashboard has a compact visible Projects heading and icon actions. Keep inventory counts and the update time in a secondary metadata row. Card metrics use tabular numerals and subtle separators; project names remain the strongest text within each card.
 - Put the Grid/List toggle and Sort menu in a compact toolbar above results. The same project information and shared order apply to both views. Search filters parent projects by project/container/service name. Keep empty search results distinct from an empty Docker inventory.
 - List uses a semantic table with column headers, approximately 44px rows, subtle horizontal separators and a focusable horizontal scroll region. Keep the reorder grip visible during horizontal scrolling; pin project names on wider screens and let them scroll on mobile to leave room for the other columns. Keep the ghost and blue drop marker at row height.

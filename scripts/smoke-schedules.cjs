@@ -26,7 +26,7 @@ async (page) => {
   await page.emulateMedia({reducedMotion:'reduce'});await page.setViewportSize({width:1440,height:1000});await page.goto('http://127.0.0.1:5173');
   const card=page.getByRole('button',{name:/Managed Compose running sample/});await card.click();
   const drawer=page.getByRole('dialog',{name:'sample',exact:true}),toggle=drawer.getByRole('checkbox',{name:'Enable automatic updates for this project'}),save=drawer.getByRole('button',{name:'Save automatic updates'}),time=drawer.getByLabel('Daily check time (Europe/Lisbon)');
-  await toggle.waitFor();await drawer.getByText(/Daily at 03:00 \(Europe\/Lisbon, server timezone\)/).waitFor();
+  await toggle.waitFor();if(await time.inputValue()!=="03:00")throw Error("Initial daily check time missing");
   if(await toggle.isChecked()||!await save.isDisabled()||writes!==0)throw Error('default setting or implicit save');
   await time.fill('06:45');if(writes!==0)throw Error('time edit saved implicitly');
   await toggle.focus();await page.keyboard.press('Space');if(await save.isDisabled()||writes!==0)throw Error('checkbox not explicit draft');
@@ -36,7 +36,7 @@ async (page) => {
   await page.reload();await card.click();await toggle.waitFor();if(!await toggle.isChecked()||await time.inputValue()!=='06:45')throw Error('browser reload lost schedule');
   await time.fill('');await save.click();if(writes!==2)throw Error('empty time bypassed native validation');
   await time.fill('21:15');if(await save.isDisabled())throw Error('time-only edit cannot be saved');await save.click();await drawer.getByRole('status').filter({hasText:'Automatic update settings saved.'}).waitFor();if(status.time!=='21:15'||!status.enabled)throw Error('time-only save lost enabled state');
-  await drawer.getByText(/Daily at 21:15 \(Europe\/Lisbon, server timezone\)/).waitFor();
+  if(await time.inputValue()!=="21:15")throw Error("Saved daily check time missing");
   status={...status,lastAt:1791432000,lastOutcome:'skipped',lastJobID:'scheduled-fixture',lastReason:'The same image set previously failed. Waiting for new images or an explicit manual retry.'};
   await page.keyboard.press('Escape');await card.click();await drawer.getByText('Automatic update: Automatic check skipped',{exact:true}).waitFor();
   for(const width of [1440,768,390,320]){await page.setViewportSize({width,height:1000});if(await drawer.evaluate(el=>el.scrollWidth>el.clientWidth+1))throw Error('schedule drawer overflow '+width)}

@@ -83,7 +83,7 @@ export function ComposeConfiguration({ control }: { control: ConfigurationContro
   </section>;
   if (!configuration.available) return null;
   return <details className={styles.panel} open={open} onToggle={event => { const next = event.currentTarget.open; setOpen(next); if (next && !control.valuesLoaded) void reveal(); }}>
-    <summary>Compose and environment files</summary>
+    <summary><i className="ph-bold ph-caret-right" aria-hidden="true" />Compose and environment files</summary>
     <p><strong>Ready</strong> · <code>{configuration.directory}</code></p>
     {configuration.error && <p role="alert">{configuration.error}</p>}
     {control.valuesLoaded ? configuration.files.map(file => <form key={file.path} onSubmit={event => { event.preventDefault(); void save(file.path); }}>

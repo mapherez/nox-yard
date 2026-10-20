@@ -4,9 +4,9 @@
 
 **Phase:** C6 native-host acceptance and C7 runtime publication gates remain open.
 
-The current local source baseline is `0fff17e`, which commits D-036's CI-only automatic validation and single global pipeline lane, after the `v1.3.0` release request and Yard product rename. The earlier 2026-10-20 audit reviewed `ed6d7b3` (`v1.2.1`); its historical evidence remains in the [repository review](Repository-Review-2026-10-20.md). Source tags and local package versions do not establish completed remote publication or deployment.
+The current committed local source baseline is `3fc6a6d`, including D-036's CI-only pipeline, D-037's searchable Grid/List dashboard and the narrow-screen metric sizing correction. The earlier 2026-10-20 audit reviewed `ed6d7b3` (`v1.2.1`); its historical evidence remains in the [repository review](Repository-Review-2026-10-20.md). Source tags and local package versions do not establish completed remote publication or deployment.
 
-The working tree now contains D-037's searchable project Grid/List views, ordering controls and browser regressions. This change does not push, create a release or deploy to a host. The [completion plan](Completion-Plan.md) retains its original native-host/runtime acceptance gates; later decisions refine implementation assumptions.
+The working tree now contains D-038's uniform wider drawers, Details hierarchy, full-height console tabs, log search and confirmed host-file export. This change does not push, create a release or deploy to a host. The [completion plan](Completion-Plan.md) retains its original native-host/runtime acceptance gates; later decisions refine implementation assumptions.
 
 ## Implemented behavior
 
@@ -48,6 +48,14 @@ All 59 release/hook tests passed, including clean unpushed commits traveling wit
 D-037 adds a full-width live search, Grid/List views (List uses a compact semantic table with approximately 44px rows and contained horizontal scrolling on narrow screens), natural A–Z/Z–A sorting and shared manual ordering. Matching a container/service retains its parent project. Reordering previews insertion with a floating ghost, blue empty slot and neighboring movement. Pointer/touch grips and keyboard arrows/Home/End share the same behavior; canceling does not persist the preview. Layout, sort mode and manual order are browser-local per administrator, with an in-memory fallback when storage is blocked. See [Features](Features.md).
 
 Frontend typecheck/production build and all six browser fixtures passed. The dashboard fixture additionally verifies persisted views/sorts/orders, grouped search, the sixth-to-second insertion example, filtered slot preservation, keyboard focus, autoscroll, Escape/outside-drop/touch cancellation, live inventory removal, metric updates during drag and blocked storage. Responsive checks and inspected screenshots cover 1440/1024/768/390/320 px, with all columns reachable through horizontal scrolling in the compact table. Mouse/touch drag and row-sized drop markers are also checked after horizontal scrolling. The existing large-main-chunk build warning remains. Browser checks use API fixtures and do not mutate host containers; no backend, release or runtime-host acceptance is implied.
+
+## Drawer and log-export refinement
+
+D-038 gives Project, Settings and New Project one responsive width, capped at half the screen on desktop, nearly fullscreen on tablet and fullscreen on mobile. Compose projects always open a consistent overview/container picker. Actions precede details, schedule controls are compact, ports/environment cells wrap in row order, tabs have stronger emphasis and pseudo-icons use Phosphor. Logs and terminal fill the available height. Literal log search highlights matches and provides previous/next navigation without filtering output.
+
+Confirmed export captures the current browser buffer as UTF-8 text under the configured `BASE/PROJECT_NAME/logs`, even when an external project's Compose files are elsewhere. Standalone containers use `BASE/CONTAINER_NAME/logs`. It creates missing folders without relocating configuration; repeated same-minute exports get numeric suffixes. Last export reads the newest valid filename. The helper confines host access, preserves existing files, rejects symbolic-link directories and inherits host ownership. See [Features](Features.md).
+
+Verification passed `go test ./...`, `go vet ./...`, Linux amd64/arm64 backend cross-builds, frontend typecheck/production build and all seven browser suites. Browser fixtures cover 1920/1440/1280/1024/768/390/320px, consistent widths, centered controls, row order, private values, log matches, confirmation cancel/retry/focus, exact snapshot export and standalone paths; screenshots were inspected. The existing main-chunk warning remains (about 672.62 kB / 183.24 kB gzip). A network-isolated Linux helper container with only a disposable temporary bind mount successfully tested non-mutating status, directory creation, exact file writes, same-minute collision preservation and latest-file lookup on Docker Desktop. Its temporary image was removed. This is focused helper evidence, not the full application/native-host acceptance suite; no existing projects were modified.
 
 ## Previously recorded evidence
 

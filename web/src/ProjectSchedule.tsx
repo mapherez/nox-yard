@@ -46,25 +46,28 @@ export function ProjectSchedule({ target, revision, csrfToken, onChanged }: { ta
     return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: status?.timezone }).format(new Date(value * 1000));
   }
   return <section className={styles.panel}>
-    <h3>Automatic image updates</h3>
+    <div className={styles.heading}><i className="ph-bold ph-clock-clockwise" aria-hidden="true" /><h3>Automatic image updates</h3>
+      {status && <label className={styles.choice} htmlFor={`${id}-enabled`}><input id={`${id}-enabled`} form={`${id}-form`} name="enabled" type="checkbox" aria-label="Enable automatic updates for this project" aria-describedby={`${id}-hint`} checked={enabled} disabled={saving || (!status.eligible && !status.enabled)} onChange={event => { setDraft(event.target.checked); setMessage(""); }} /> Enabled</label>}
+    </div>
     {status && <>
-      <p id={`${id}-hint`}>Daily at {status.time} ({status.timezone}, server timezone). Only supported running projects are updated. Back up application data before enabling.</p>
-      <form onSubmit={event => { event.preventDefault(); void save(); }}>
-      <label className={styles.choice} htmlFor={`${id}-enabled`}><input id={`${id}-enabled`} name="enabled" type="checkbox" aria-describedby={`${id}-hint`} checked={enabled} disabled={saving || (!status.eligible && !status.enabled)} onChange={event => { setDraft(event.target.checked); setMessage(""); }} /> Enable automatic updates for this project</label>
+      <div className={styles.body}>
+      <form id={`${id}-form`} className={styles.controls} onSubmit={event => { event.preventDefault(); void save(); }}>
       <div className={styles.timeField}>
-        <label htmlFor={`${id}-time`}>Daily check time ({status.timezone})</label>
+        <label htmlFor={`${id}-time`}>Daily check time <span>({status.timezone})</span></label>
         <input id={`${id}-time`} name="time" type="time" step={60} required value={checkTime} disabled={saving} aria-describedby={`${id}-hint`} onChange={event => { setDraftTime(event.target.value); setMessage(""); }} />
       </div>
-      {status.reason && <p>{status.reason}</p>}
-      <button type="submit" disabled={saving || !changed}>Save automatic updates</button>
+      <button type="submit" aria-label="Save automatic updates" disabled={saving || !changed}><i className="ph-bold ph-check" aria-hidden="true" />Save</button>
       </form>
-      <dl>
-        <dt>Next check</dt><dd>{status.enabled && status.nextAt ? `${timestamp(status.nextAt)} (${status.timezone})` : "Disabled"}</dd>
-        <dt>Last result</dt><dd>{status.lastOutcome ? `${status.lastOutcome.replaceAll("_", " ")}${status.lastAt ? ` · ${timestamp(status.lastAt)}` : ""}` : "No scheduled checks yet"}{status.lastReason && <p>{status.lastReason}</p>}</dd>
+      <dl className={styles.results}>
+        <div><dt>Next check</dt><dd>{status.enabled && status.nextAt ? timestamp(status.nextAt) : "Disabled"}</dd></div>
+        <div><dt>Last result</dt><dd>{status.lastOutcome ? `${status.lastOutcome.replaceAll("_", " ")}${status.lastAt ? ` · ${timestamp(status.lastAt)}` : ""}` : "No scheduled checks yet"}{status.lastReason && <p>{status.lastReason}</p>}</dd></div>
       </dl>
+      </div>
+      {status.reason && <p className={styles.reason}>{status.reason}</p>}
+      <p id={`${id}-hint`} className={styles.hint}>Daily in the server timezone. Only supported running projects are updated. Back up application data before enabling.</p>
     </>}
     {!status && !error && <p>Reading automatic update settings…</p>}
-    <p role="status">{message}</p>
+    {message && <p role="status">{message}</p>}
     {error && <p role="alert">{error} <button type="button" disabled={saving} onClick={() => setRetry(value => value + 1)}>Retry automatic update settings</button></p>}
   </section>;
 }

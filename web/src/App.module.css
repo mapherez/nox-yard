@@ -539,7 +539,7 @@
   position: fixed;
   inset-block: 0;
   inset-inline: 0 auto;
-  inline-size: min(30rem, 100%);
+  inline-size: min(50dvw, 60rem);
   block-size: 100dvh;
   max-inline-size: none;
   max-block-size: none;
@@ -570,7 +570,6 @@
 
 .projectDrawer {
   inset-inline: auto 0;
-  inline-size: min(38rem, 100%);
   border-inline-start: 1px solid var(--color-border);
   border-inline-end: 0;
 }
@@ -625,7 +624,16 @@
 
 .projectDrawerContent {
   gap: var(--space-5);
+  container: drawer-content / inline-size;
 }
+
+.consoleContent { display: flex; flex-direction: column; overflow: hidden; }
+.consoleContent > section { flex: 1; min-block-size: 0; }
+.projectSupplemental { display: grid; gap: var(--space-4); }
+.projectSupplemental:empty { display: none; }
+.projectOverview h3 { margin: 0; font-size: 1rem; }
+.projectOverview { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-1); }
+.projectDrawer .backButton { display: inline-flex; align-items: center; gap: var(--space-2); justify-self: start; }
 
 .projectDrawer .settingsHeader h2 {
   margin: 0;
@@ -634,7 +642,7 @@
 .projectTabs {
   display: flex;
   flex: none;
-  gap: var(--space-6);
+  gap: var(--space-2);
   overflow-x: auto;
   padding-inline: var(--space-6);
   border-block-end: 1px solid var(--color-border);
@@ -642,20 +650,21 @@
 }
 
 .projectTab {
-  min-block-size: 3rem;
-  padding: var(--space-2) 0;
+  min-block-size: 3.5rem;
+  padding: var(--space-2) var(--space-4);
   border: 0;
   border-block-end: 2px solid transparent;
   background: transparent;
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 1rem;
   font-weight: 650;
 }
 
 .projectTab[aria-selected="true"] {
   border-block-end-color: var(--color-accent);
   color: var(--color-accent-hover);
+  background: var(--color-accent-subtle);
 }
 
 .projectTab:hover:not(:disabled) {
@@ -670,7 +679,7 @@
 
 .projectOverview {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-3);
   padding: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -1292,7 +1301,10 @@
   inline-size: 2.75rem;
   block-size: 2.75rem;
   flex: none;
-  font-size: 1.25rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 1.15rem;
 }
 
 .detailSummary,
@@ -1305,6 +1317,7 @@
 
 .containerList {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
   gap: var(--space-2);
 }
 
@@ -1447,7 +1460,9 @@
 }
 
 .terminalPanel {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
   min-inline-size: 0;
   gap: var(--space-4);
 }
@@ -1461,8 +1476,8 @@
 
 .terminalSurface {
   min-inline-size: 0;
-  block-size: min(58dvh, 36rem);
-  min-block-size: 12rem;
+  flex: 1;
+  min-block-size: 8rem;
   padding: var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -1800,6 +1815,23 @@
 
 .inspectList {
   list-style: none;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+}
+
+.environmentList { grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); }
+.environmentList > div { align-content: start; }
+.containerDetails .inspectSection { padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-1); }
+.containerDetails .inspectSection h3 { font-size: .95rem; color: var(--color-accent-hover); }
+.containerDetails .inspectList li,
+.containerDetails .environmentList > div { background: var(--color-sidebar); padding: var(--space-2) var(--space-3); }
+
+@media (min-width: 48rem) and (max-width: 79.99rem) {
+  .settingsDrawer,
+  .projectDrawer { inline-size: min(56rem, calc(100dvw - 2rem)); }
+}
+
+@container drawer-content (min-width: 38rem) {
+  .containerMetrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 .inspectList li,
@@ -2046,3 +2078,13 @@
 .operationList strong, .operationList time { display: block; }
 .operationList time { color: var(--color-text-muted); font-size: 0.8rem; margin-block-start: 0.25rem; }
 .operationList p { margin-block: 0.4rem 0; }
+
+/* Shared drawer disclosures and compact detail sections. */
+.operationHistory summary { display: flex; align-items: center; gap: var(--space-2); list-style: none; }
+.operationHistory summary::-webkit-details-marker { display: none; }
+.operationHistory details[open] > summary > i { transform: rotate(90deg); }
+.containerMetrics .metric strong { white-space: normal; overflow-wrap: anywhere; }
+.projectTab { border-start-start-radius: var(--radius-sm); border-start-end-radius: var(--radius-sm); }
+.closeButton i { display: block; line-height: 1; }
+.projectOverviewMetrics { margin-block-start: var(--space-2); }
+.consoleContent { overflow: auto; }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -20,6 +21,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
+	"github.com/mapherez/nox-yard/internal/logexport"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/mcpapi"
 	"github.com/mapherez/nox-yard/internal/recreate"
@@ -39,6 +41,13 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) == 6 && os.Args[1] == "log-export-helper" {
+		result, err := logexport.Run("/export-root", os.Args[3], os.Args[2], os.Args[5], os.Args[4] == "create", os.Stdin)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
+	}
 	if len(os.Args) == 3 && os.Args[1] == "restart-worker" {
 		return lifecycle.RunRestartWorker(os.Args[2])
 	}

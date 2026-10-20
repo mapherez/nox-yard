@@ -27,6 +27,7 @@ web/.vite/
 *.tsbuildinfo
 
 # Logs and local tooling
+logs/
 *.log
 .cache/
 .tmp/
