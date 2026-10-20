@@ -62,7 +62,12 @@ func adoptionRuntimeFingerprint(items []container.InspectResponse) string {
 	}
 	values := make([]state, 0, len(items))
 	for _, item := range items {
-		value := state{ID: item.ID, Image: item.Image, Config: item.Config, HostConfig: item.HostConfig, Mounts: item.Mounts}
+		// Docker builds the inspection's Mounts array from a map. Its order is
+		// not a configuration change (notably on Engine 28). Sort a copy so
+		// the reviewed fingerprint remains stable without losing mount fields.
+		mounts := slices.Clone(item.Mounts)
+		sort.Slice(mounts, func(i, j int) bool { return mounts[i].Destination < mounts[j].Destination })
+		value := state{ID: item.ID, Image: item.Image, Config: item.Config, HostConfig: item.HostConfig, Mounts: mounts}
 		if item.NetworkSettings != nil {
 			value.Networks = item.NetworkSettings.Networks
 		}

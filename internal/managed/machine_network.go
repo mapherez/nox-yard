@@ -308,6 +308,7 @@ func RunNetworkWorker(data *store.Store, id, owner string) (result error) {
 	}
 	m, _ := NewManager(data, nil)
 	mutated, completed := false, false
+	failureMessage := "Network application failed. The requested settings remain pending."
 	defer func() {
 		if recover() != nil {
 			result = errors.New("Network worker failed unexpectedly.")
@@ -316,7 +317,7 @@ func RunNetworkWorker(data *store.Store, id, owner string) (result error) {
 			return
 		}
 		outcome, rollback := "failed", "not_needed"
-		message := "Network application failed. The requested settings remain pending."
+		message := failureMessage
 		if mutated {
 			recovery, stop := context.WithTimeout(context.Background(), 3*time.Minute)
 			defer stop()
@@ -339,11 +340,21 @@ func RunNetworkWorker(data *store.Store, id, owner string) (result error) {
 		}
 	}()
 	current, err := m.readFileSnapshot(ctx, job.ProjectName)
-	if err != nil || current.Fingerprint != plan.Before.Fingerprint {
+	if err != nil {
+		failureMessage = "Current host configuration could not be inspected; no network changes were applied."
+		return fmt.Errorf("inspect host configuration before network application: %w", err)
+	}
+	if current.Fingerprint != plan.Before.Fingerprint {
+		failureMessage = "Host configuration changed before application; review the current files. No network changes were applied."
 		return errors.New("Host files changed before application.")
 	}
 	runtime, err := m.runtime(ctx, job.ProjectName)
-	if err != nil || adoptionRuntimeFingerprint(serviceRuntime(runtime, "nox-yard")) != adoptionRuntimeFingerprint(plan.Runtime) {
+	if err != nil {
+		failureMessage = "The existing Yard container could not be inspected; no network changes were applied."
+		return fmt.Errorf("inspect Yard before network application: %w", err)
+	}
+	if adoptionRuntimeFingerprint(serviceRuntime(runtime, "nox-yard")) != adoptionRuntimeFingerprint(plan.Runtime) {
+		failureMessage = "The existing Yard container changed before application; review it before retrying. No network changes were applied."
 		return store.ErrJobChanged
 	}
 	if err := data.JobProgress(id, owner, "saving_configuration", nil, nil); err != nil {
