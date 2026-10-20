@@ -4,6 +4,8 @@ User-facing changes in Yard. Entries summarize tagged source changes; [GitHub Re
 
 ## Unreleased
 
+- Settings shows the running Yard version alongside update status and build information.
+- Consolidated developer status and separated historical plans/reviews into an archive; clarified legacy upgrade requirements.
 - Settings now prioritizes Yard updates, then the projects directory, with MCP controls in a collapsed accordion that keeps its enabled/disabled indicator visible.
 - Reorganized the README around installation and everyday homelab use.
 - Added a Quickstart, user guide, and configuration guide.
@@ -32,6 +34,7 @@ This protection is provided by the new updater: installing this version does not
 
 ### Release trust and housekeeping
 
+- Older installations with DB-only project configuration must complete conversion on v1.3.1 before upgrading; already-converted installations are unaffected.
 - Published container images now include keyless Cosign signatures and build provenance, with verification instructions in release notes.
 - Removed the retired configuration-migration flow and its repeated network requests.
 - Added the CC BY-NC-SA 4.0 license and attribution terms.

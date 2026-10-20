@@ -1112,6 +1112,7 @@ function SettingsDrawer({ open, csrfToken, onClose, machineStatus, machineError,
           </div>
           <p className={settingsStyles.description}>Check now installs an available update. Manage automatic checks in Yard’s project drawer.</p>
           <dl className={settingsStyles.facts} aria-live="polite">
+            <div><dt>Current version</dt><dd><code>{status?.currentVersion || (status ? "Unavailable" : "Loading")}</code></dd></div>
             <div><dt>Status</dt><dd><span className={`${styles.statusBadge} ${status?.status === "up_to_date" ? styles.statusRunning : status?.status === "update_failed" ? styles.statusStopped : busy ? styles.statusPartial : ""}`}>{status ? labels[status.status] : "Loading"}</span></dd></div>
             <div><dt>Last checked</dt><dd>{status?.lastChecked ? <time dateTime={status.lastChecked}>{new Date(status.lastChecked).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</time> : "Never"}</dd></div>
             {status?.currentBuildSHA && <div><dt>Current build</dt><dd><code title={status.currentBuildSHA}>{status.currentBuildSHA.slice(0, 12)}</code></dd></div>}

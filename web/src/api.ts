@@ -146,6 +146,7 @@ export type ContainerInspection = {
 };
 
 export type SelfUpdateStatus = {
+  currentVersion: string;
   automatic: boolean;
   intervalMinutes: number;
   status: "not_checked" | "checking" | "up_to_date" | "updating" | "update_failed";

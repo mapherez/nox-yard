@@ -26,6 +26,9 @@ web/dist/
 web/.vite/
 *.tsbuildinfo
 
+# Local historical documentation
+/Documentation/Developer/Archive/
+
 # Logs and local tooling
 __pycache__/
 *.pyc

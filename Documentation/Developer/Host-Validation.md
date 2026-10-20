@@ -1,21 +1,22 @@
 # Isolated host acceptance
 
-Use this procedure on the Raspberry Pi 5 and a designated Linux amd64 host. Docker Desktop and ARM64 emulation are local preparation evidence; they do not close the physical-host gates in [the completion plan](Completion-Plan.md). Record results in [Progress](Progress.md).
+Use this procedure on designated native Linux arm64 and amd64 hosts. No specific hardware brand or model is required. Docker Desktop and ARM64 emulation are local preparation evidence; they do not close the native-host acceptance requirements below. Record results in [Progress](Progress.md).
 
-## Prepare a versioned Pi 5 handoff
+## Prepare a versioned Linux ARM64 handoff
+
+The current upgrade harness starts from v1.0.1. Its direct-upgrade assumptions must be verified against converter retirement, and a supported v1.3.1 intermediate-conversion regression remains pending. A green historical report does not establish support for a direct jump with DB-only configuration. This procedure uses disposable fixtures; apply the supported upgrade sequence to existing installations.
 
 Prepare a fresh handoff from the exact revision under review. The old `.tmp/c6-pi5/` bundle and `c6-*-20261008` images describe historical preparation and must not be used as evidence for newer source. Rebuild and test matching current/baseline images first, use a new output directory, and retain the manifest with their exact IDs, source commit, dirty state and archive checksum. The packaging script includes tracked/untracked non-ignored source and excludes ignored data, dependencies and local secrets; do not reuse an older archive after code or toolchain changes.
 
 To reproduce the handoff after building/testing the images from the current source, run `python scripts/prepare-host-validation.py --image nox-yard:validation-arm64-20261020 --legacy-image nox-yard:baseline-v1.0.1-arm64 --output .tmp/host-validation-20261020` from a Git checkout. It refuses an existing output directory, includes current tracked/untracked non-ignored source, normalizes text to LF and records whether the source has uncommitted changes. Keep image/source versions aligned before packaging.
 
-Copy that directory to a new directory on the Pi, for example `~/nox-yard-c6-validation`. Prerequisites are a 64-bit Linux OS, Docker with its Compose plugin, Python 3, curl and access to public fixture/build images. The fixture suite builds Linux Go runners and retains Go build/module cache volumes; allow time and disk space for these images on the Pi. Browser checks run on a desktop against the Pi's validation instance.
+Copy that directory to a new directory on the ARM64 host, for example `~/nox-yard-c6-validation`. Prerequisites are a 64-bit Linux OS, Docker with its Compose plugin, Python 3, curl and access to public fixture/build images. The fixture suite builds Linux Go runners and retains Go build/module cache volumes; allow time and disk space for these images on the host. Browser checks run on a desktop against the validation instance.
 
 Run from the transferred directory:
 
 ```sh
 uname -m
-# Expected: aarch64. Confirm the model is Raspberry Pi 5.
-tr -d '\000' < /proc/device-tree/model
+# Expected: aarch64 for this ARM64 example.
 sha256sum -c SHA256SUMS
 docker load -i nox-yard-c6-pi5.tar
 python3 -m zipfile -e nox-yard-c6-source.zip .
@@ -26,7 +27,7 @@ python3 scripts/acceptance.py \
   --report .tmp/pi5-acceptance-results.json
 ```
 
-Keep the resulting JSON report. It records the host model/kernel, Engine version, exact image IDs and each gate's outcome/duration. `complete` means the isolated runtime gates passed; the manual host checklist below remains separate. The harness refuses images for the wrong Engine architecture and stops on the first failed gate. It runs seven legacy suites; additionally run `python3 scripts/smoke-configuration.py --image CURRENT` and `python3 scripts/smoke-service-recreate.py --image CURRENT` for current file-backed Yard recovery and service scope. Those two suites are not yet aggregated into its report. Repeat an individual script to diagnose a failure, then rerun the suite for a complete report.
+Keep the resulting JSON report. It records the host model/kernel, Engine version, exact image IDs and each gate's outcome/duration. `complete` means the isolated runtime gates passed; the manual host checklist below remains separate. The harness refuses images for the wrong Engine architecture and stops on the first failed gate. It runs seven suites; additionally run `python3 scripts/smoke-configuration.py --image CURRENT`, `python3 scripts/smoke-service-recreate.py --image CURRENT` and `python3 scripts/smoke-machine.py --image CURRENT` for file-backed Yard recovery, service scope and MCP/network access. Those three suites are not aggregated into its report. Repeat an individual script to diagnose a failure, then rerun the suite for a complete report.
 
 The suite creates random fixture identities and deletes only its own recorded containers, networks, volumes, helper images and temporary source directories. It does not select an existing Yard or user stack. It exercises:
 
@@ -51,7 +52,7 @@ NOX_VALIDATION_IMAGE=nox-yard:validation-arm64-20261020 \
 
 The default port is 18096 and the project/container are `nox-yard-c6-validation` / `nox-yard-c6-validation-yard`. The Compose file refuses an unset validation image and uses `.tmp/pi5-ui/data` relative to the source root. If this name or port is already occupied, choose a different validation name/port through the documented variables in that file. The regular production Compose file is not involved. Access is intended for the trusted LAN or VPN.
 
-Keep Yard automatic self-update off while using unpublished validation images; the isolated worker fixture tests replacement, and C7 verifies the official registry path. Open `http://PI_ADDRESS:18096` in the desktop browser. Create a disposable administrator, then set the projects directory to the absolute host path of a new fixture-only directory, such as `.../nox-yard-c6-source/.tmp/pi5-ui/projects`. Record:
+Keep Yard automatic self-update off while using unpublished validation images; the isolated worker fixture tests replacement, and C7 verifies the official registry path. Open `http://HOST_ADDRESS:18096` in the desktop browser. Create a disposable administrator, then set the projects directory to the absolute host path of a new fixture-only directory, such as `.../nox-yard-c6-source/.tmp/pi5-ui/projects`. Record:
 
 | Check | Evidence to keep |
 | --- | --- |
@@ -90,6 +91,8 @@ Yard state, original project directories and application storage are separate ba
 
 Restore into an isolated instance first. Preserve the original host paths, volume identities and directory roots for bind mounts; restore file contents in place. Deleting/recreating a bind-mounted directory while containers exist can leave their mounts pointing at the old directory inode. Do not assume reverting the image downgrades schema 9 to schema 6: reverting to v1.0.1 requires its pre-upgrade database backup and corresponding source/application data. Yard's self-update rollback snapshots SQLite and restores the previous Yard container; it is not an application-data rollback.
 
-Current Docker labels and saved file locations identify the original directory and ordered Compose filenames. Restore/locate missing source files and validate them through the file editors before applying changes. The one-off configuration migration has been retired; installations with DB-only configuration must finish conversion on the preceding release before upgrading. See [Configuration files](Configuration-Files.md). Restoring SQLite also restores historical password hashes and sessions. After a restore, run the interactive reset if those credentials/sessions should no longer be valid.
+The handoff tool and validation Compose retain historical archive/directory names such as `nox-yard-c6-pi5.tar` and `.tmp/pi5-ui`; these are compatibility filenames, not hardware requirements.
+
+Current Docker labels and saved file locations identify the original directory and ordered Compose filenames. Restore/locate missing source files and validate them through the file editors before applying changes. The one-off configuration migration has been retired; installations with DB-only configuration must finish and verify conversion on v1.3.1 before upgrading to v1.3.2 or later. See [Configuration files](Configuration-Files.md). Restoring SQLite also restores historical password hashes and sessions. After a restore, run the interactive reset if those credentials/sessions should no longer be valid.
 
 Keep the image IDs, source archive checksum, host report and completed manual checklist together. C6 remains open until both designated native hosts and the original acceptance cases have evidence; C7 handles CI/publication gates and the formal release.

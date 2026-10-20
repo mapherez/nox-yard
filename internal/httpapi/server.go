@@ -193,6 +193,11 @@ func (s *Server) Handler() http.Handler {
 	}))
 }
 
+type selfUpdateStatusResponse struct {
+	selfupdate.Status
+	CurrentVersion string `json:"currentVersion"`
+}
+
 func (s *Server) selfUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSession(w, r, false) {
 		return
@@ -206,7 +211,7 @@ func (s *Server) selfUpdateStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Unable to read self-update status.")
 		return
 	}
-	writeJSON(w, http.StatusOK, status)
+	writeJSON(w, http.StatusOK, selfUpdateStatusResponse{Status: status, CurrentVersion: s.controlVersion()})
 }
 
 func (s *Server) selfUpdateSettings(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +249,7 @@ func (s *Server) selfUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Unable to save automatic update setting.")
 		return
 	}
-	writeJSON(w, http.StatusOK, status)
+	writeJSON(w, http.StatusOK, selfUpdateStatusResponse{Status: status, CurrentVersion: s.controlVersion()})
 }
 
 func (s *Server) selfUpdateCheck(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +273,7 @@ func (s *Server) selfUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Unable to start update check.")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, status)
+	writeJSON(w, http.StatusAccepted, selfUpdateStatusResponse{Status: status, CurrentVersion: s.controlVersion()})
 }
 
 func (s *Server) requireSession(w http.ResponseWriter, r *http.Request, csrfRequired bool) bool {

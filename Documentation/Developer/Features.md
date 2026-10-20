@@ -1,6 +1,6 @@
 # Implemented features
 
-This file records current behavior. Future Docker management capabilities are specified in the [Implementation Plan](Implementation-Plan.md).
+This file records current behavior. Remaining implementation and validation work is tracked in [Progress](Progress.md).
 
 ## First-run administrator and local login
 
@@ -16,7 +16,7 @@ Authentication state lives in `data/nox-yard.sqlite`. Keep `data/` persistent an
 
 The Go service serves the Vite production build and exposes `/healthz`, which checks SQLite access. The React UI has responsive setup/login screens, a compact dashboard sidebar, and sign-out. UI styles use the semantic tokens in `web/src/styles/tokens.css` and feature CSS Modules.
 
-Settings groups MCP & access, Projects directory and Yard updates into distinct panels with Phosphor headings. MCP is opt-in on a separate port, with a single hashed token shared with Control API, explicit anonymous MCP, inspection/write/sensitive-read permissions and a last-ten-events History modal. Token replacement immediately invalidates its predecessor. Separate Yard/MCP host bindings and ports use persisted pending configuration and explicit Apply now, with optional automatic recreation, durable worker verification and runtime/file recovery. A sidebar MCP indicator opens these settings and represents local server availability. NoX Gateway registration/authentication remains deferred. The directory field and Save action share a row when space permits, with separate examples for new Compose files and exported logs. Update status, last checked and current build use compact wrapping columns. Narrow layouts stack controls inside the shared fullscreen mobile drawer.
+Settings prioritizes Yard updates, then Projects directory, then MCP & access in a closed-by-default accordion with a visible enabled/disabled dot and label. The sidebar MCP shortcut opens that accordion directly; the sidebar indicator itself represents local server availability. MCP is opt-in on a separate port, with a single hashed token shared with Control API, explicit anonymous MCP, inspection/write/sensitive-read permissions and a last-ten-events History modal. Token replacement immediately invalidates its predecessor. Separate Yard/MCP host bindings and ports use persisted pending configuration and explicit Apply now, with optional automatic recreation, durable worker verification and runtime/file recovery. NoX Gateway registration/authentication remains deferred. The directory field and Save action share a row when space permits, with separate examples for new Compose files and exported logs. Update status, last checked and current build use compact wrapping columns. Narrow layouts stack controls inside the shared fullscreen mobile drawer.
 
 ## Machine Control API
 

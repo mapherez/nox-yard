@@ -31,7 +31,7 @@ async (originalPage) => {
       if(path==='/api/projects')return route.fulfill({json:{projects,collectedAt:'2026-10-20T11:37:00Z'}});
       if(path.includes('/configuration/'))return route.fulfill({json:{available:false,state:'ready',directory:'/external/original-compose',files:[],variables:[]}});
       if(path==='/api/managed/settings')return route.fulfill({json:{projectsBase:'/srv/projects'}});
-      if(path==='/api/self-update')return route.fulfill({json:{automatic:false,intervalMinutes:15,status:'up_to_date',lastChecked:'2026-10-20T11:37:00Z',currentBuildSHA:'123456789abcdef'}});
+      if(path==='/api/self-update')return route.fulfill({json:{currentVersion:'v1.3.3',automatic:false,intervalMinutes:15,status:'up_to_date',lastChecked:'2026-10-20T11:37:00Z',currentBuildSHA:'123456789abcdef'}});
       if(path==='/api/jobs')return route.fulfill({json:[]});
       if(path.endsWith('/schedule'))return route.fulfill({json:{enabled:true,targetID:'compose:single',time:'03:00',timezone:'Europe/Lisbon',eligible:true,nextAt:1792530000,lastOutcome:'unchanged'}});
       if(path.endsWith('/logs/export')){

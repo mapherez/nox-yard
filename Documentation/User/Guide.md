@@ -51,6 +51,8 @@ In the project's **Details**, enable **Automatic image updates**, choose the dai
 
 ### Update Yard
 
+If upgrading an old installation that still keeps project configuration only in Yard's database, first run v1.3.1 and verify that its conversion to host Compose/environment files completes. The converter was removed in v1.3.2. Installations already using host files can update normally.
+
 In **Settings**, **Check now** checks for and installs an available update immediately, even when automatic updates are disabled. For daily automatic checks, enable the schedule in Yard's own project Details. Automatic self-updates are off by default.
 
 The built-in updater verifies the official image signature before installation. The default Compose file tracks the stable `latest` channel. To manage versions manually, use a published version tag or verified digest; see [image selection and verification](../Developer/Releases.md#choose-an-update-policy-in-compose). A pinned Compose image is respected by the updater.
