@@ -64,7 +64,7 @@ func (s *Server) maintenanceOperation(w http.ResponseWriter, r *http.Request, co
 	case errors.Is(err, lifecycle.ErrChanged):
 		writeError(w, http.StatusConflict, "Project containers changed. Refresh the project list and confirm again.")
 	case errors.Is(err, lifecycle.ErrProtected):
-		writeError(w, http.StatusConflict, "This NoX Yard container cannot be removed or managed by that action.")
+		writeError(w, http.StatusConflict, "This Yard container cannot be removed or managed by that action.")
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(ctx.Err(), context.DeadlineExceeded):
 		writeError(w, http.StatusGatewayTimeout, "Docker operation timed out.")
 	case err != nil:
@@ -117,7 +117,7 @@ func (s *Server) removeOperation(w http.ResponseWriter, r *http.Request, isConta
 	case errors.Is(err, lifecycle.ErrChanged):
 		writeError(w, http.StatusConflict, "Docker resources changed since the preview. Reopen Remove and review the new list.")
 	case errors.Is(err, lifecycle.ErrProtected):
-		writeError(w, http.StatusConflict, "NoX Yard cannot remove itself or its temporary workers.")
+		writeError(w, http.StatusConflict, "Yard cannot remove itself or its temporary workers.")
 	case errors.Is(err, context.DeadlineExceeded):
 		writeError(w, http.StatusGatewayTimeout, "Docker operation timed out.")
 	case err != nil:

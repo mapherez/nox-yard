@@ -31,6 +31,12 @@ Current manual actions are **Save → Recreate** for configuration and **Pull �
 | Dependencies | npm audit reported zero vulnerabilities. The original Go 1.26.6 scan found 10 reachable standard-library advisories. After raising the floor to 1.26.9, pinned govulncheck 1.8.0 reported zero reachable and zero imported-package vulnerabilities for Linux amd64 and arm64. The module-only OpenPGP advisory GO-2026-5932 remains; Yard does not import it. |
 | Docker runtime / native hosts | Not rerun: the local Docker daemon was unavailable. No inference of Pi/amd64-host acceptance, current deployment version or remote CI success is made from the source checks. |
 
+## Yard product identity
+
+The product is named **Yard**, part of the **NoX** environment (D-035). Product prose, browser titles, accessible labels, errors/logs and MCP display copy now use Yard. The login uses a larger text-only wordmark, with extra separation above the mobile form. Both expanded and collapsed sidebars retain the Yard name; the former N badge is removed. The favicon uses a white Y on the existing blue background. Technical repository/runtime identifiers, environment variables and persisted data are unchanged.
+
+Validation passed Go tests/vet, 53 release-tooling tests, frontend typecheck/build and all five existing browser fixtures. Separate visual QA covered login at 1440/768/390/320 px, setup at 320 px, expanded/collapsed and mobile sidebars, Tab/Enter expansion, Escape dismissal, titles, overflow and favicon rendering. Screenshots were inspected. No former product-name references remain in tracked text. This presentation change does not close native-host acceptance or publish/deploy a release.
+
 ## Previously recorded evidence
 
 Earlier checkpoints recorded Windows/Linux tests, selected Linux race checks, disposable Linux Docker Desktop suites for jobs, managed/external updates and rollback, MCP/adoption/removal, schedules, upgrade/password/backup restoration and Yard SQLite recovery. The C0–C5 checkpoint commits include C2 `4ad8caa`, C3 `9daace6`, C4 `8462a5d` and C5 `05f1752`. Later committed configuration/service fixtures cover migration conflicts, host ownership, current-file Yard recovery, stopped replicas, dependencies and missing-file Engine fallback.

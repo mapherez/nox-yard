@@ -45,7 +45,7 @@ async (page) => {
         if(!source)throw Error('Requested stream never opened');source.dispatchEvent(new Event('session-expired'));
       },kind);
     }
-    await page.getByRole('heading',{name:'Sign in to NoX Yard',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Sign in to Yard',exact:true}).waitFor();
     if(await page.getByRole('dialog').count())throw Error('Protected drawer remains after expiry');
     if(!await page.evaluate(()=>window.fixtureStreams.every(s=>s.readyState===2)&&window.fixtureSockets.every(s=>s.readyState===3)))throw Error('Session expiry did not release streams');
   }

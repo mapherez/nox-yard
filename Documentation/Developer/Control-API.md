@@ -1,6 +1,6 @@
 # Control API v1
 
-The Control API is the stable HTTP interface for machine clients, including a future standalone NoX CLI. It uses the existing NoX Yard process and port (`http://<host>:8095` in the default installation). Clients communicate with Yard, never directly with Docker.
+The Control API is the stable HTTP interface for machine clients, including a future standalone NoX CLI. It uses the existing Yard process and port (`http://<host>:8095` in the default installation). Clients communicate with Yard, never directly with Docker.
 
 The React browser API remains under `/api/*`, with sessions, cookies, Origin checks, CSRF, SSE, and terminal WebSockets. It is not the public machine contract. `/v1/*` uses independent DTOs, Bearer authentication, and stable error codes. Both adapters call the same inventory and lifecycle implementations.
 

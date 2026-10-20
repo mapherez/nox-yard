@@ -227,7 +227,7 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 	}
 	for name, service := range model.Services {
 		if _, reserved := service.Labels[imageidentity.ReferenceLabel]; reserved {
-			return Preview{}, fmt.Errorf("%w: service %s uses a reserved NoX Yard image-reference label", ErrInvalidSource, name)
+			return Preview{}, fmt.Errorf("%w: service %s uses a reserved Yard image-reference label", ErrInvalidSource, name)
 		}
 		if service.Image == "" {
 			return Preview{}, fmt.Errorf("%w: service %s needs a prebuilt image", ErrInvalidSource, name)

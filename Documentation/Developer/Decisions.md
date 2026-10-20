@@ -14,7 +14,7 @@ Use Go for the local Docker-facing service and React/TypeScript/Vite for the bro
 
 ## D-003 — Docker Engine is the runtime source of truth
 
-Discover Compose projects from Docker labels and standalone containers from the remaining Engine inventory. Do not require access to an existing Compose file. Stored NoX Yard metadata augments, but does not override, live Docker state.
+Discover Compose projects from Docker labels and standalone containers from the remaining Engine inventory. Do not require access to an existing Compose file. Stored Yard metadata augments, but does not override, live Docker state.
 
 ## D-004 — Two levels of project management
 
@@ -34,7 +34,7 @@ Managed YAML, variables, credentials, settings, and job history persist across c
 
 ## D-008 — Auto-update and self-management
 
-Auto-update is opt-in per project, initially checked daily at 03:00 server-local time. NoX Yard appears in inventory and can restart/update after confirmation. An independent temporary job container survives replacement of the web service. The UI does not offer stop/remove for its own service.
+Auto-update is opt-in per project, initially checked daily at 03:00 server-local time. Yard appears in inventory and can restart/update after confirmation. An independent temporary job container survives replacement of the web service. The UI does not offer stop/remove for its own service.
 
 ## D-009 — Dark-only design and canonical docs
 
@@ -185,3 +185,7 @@ Count successful one-shot initializers as satisfied members when aggregating a r
 Add optional `service` to the existing browser/MCP recreate request for Compose `recreate` operations. Container details select that service's replicas; project actions retain whole-project behavior. Bind scope, current host files and runtime state to the reviewed fingerprint, and refuse unknown services instead of widening scope. Reuse independent workers, shared reservations and private journals. Native execution uses local pinned images, `--no-build --pull never --no-deps` and no orphan removal. Recovery, image retention and verification target only the selected service; unselected container identities/state must remain unchanged. Missing-file Engine fallback assesses dependencies without including them in replacement or rollback. Explicit incoming namespace/link/volumes-from references block unsafe replacement, including references from other projects.
 
 Permit development `build:` alongside an explicit `image:` by removing build metadata solely from the private resolved execution model. Host files are preserved, builds never run and build-only services still fail. Retain stopped service state and require consistent running/stopped states across replicas before scoped recreation. See [Configuration files](Configuration-Files.md) for the contract and validation fixture.
+
+## D-035 — Yard product identity (2026-10-20)
+
+The application is named **Yard** and belongs to the **NoX** environment. Use Yard in product copy, documentation, logs, errors and human-facing MCP titles/descriptions. Keep `nox-yard` for the repository, module/package names, executable, Docker images/services/labels, stored data and protocol identifiers, and retain existing `NOX_*` environment variables and release markers. This is a presentation change with no identifier/data migration. Use a text-only Yard wordmark and a white Y favicon on blue; see [Design system](Design-System.md).

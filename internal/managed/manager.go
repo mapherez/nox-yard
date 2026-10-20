@@ -336,7 +336,7 @@ func sameStrings(a, b []string) bool {
 
 func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, error) {
 	if input.Name == "nox-yard" {
-		return store.ManagedJob{}, fmt.Errorf("%w: NoX Yard cannot manage itself", ErrConflict)
+		return store.ManagedJob{}, fmt.Errorf("%w: Yard cannot manage itself", ErrConflict)
 	}
 	preview, source, err := m.Preview(ctx, input)
 	if err != nil {
@@ -407,7 +407,7 @@ func (m *Manager) OperationWithPreview(name, operation string, removeVolumes boo
 }
 func (m *Manager) operation(name, operation string, removeVolumes bool, removalFingerprint string) (store.ManagedJob, error) {
 	if name == "nox-yard" {
-		return store.ManagedJob{}, fmt.Errorf("%w: NoX Yard cannot manage itself", ErrConflict)
+		return store.ManagedJob{}, fmt.Errorf("%w: Yard cannot manage itself", ErrConflict)
 	}
 	allowed := map[string]bool{"start": true, "stop": true, "restart": true, "pull": true, "update": true, "recreate": true, "remove": true}
 	if !allowed[operation] {

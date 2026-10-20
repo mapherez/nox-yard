@@ -23,7 +23,7 @@ func (m *Manager) launchSelfRestart(ctx context.Context, id string, failures ...
 		}
 		self := inspected.Container
 		if self.ID != id || self.State == nil || !self.State.Running || self.Config == nil || self.Config.Healthcheck == nil {
-			return errors.New("NoX Yard must be running with a healthcheck to restart safely")
+			return errors.New("Yard must be running with a healthcheck to restart safely")
 		}
 		payload := map[string]any{}
 		if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil {
@@ -62,7 +62,7 @@ func (m *Manager) launchSelfRestart(ctx context.Context, id string, failures ...
 	}
 	self := inspected.Container
 	if self.ID != id || self.State == nil || !self.State.Running || self.Config == nil || self.Config.Healthcheck == nil {
-		return errors.New("NoX Yard must be running with a healthcheck to restart safely")
+		return errors.New("Yard must be running with a healthcheck to restart safely")
 	}
 	var socket *mount.Mount
 	for _, source := range self.Mounts {
@@ -72,7 +72,7 @@ func (m *Manager) launchSelfRestart(ctx context.Context, id string, failures ...
 		}
 	}
 	if socket == nil {
-		return errors.New("NoX Yard needs a writable Docker socket mount for its restart helper")
+		return errors.New("Yard needs a writable Docker socket mount for its restart helper")
 	}
 	created, err := m.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
@@ -124,7 +124,7 @@ func RunDurableRestartWorker(data *store.Store, id, owner string) error {
 		return err
 	}
 	if err := RunRestartWorker(payload["selfID"]); err != nil {
-		return data.FinishJob(id, owner, "failed", "recovery_required", "NoX Yard restart failed or its healthcheck did not become healthy. Inspect the container on the host and acknowledge recovery before retrying.", "")
+		return data.FinishJob(id, owner, "failed", "recovery_required", "Yard restart failed or its healthcheck did not become healthy. Inspect the container on the host and acknowledge recovery before retrying.", "")
 	}
 	images, imageErr := jobs.Images(ctx, job.Resources, false)
 	if imageErr == nil {
@@ -145,7 +145,7 @@ func restartOutcome(payload map[string]string) (string, string, string) {
 }
 
 // RunRestartWorker runs independently of the web server, from the exact image
-// currently used by NoX Yard. Durable helpers are cleaned after their saved result.
+// currently used by Yard. Durable helpers are cleaned after their saved result.
 func RunRestartWorker(id string) error {
 	cli, err := client.New(client.WithHost("unix:///var/run/docker.sock"))
 	if err != nil {
@@ -157,31 +157,31 @@ func RunRestartWorker(id string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	if _, err := cli.ContainerRestart(ctx, id, client.ContainerRestartOptions{}); err != nil {
-		return fmt.Errorf("restart NoX Yard: %w", err)
+		return fmt.Errorf("restart Yard: %w", err)
 	}
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
 		inspected, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 		if errdefs.IsNotFound(err) {
-			return errors.New("NoX Yard disappeared during restart")
+			return errors.New("Yard disappeared during restart")
 		}
 		if err != nil {
 			return err
 		}
 		state := inspected.Container.State
 		if state == nil || !state.Running {
-			return errors.New("NoX Yard stopped during restart")
+			return errors.New("Yard stopped during restart")
 		}
 		if state.Health != nil && state.Health.Status == container.Healthy {
 			return nil
 		}
 		if state.Health != nil && state.Health.Status == container.Unhealthy {
-			return errors.New("NoX Yard is unhealthy after restart")
+			return errors.New("Yard is unhealthy after restart")
 		}
 		select {
 		case <-ctx.Done():
-			return errors.New("timed out waiting for NoX Yard healthcheck")
+			return errors.New("timed out waiting for Yard healthcheck")
 		case <-ticker.C:
 		}
 	}

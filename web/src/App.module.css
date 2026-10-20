@@ -23,33 +23,19 @@
   color: var(--color-text-muted);
 }
 
-.brand,
-.brandCompact {
+.brand {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
   white-space: nowrap;
 }
 
-.brandMark {
-  display: grid;
-  inline-size: 2.35rem;
-  block-size: 2.35rem;
-  place-items: center;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-2);
-  color: var(--color-text-primary);
-  font-size: 1.1rem;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: -0.09em;
-}
-
 .brandName {
-  font-size: 1.15rem;
+  color: var(--color-text-primary);
+  font-size: 2.75rem;
   font-weight: 750;
-  letter-spacing: -0.04em;
+  line-height: 1.1;
+  letter-spacing: -0.055em;
+  text-box: trim-both cap alphabetic;
 }
 
 .authLayout {
@@ -323,6 +309,11 @@
   white-space: nowrap;
 }
 
+.sidebarBrand .brandName {
+  padding-inline: var(--space-2);
+  font-size: 1.65rem;
+}
+
 .sidebarToggle {
   display: grid;
   flex: none;
@@ -358,7 +349,9 @@
   transition: opacity var(--duration-fast);
 }
 
-.dashboard[data-collapsed="true"] .sidebarBrand .brandMark {
+.dashboard[data-collapsed="true"] .sidebarBrand .brandName {
+  padding-inline: 0;
+  font-size: 1.1rem;
   transition: opacity var(--duration-fast);
 }
 
@@ -367,8 +360,8 @@
   opacity: 1;
 }
 
-.dashboard[data-collapsed="true"] .sidebarHeader:has(.sidebarExpand:hover) .brandMark,
-.dashboard[data-collapsed="true"] .sidebarHeader:has(.sidebarExpand:focus-visible) .brandMark {
+.dashboard[data-collapsed="true"] .sidebarHeader:has(.sidebarExpand:hover) .brandName,
+.dashboard[data-collapsed="true"] .sidebarHeader:has(.sidebarExpand:focus-visible) .brandName {
   opacity: 0;
 }
 
@@ -1745,7 +1738,7 @@
 
   .authMobileBrand {
     display: block;
-    margin-block-end: var(--space-12);
+    margin-block-end: var(--space-16);
   }
 
   .dashboard,
@@ -1837,9 +1830,6 @@
 @media (max-width: 26rem) {
   .inventoryMeta { flex-direction: column; align-items: flex-start; gap: var(--space-1); }
 
-  .brandCompact .brandName {
-    font-size: 1rem;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1849,7 +1839,7 @@
   }
 
   .sidebarExpand,
-  .dashboard[data-collapsed="true"] .sidebarBrand .brandMark {
+  .dashboard[data-collapsed="true"] .sidebarBrand .brandName {
     transition: none;
   }
 }

@@ -1,6 +1,6 @@
 # Embedded MCP
 
-NoX Yard exposes an always-on Streamable HTTP MCP endpoint at `http://<host>:8095/mcp` in the default Compose installation. It uses the existing Go process and internal port 8080. Development clients can connect directly to `http://127.0.0.1:8080/mcp`.
+Yard exposes an always-on Streamable HTTP MCP endpoint at `http://<host>:8095/mcp` in the default Compose installation. It uses the existing Go process and internal port 8080. Development clients can connect directly to `http://127.0.0.1:8080/mcp`.
 
 The endpoint is intended for the existing private homelab LAN. It requires no credentials, cookies, Bearer key, OAuth or pairing, independently of browser administrator setup and `NOX_YARD_API_ENABLED`. Configure an HTTP-capable MCP client with the endpoint URL and no authorization headers. When a request includes Origin, it must match `NOX_PUBLIC_URL`, or the direct request origin when that setting is empty. There is no additional CORS policy.
 

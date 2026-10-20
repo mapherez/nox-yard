@@ -43,11 +43,11 @@ export function release(argv, {
   const git = (...args) => run('git', args).trim();
   const status = () => changedFiles(run('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all']));
   if (realpathSync(cwd) !== realpathSync(root) || realpathSync(git('rev-parse', '--show-toplevel')) !== realpathSync(root)) {
-    throw new Error('Run the release command from the NoX Yard repository root.');
+    throw new Error('Run the release command from the nox-yard repository root.');
   }
   if (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).name !== 'nox-yard' ||
       !/^module github\.com\/mapherez\/nox-yard\r?$/m.test(readFileSync(join(root, 'go.mod'), 'utf8'))) {
-    throw new Error('This is not the NoX Yard repository.');
+    throw new Error('This is not the nox-yard repository.');
   }
   const dirty = status();
   if (dirty.length) throw new Error(`Working tree must be completely clean: ${dirty.map(({ path }) => path).join(', ')}`);

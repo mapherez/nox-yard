@@ -173,7 +173,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
     if (import.meta.env.DEV && path === "/api/bootstrap") throw new Error(localBackendMessage);
-    throw new Error("Cannot reach NoX Yard. Check the connection and try again.");
+    throw new Error("Cannot reach Yard. Check the connection and try again.");
   }
 
   if (response.status === 204) {

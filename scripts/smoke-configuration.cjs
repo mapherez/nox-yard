@@ -99,7 +99,7 @@ async (page) => {
   if(await yard.getByRole('button',{name:/^Update/}).count())throw Error('redundant Update action remains');
   await page.keyboard.press('Escape');await yard.getByRole('button',{name:'Close project details',exact:true}).click();await page.getByRole('button',{name:'Settings',exact:true}).click();
   const settings=page.getByRole('dialog',{name:'Settings',exact:true});
-  await settings.getByRole('heading',{name:'NoX Yard updates',exact:true}).waitFor();
+  await settings.getByRole('heading',{name:'Yard updates',exact:true}).waitFor();
   await settings.getByText('Current build',{exact:true}).waitFor();
   if(await settings.getByRole('radio').count()||await settings.getByRole('checkbox').count())throw Error('old interval/automatic controls remain in Settings');
   await settings.getByRole('button',{name:'Check now',exact:true}).click();if(checks!==1)throw Error('Check now did not use manual path');

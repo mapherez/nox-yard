@@ -8,7 +8,7 @@ This is the original scope contract, not an implementation-status report. Later 
 
 Deliver an English-only, dark-only, responsive Docker management application for a single local Linux host. Raspberry Pi 5 is the primary target. Install through Docker Compose; use public registry images for the MVP. Reach the UI on a trusted LAN/VPN, with HTTPS supplied by a user-managed reverse proxy when needed.
 
-The MVP includes project and standalone-container discovery, state and metrics, lifecycle operations, logs, inspect, terminal, creation from URL/paste/upload, validation and preview, image pulls, update/recreation, removal, local login, and opt-in auto-update. The NoX Yard service appears in the dashboard and can restart or update itself with confirmation.
+The MVP includes project and standalone-container discovery, state and metrics, lifecycle operations, logs, inspect, terminal, creation from URL/paste/upload, validation and preview, image pulls, update/recreation, removal, local login, and opt-in auto-update. The Yard service appears in the dashboard and can restart or update itself with confirmation.
 
 ## Delivery phases
 
@@ -23,7 +23,7 @@ The MVP includes project and standalone-container discovery, state and metrics, 
 
 ### 2. Inventory and direct Docker management
 
-- Discover all containers through the Docker Engine; group Compose containers by project label and show standalone containers separately. Include running and stopped containers and NoX Yard itself.
+- Discover all containers through the Docker Engine; group Compose containers by project label and show standalone containers separately. Include running and stopped containers and Yard itself.
 - Add aggregate project cards, container details, CPU/memory/network sampling, uptime, health, ports, mounts, networks, and masked environment values.
 - Implement group and container start/stop/restart, logs, inspect, interactive terminal, and Engine-backed image pull and confirmed removal.
 - Stream changes and logs; handle Docker disconnection, missing containers, partial group failures, and stale browser sessions.
@@ -47,9 +47,9 @@ The MVP includes project and standalone-container discovery, state and metrics, 
 - Add durable job state, progress, restart recovery, and temporary independent job containers for operations that may stop the web service.
 - For external containers, reconstruct only configurations that can be safely represented through Engine inspect. Preserve mounts, networks, ports, environment, and labels; verify replacements and roll back on failure. Block unsupported cases with a specific reason.
 - Implement manual pull/update and project-level opt-in auto-update, initially scheduled daily at 03:00 server-local time. Check for a changed image before recreating; record every result.
-- Support confirmed NoX Yard restart/update through the independent job path. For external project removal, delete containers and optionally exclusive identifiable volumes; leave shared resources intact.
+- Support confirmed Yard restart/update through the independent job path. For external project removal, delete containers and optionally exclusive identifiable volumes; leave shared resources intact.
 
-**Checkpoint:** update succeeds for representative managed and external stacks, recovers from an induced failure, and can update the NoX Yard container without losing job history.
+**Checkpoint:** update succeeds for representative managed and external stacks, recovers from an induced failure, and can update the Yard container without losing job history.
 
 ### 5. Validation and release
 
@@ -63,15 +63,15 @@ The MVP includes project and standalone-container discovery, state and metrics, 
 
 Expose typed project, container, and job models through same-origin REST endpoints. Use SSE for read-only events/logs and an authenticated, origin-checked WebSocket for terminal sessions. Long operations return a job ID; clients obtain progress and final status from that ID. Internal Docker SDK structs and raw credentials are not API contracts.
 
-The project model distinguishes managed Compose, external Compose, and standalone container views. Docker is authoritative for runtime state; SQLite is authoritative for NoX Yard ownership, source URLs, credentials, settings, and job history. Managed projects remain listed with zero containers. External projects with zero containers cannot be rediscovered without a stored source.
+The project model distinguishes managed Compose, external Compose, and standalone container views. Docker is authoritative for runtime state; SQLite is authoritative for Yard ownership, source URLs, credentials, settings, and job history. Managed projects remain listed with zero containers. External projects with zero containers cannot be rediscovered without a stored source.
 
 ## Acceptance cases
 
 - Two simultaneous first-run submissions create exactly one administrator; later visits show login only.
-- Discovery groups Compose services correctly and does not misclassify standalone containers or temporary NoX Yard jobs.
+- Discovery groups Compose services correctly and does not misclassify standalone containers or temporary Yard jobs.
 - All three creation inputs produce a validated preview and require confirmation before pull/deploy; URL duplicates show all three agreed choices.
 - A Compose update preserves named volumes by default; removal deletes volumes only when explicitly selected and safe.
 - An external recreation retains observable Docker configuration and rolls back when replacement startup fails; unsupported containers receive an actionable reason.
 - Auto-update never runs without project opt-in and does not recreate when the image is unchanged.
-- Refreshing the browser or restarting NoX Yard does not lose the outcome of a long-running job.
+- Refreshing the browser or restarting Yard does not lose the outcome of a long-running job.
 - The dashboard and its contextual panels remain usable on desktop, tablet, and mobile with keyboard navigation.

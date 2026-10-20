@@ -1,9 +1,9 @@
 
-# NoX Yard
+# Yard
 
 **Your Docker homelab, in view.**
 
-NoX Yard is a self-hosted web application for managing Docker containers and Compose projects from a single, focused dashboard.
+Yard is a self-hosted web application in the NoX environment for managing Docker containers and Compose projects from a single, focused dashboard.
 
 Built for personal homelabs, it brings container monitoring, project deployment, lifecycle controls, live logs, interactive terminals, image updates, and automated maintenance into one interface — without requiring you to manage everything through the command line.
 
@@ -13,17 +13,17 @@ Designed for Linux hosts, with Raspberry Pi and x86-64 support.
 
 ---
 
-## What is NoX Yard?
+## What is Yard?
 
 Running a homelab often means managing multiple Docker applications, checking their health, inspecting logs, updating images, and maintaining Compose configurations.
 
-NoX Yard brings these everyday operations together.
+Yard brings these everyday operations together.
 
 It connects directly to your local Docker Engine, automatically discovers existing workloads, and presents them through a responsive web interface.
 
 You can monitor an existing installation, deploy a new Compose project, investigate a failing container, or manage updates without leaving the dashboard.
 
-NoX Yard focuses on **one Docker host at a time**, keeping the experience straightforward and local to your infrastructure.
+Yard focuses on **one Docker host at a time**, keeping the experience straightforward and local to your infrastructure.
 
 ## Features
 
@@ -35,7 +35,7 @@ Get an overview of the Docker workloads running on your host.
 - View container states, health information, and project status.
 - Monitor CPU usage, memory consumption, and uptime.
 - See containers grouped by their Compose project.
-- Receive live inventory updates when Docker changes, including changes made outside NoX Yard.
+- Receive live inventory updates when Docker changes, including changes made outside Yard.
 - Access individual projects and containers through contextual detail panels.
 
 The dashboard updates automatically, with manual refresh available whenever needed.
@@ -51,11 +51,11 @@ Manage existing workloads directly from the interface.
 - Remove containers and projects through reviewed confirmation dialogs.
 - Inspect detailed container configurations and runtime information.
 
-NoX Yard distinguishes between three types of workloads:
+Yard distinguishes between three types of workloads:
 
 | Type | Description |
 | --- | --- |
-| **Managed Compose** | Projects deployed or adopted by NoX Yard, with saved Compose definitions and additional management capabilities. |
+| **Managed Compose** | Projects deployed or adopted by Yard, with saved Compose definitions and additional management capabilities. |
 | **External Compose** | Existing Compose projects automatically discovered from Docker, without requiring import. |
 | **Standalone Container** | Individual Docker containers that are not part of a Compose project. |
 
@@ -63,7 +63,7 @@ Existing workloads can be monitored and controlled immediately. Supported extern
 
 ### Deploy Compose projects
 
-Deploy new Docker applications directly from NoX Yard.
+Deploy new Docker applications directly from Yard.
 
 Select **New Project** from the dashboard and provide a Docker Compose definition using one of three methods:
 
@@ -71,11 +71,11 @@ Select **New Project** from the dashboard and provide a Docker Compose definitio
 - **Paste YAML** — Paste a Compose configuration directly into the application.
 - **Upload file** — Import a local Compose YAML file.
 
-NoX Yard reads the definition, identifies required variables and environment files, and lets you configure their values before deployment.
+Yard reads the definition, identifies required variables and environment files, and lets you configure their values before deployment.
 
 Before anything is created, a validation and preview step displays the proposed services, images, ports, mounts, networks, and relevant changes.
 
-Once confirmed, NoX Yard prepares the project files on the Docker host, pulls the required images, and deploys the stack.
+Once confirmed, Yard prepares the project files on the Docker host, pulls the required images, and deploys the stack.
 
 Managed projects retain their original host file locations for subsequent operations. Current Compose and environment files are authoritative; SQLite holds application metadata, history, and private recovery snapshots. Legacy database configuration is exported through a verified migration.
 
@@ -144,7 +144,7 @@ Inside a project's **Details** panel:
 3. Select the daily check time.
 4. Save the configuration.
 
-NoX Yard checks for changed images and uses its supported update, verification, and rollback workflow when replacements are needed.
+Yard checks for changed images and uses its supported update, verification, and rollback workflow when replacements are needed.
 
 Automatic project updates are disabled by default and require an eligible, healthy running workload.
 
@@ -156,19 +156,19 @@ Track maintenance operations from the same interface used to manage your contain
 
 Each project includes a contextual **Operations** history, covering recent actions and their results.
 
-NoX Yard records operation progress, completed outcomes, failures, rollback attempts, and situations requiring manual recovery.
+Yard records operation progress, completed outcomes, failures, rollback attempts, and situations requiring manual recovery.
 
 Long-running management jobs are persisted independently of the browser session, so closing or refreshing the page does not erase their recorded state.
 
-When an interrupted operation requires host inspection, NoX Yard can retain the affected resources under recovery protection until that situation is reviewed.
+When an interrupted operation requires host inspection, Yard can retain the affected resources under recovery protection until that situation is reviewed.
 
-### NoX Yard self-updates
+### Yard self-updates
 
-NoX Yard can also maintain its own installation.
+Yard can also maintain its own installation.
 
 From **Settings**, view build/update status and select **Check now** to check and install immediately, even when automatic updates are disabled.
 
-Enable automatic updates and choose the daily check time in NoX Yard's own project **Details** drawer, using the same schedule controls as other projects. The initial time is 03:00 in the server timezone; the former interval timer no longer runs.
+Enable automatic updates and choose the daily check time in Yard's own project **Details** drawer, using the same schedule controls as other projects. The initial time is 03:00 in the server timezone; the former interval timer no longer runs.
 
 Self-updates use the published stable `latest` image from GitHub Container Registry.
 
@@ -180,7 +180,7 @@ Automatic self-updates are disabled by default.
 
 ### Requirements
 
-NoX Yard is designed to run on a Linux host with:
+Yard is designed to run on a Linux host with:
 
 - Docker Engine
 - Docker Compose plugin
@@ -191,7 +191,7 @@ Raspberry Pi 5 is the primary target platform.
 
 ### Installation
 
-NoX Yard is distributed as a Docker image through GitHub Container Registry.
+Yard is distributed as a Docker image through GitHub Container Registry.
 
 Create a directory for the application and copy the repository's [compose.yaml](compose.yaml) into it.
 
@@ -213,13 +213,13 @@ Then start the application:
 docker compose up -d
 ```
 
-This creates or starts the NoX Yard container in the background, using the supplied Compose configuration. Its persistent application data is stored in `./data`.
+This creates or starts the Yard container in the background, using the supplied Compose configuration. Its persistent application data is stored in `./data`.
 
 Open the dashboard in your browser:
 
 **http://YOUR_HOST_IP:8095**
 
-On your first visit, NoX Yard guides you through creating the administrator account.
+On your first visit, Yard guides you through creating the administrator account.
 
 A password of at least 12 characters is required.
 
@@ -238,13 +238,13 @@ After signing in:
 5. Select **Validate and preview**.
 6. Review the proposed deployment and confirm.
 
-NoX Yard stores the managed Compose files under the configured host directory and displays the new project on the dashboard.
+Yard stores the managed Compose files under the configured host directory and displays the new project on the dashboard.
 
 You can then use its detail panel to manage containers, inspect logs, check operation history, and configure automatic updates.
 
 ## Configuration
 
-NoX Yard is configured through the supplied Docker Compose file and optional environment variables.
+Yard is configured through the supplied Docker Compose file and optional environment variables.
 
 The repository includes an [.env.example](.env.example) with the available deployment settings.
 
@@ -263,11 +263,11 @@ For additional configuration, maintenance, development, and recovery information
 
 ## Security and data
 
-NoX Yard is intended for trusted personal networks, such as a home LAN or private VPN.
+Yard is intended for trusted personal networks, such as a home LAN or private VPN.
 
 Access to the Docker socket (`/var/run/docker.sock`) effectively grants control over the Docker host. Protect access to the application accordingly.
 
-NoX Yard provides a local administrator account, password-based authentication, protected browser sessions, and confirmation workflows for destructive operations.
+Yard provides a local administrator account, password-based authentication, protected browser sessions, and confirmation workflows for destructive operations.
 
 **Important considerations:**
 
@@ -284,13 +284,13 @@ The application does not require a third-party account for its standard browser 
 
 ### MCP
 
-NoX Yard includes an embedded Model Context Protocol (MCP) endpoint for integration with compatible clients and automation workflows.
+Yard includes an embedded Model Context Protocol (MCP) endpoint for integration with compatible clients and automation workflows.
 
 ```text
 http://YOUR_HOST_IP:8095/mcp
 ```
 
-The MCP interface provides tools for inspecting Docker workloads, performing supported operations, retrieving job information, and interacting with NoX Yard's management capabilities.
+The MCP interface provides tools for inspecting Docker workloads, performing supported operations, retrieving job information, and interacting with Yard's management capabilities.
 
 The endpoint is always enabled and currently does **not require authentication**. It must remain restricted to a trusted private network.
 
@@ -298,7 +298,7 @@ See the [MCP documentation](Documentation/Developer/MCP.md) for available tools,
 
 ### Control API
 
-NoX Yard also offers an optional HTTP Control API for external applications and automation tools.
+Yard also offers an optional HTTP Control API for external applications and automation tools.
 
 Unlike the embedded MCP endpoint, this API uses independent Bearer-token authentication.
 
@@ -310,7 +310,7 @@ See the [Control API documentation](Documentation/Developer/Control-API.md) for 
 
 ## Technology
 
-NoX Yard combines a Go backend with a modern React interface.
+Yard combines a Go backend with a modern React interface.
 
 | Component | Technology |
 | --- | --- |
@@ -340,7 +340,7 @@ Useful references:
 
 ## Project status
 
-NoX Yard is under active development.
+Yard is under active development.
 
 Its functionality includes local Docker discovery and management, managed Compose deployments, container inspection, logs, terminal access, image maintenance, operation history, and optional scheduled updates.
 

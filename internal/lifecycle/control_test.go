@@ -166,7 +166,7 @@ func TestSelfRestartConflictRetainsTypedCause(t *testing.T) {
 		return dockerResponse(200, fmt.Sprintf(`{"Id":%q,"Config":{"Labels":{"com.docker.compose.project":"nox-yard","com.docker.compose.service":"nox-yard"}},"State":{"Status":"running"}}`, id)), nil
 	}))
 	result, err := m.Container(context.Background(), id, Restart)
-	if err != nil || result.Failed != 1 || len(result.Failures) != 1 || !errors.Is(result.Failures[0].Cause, ErrConflict) || result.Errors[0] != "a NoX Yard maintenance helper is already running" {
+	if err != nil || result.Failed != 1 || len(result.Failures) != 1 || !errors.Is(result.Failures[0].Cause, ErrConflict) || result.Errors[0] != "a Yard maintenance helper is already running" {
 		t.Fatalf("restart conflict lost its domain or browser message: %+v %v", result, err)
 	}
 }

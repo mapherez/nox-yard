@@ -390,7 +390,7 @@ func (s *Server) lifecycleAction(w http.ResponseWriter, r *http.Request, contain
 	case errors.Is(err, lifecycle.ErrNotFound):
 		writeError(w, http.StatusNotFound, "Target no longer exists. Refresh the project list.")
 	case errors.Is(err, lifecycle.ErrProtected):
-		writeError(w, http.StatusConflict, "This NoX Yard container cannot be managed by that action.")
+		writeError(w, http.StatusConflict, "This Yard container cannot be managed by that action.")
 	case err != nil:
 		writeError(w, http.StatusServiceUnavailable, "Cannot perform this action on the local Docker Engine.")
 	default:

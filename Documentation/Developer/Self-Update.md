@@ -1,10 +1,10 @@
-# NoX Yard self-update
+# Yard self-update
 
 ## Daily schedule and Check now
 
 Stable formal [releases](Releases.md) publish the `latest` channel; prereleases and ordinary branch pushes do not replace it. Automatic Yard updates use the same daily project schedule, occurrence admission and drawer controls as other projects. First startup preserves the former automatic on/off state and creates a 03:00 slot in the server timezone. Existing edited daily times survive restarts. The old interval timer no longer runs; the legacy interval settings API remains compatible without starting another timer.
 
-The Yard project drawer contains Compose/environment editing, Pull, Recreate, Restart and daily scheduling in the same positions as other projects. Stop/removal protection remains. **Settings → NoX Yard updates** contains only Status, Last checked, Current build and **Check now**. Check now requests an immediate check and installation independently of daily scheduling or automatic on/off, and permits an explicit retry of a failed version.
+The Yard project drawer contains Compose/environment editing, Pull, Recreate, Restart and daily scheduling in the same positions as other projects. Stop/removal protection remains. **Settings → Yard updates** contains only Status, Last checked, Current build and **Check now**. Check now requests an immediate check and installation independently of daily scheduling or automatic on/off, and permits an explicit retry of a failed version.
 
 The updater reads the public GHCR OCI index and manifest for the running Linux architecture. The manifest config digest is compared with the actual running image ID. An identical ID records the check without pulling or replacing the container.
 

@@ -14,7 +14,7 @@ import (
 	"github.com/moby/moby/api/types/container"
 )
 
-var ErrUnsupportedComparison = errors.New("NoX Yard does not yet support comparing this Compose configuration")
+var ErrUnsupportedComparison = errors.New("Yard does not yet support comparing this Compose configuration")
 
 // Adoption has a deliberately bounded comparison contract. Deployment can
 // still use broader Compose definitions, but ownership must not silently omit

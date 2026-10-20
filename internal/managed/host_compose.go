@@ -23,11 +23,11 @@ func helperImage(ctx context.Context) (string, error) {
 	command := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.Image}}", hostname)
 	output, err := command.Output()
 	if err != nil {
-		return "", fmt.Errorf("cannot identify NoX Yard image: %w", err)
+		return "", fmt.Errorf("cannot identify Yard image: %w", err)
 	}
 	image := strings.TrimSpace(string(output))
 	if image == "" {
-		return "", fmt.Errorf("cannot identify NoX Yard image")
+		return "", fmt.Errorf("cannot identify Yard image")
 	}
 	return image, nil
 }

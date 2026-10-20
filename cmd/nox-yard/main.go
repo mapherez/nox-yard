@@ -174,7 +174,7 @@ func run() error {
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
 	}()
-	log.Printf("NoX Yard listening on %s", server.Addr)
+	log.Printf("Yard listening on %s", server.Addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

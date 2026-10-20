@@ -114,7 +114,7 @@ test('rejects a repository with a different module', (t) => {
   const f = fixture(t);
   writeFileSync(join(f.root, 'go.mod'), 'module example.test/other\n');
   f.git('add', 'go.mod'); f.git('commit', '-m', 'Other module');
-  assert.throws(() => f.release(), /not the NoX Yard repository/);
+  assert.throws(() => f.release(), /not the nox-yard repository/);
 });
 
 test('rejects detached HEAD', (t) => {

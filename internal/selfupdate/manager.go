@@ -381,7 +381,7 @@ func (m *Manager) reconcileInterruptedJob(ctx context.Context) {
 	if current.Image == job.TargetImageID && current.State.Health != nil && current.State.Health.Status == "starting" {
 		return
 	}
-	message := "Update worker exited before reporting a result; NoX Yard is still running the previous image."
+	message := "Update worker exited before reporting a result; Yard is still running the previous image."
 	if current.Image != job.OldImageID {
 		message = "Update worker exited before reporting a result; inspect the running container and rollback resources on the host."
 	}
@@ -430,7 +430,7 @@ func ownContainer(ctx context.Context, cli *client.Client) (container.InspectRes
 		self.State == nil || !self.State.Running ||
 		self.Config.Labels["com.docker.compose.service"] != "nox-yard" ||
 		self.Config.Labels["com.docker.compose.project"] == "" {
-		return container.InspectResponse{}, errors.New("self-update requires the standard running NoX Yard Compose container")
+		return container.InspectResponse{}, errors.New("self-update requires the standard running Yard Compose container")
 	}
 	if !hasExpectedHealthcheck(self.Config.Healthcheck) {
 		return container.InspectResponse{}, errors.New("self-update requires the /healthz Docker healthcheck")

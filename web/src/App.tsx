@@ -70,11 +70,11 @@ export default function App() {
 
   useEffect(() => {
     const titles: Record<View["kind"], string> = {
-      loading: "Loading | NoX Yard",
-      setup: "Create administrator | NoX Yard",
-      login: "Sign in | NoX Yard",
-      dashboard: "Projects | NoX Yard",
-      error: "Unavailable | NoX Yard",
+      loading: "Loading | Yard",
+      setup: "Create administrator | Yard",
+      login: "Sign in | Yard",
+      dashboard: "Projects | Yard",
+      error: "Unavailable | Yard",
     };
     document.title = titles[view.kind];
   }, [view.kind]);
@@ -89,7 +89,7 @@ export default function App() {
         if (active) {
           setView({
             kind: "error",
-            message: error instanceof Error ? error.message : "Unable to load NoX Yard.",
+            message: error instanceof Error ? error.message : "Unable to load Yard.",
           });
         }
       });
@@ -102,7 +102,7 @@ export default function App() {
     return (
       <main className={styles.centerScreen}>
         <Brand />
-        <p className={styles.muted}>Loading NoX Yard…</p>
+        <p className={styles.muted}>Loading Yard…</p>
       </main>
     );
   }
@@ -111,7 +111,7 @@ export default function App() {
     return (
       <main className={styles.centerScreen}>
         <Brand />
-        <h1>Unable to open NoX Yard</h1>
+        <h1>Unable to open Yard</h1>
         <p className={styles.muted}>{view.message}</p>
         <button className={styles.primaryButton} onClick={() => window.location.reload()}>
           Retry
@@ -127,11 +127,10 @@ export default function App() {
   return <AuthForm mode={view.kind} onAuthenticated={(result) => setView(viewFromBootstrap(result))} />;
 }
 
-function Brand({ compact = false }: { compact?: boolean }) {
+function Brand() {
   return (
-    <div className={compact ? styles.brandCompact : styles.brand}>
-      <span className={styles.brandMark} aria-hidden="true">N</span>
-      <span className={styles.brandName}>NoX Yard</span>
+    <div className={styles.brand}>
+      <span className={styles.brandName}>Yard</span>
     </div>
   );
 }
@@ -184,9 +183,9 @@ function AuthForm({
 
       <main className={styles.authMain}>
         <div className={styles.authCard}>
-          <div className={styles.authMobileBrand}><Brand compact /></div>
+          <div className={styles.authMobileBrand}><Brand /></div>
           <span className={styles.sectionLabel}>{isSetup ? "FIRST-RUN SETUP" : "WELCOME BACK"}</span>
-          <h1>{isSetup ? "Create your admin account" : "Sign in to NoX Yard"}</h1>
+          <h1>{isSetup ? "Create your admin account" : "Sign in to Yard"}</h1>
           <p className={styles.authDescription}>
             {isSetup
               ? "This account will manage Docker on this host. Choose a strong password to get started."
@@ -345,9 +344,8 @@ function Dashboard({
       {mobileOpen && <button type="button" className={styles.sidebarScrim} aria-label="Close menu" tabIndex={-1} onClick={() => setMobileOpen(false)} />}
       <aside ref={sidebarRef} className={styles.sidebar} id="primary-sidebar">
         <div className={styles.sidebarHeader}>
-          <div className={styles.sidebarBrand} aria-label="NoX Yard">
-            <span className={styles.brandMark} aria-hidden="true">N</span>
-            {!compactSidebar && <span className={styles.brandName}>NoX Yard</span>}
+          <div className={styles.sidebarBrand} aria-label="Yard">
+            <span className={styles.brandName}>Yard</span>
           </div>
           <button type="button" className={`${styles.sidebarToggle} ${compactSidebar ? styles.sidebarExpand : ""}`} aria-label={isMobile ? "Close menu" : compactSidebar ? "Expand sidebar" : "Hide sidebar"} title={isMobile ? "Close menu" : compactSidebar ? "Expand sidebar" : "Hide sidebar"} aria-expanded={!compactSidebar} onClick={() => isMobile ? setMobileOpen(false) : changeSidebar(!sidebarCollapsed)}>
             <i className={`ph-bold ${compactSidebar ? "ph-sidebar-simple" : "ph-sidebar"}`} aria-hidden="true" />
@@ -518,7 +516,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
       const label = target === "project" ? "project" : "container";
       const verb: Record<LifecycleAction, string> = { start: "started", stop: "stopped", restart: "restarted" };
       const summary = `${result.succeeded} ${result.succeeded === 1 ? "container" : "containers"} ${verb[action]}; ${result.skipped} skipped.`;
-      setActionMessage(result.queued && !result.succeeded ? "NoX Yard restart queued. Check its health after reconnecting." : `${summary}${result.queued ? " NoX Yard restart queued." : ""}`);
+      setActionMessage(result.queued && !result.succeeded ? "Yard restart queued. Check its health after reconnecting." : `${summary}${result.queued ? " Yard restart queued." : ""}`);
       if (result.failed) setActionError(result.errors?.join(" ") || `${result.failed} ${label} actions failed.`);
       onChanged();
       if (result.queued) window.setTimeout(onChanged, 12_000);
@@ -906,7 +904,7 @@ function LifecycleControls({ name, state, selfTarget = false, helperTarget = fal
       <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label={`Restart ${name}`} title={`Restart ${name}`} disabled={busy || !running || helperTarget} onClick={() => setConfirming("restart")}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
       <MaintenanceMenu busy={busy} pullLabel={pullLabel} removeLabel={removeLabel} canPull={!helperTarget} canRemove={!helperTarget && !selfTarget} onPull={onPull} onRemove={onRemove} onUpdate={onUpdate} onRecreate={onRecreate} />
     </div>
-    {selfTarget && <p className={styles.actionHint}>NoX Yard cannot stop or remove itself.</p>}
+    {selfTarget && <p className={styles.actionHint}>Yard cannot stop or remove itself.</p>}
     {helperTarget && <p className={styles.actionHint}>Maintenance helpers are managed automatically.</p>}
     {confirming && <div className={styles.actionConfirm} role="group" aria-label={`Confirm ${confirming}`}>
       <p>{confirming === "stop" ? "Stop" : "Restart"} <strong>{name}</strong>?</p>
@@ -1034,7 +1032,7 @@ function RemoveConfirmation({ target, csrfToken, onClose, onChanged }: {
       {error && <p className={styles.inventoryError} role="alert">{error}</p>}
       {!report && <label htmlFor={volumeChoiceID}><input id={volumeChoiceID} type="checkbox" checked={removeVolumes} disabled={removing} onChange={(event) => { setPlan(null); setRemoveVolumes(event.target.checked); }} /> Delete exclusive project volumes</label>}
       {plan && !report && <>
-        <p>NoX Yard will stop and remove the selected containers, then attempt to delete the volumes, networks, and images marked "will remove" below. Items marked "will keep" remain on the host for the stated reason.</p>
+        <p>Yard will stop and remove the selected containers, then attempt to delete the volumes, networks, and images marked "will remove" below. Items marked "will keep" remain on the host for the stated reason.</p>
         <RemovalItems items={plan.items.map((item) => ({ ...item, status: item.action === "remove" ? "will remove" : "will keep" }))} />
       </>}
       {report && <>
@@ -1179,7 +1177,7 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
 		  </form>
 		</section>
         <section aria-labelledby="updates-title" className={styles.settingsSection}>
-          <h3 id="updates-title">NoX Yard updates</h3>
+          <h3 id="updates-title">Yard updates</h3>
           <dl className={styles.updateFacts} aria-live="polite">
             <div><dt>Status</dt><dd>{status ? labels[status.status] : "Loading"}</dd></div>
             <div><dt>Last checked</dt><dd>{status?.lastChecked ? new Date(status.lastChecked).toLocaleString() : "Never"}</dd></div>

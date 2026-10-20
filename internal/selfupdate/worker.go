@@ -163,7 +163,7 @@ func RunWorker(data *store.Store, dataDir, jobID, oldID string) (result error) {
 func validateWorkerContainer(job store.SelfUpdateJob, containerID string, old container.InspectResponse) error {
 	if old.ID != containerID || old.Image != job.OldImageID || old.State == nil || !old.State.Running ||
 		old.Config == nil || old.HostConfig == nil || old.Config.Labels["com.docker.compose.service"] != "nox-yard" {
-		return errors.New("original NoX Yard container changed before update worker started")
+		return errors.New("original Yard container changed before update worker started")
 	}
 	return nil
 }

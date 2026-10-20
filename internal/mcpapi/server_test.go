@@ -284,7 +284,7 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 		if a.ReadOnlyHint == mutation || *a.DestructiveHint != mutation || a.IdempotentHint != (!mutation || tool.Name == "yard_projects_settings_set" || tool.Name == "yard_project_schedule_set") {
 			t.Fatalf("wrong annotations %s: %+v", tool.Name, a)
 		}
-		if tool.Name == "yard_self_update_check_and_update" && (!strings.Contains(tool.Description, "even when automatic updates are disabled") || tool.Title != "Check and update NoX Yard") {
+		if tool.Name == "yard_self_update_check_and_update" && (!strings.Contains(tool.Description, "even when automatic updates are disabled") || tool.Title != "Check and update Yard") {
 			t.Fatal("misleading self-update tool")
 		}
 	}

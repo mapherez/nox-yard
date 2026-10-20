@@ -5,7 +5,7 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 
 if [ -n "$(git config --get core.hooksPath || true)" ]; then
-  echo "A custom core.hooksPath is already configured; install the NoX Yard pre-push call there manually." >&2
+  echo "A custom core.hooksPath is already configured; install the Yard pre-push call there manually." >&2
   exit 1
 fi
 

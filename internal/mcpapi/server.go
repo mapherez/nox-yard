@@ -245,7 +245,7 @@ func failures(items []lifecycle.Failure) []failure {
 }
 func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 	b := &builder{}
-	register(b, "yard_project_configuration_read", "Read project configuration", "Read current Compose, .env and env_file metadata from host files, including fingerprint and pending variable changes. Requires a compose: project ID, including NoX Yard. File contents and variable values are hidden unless reveal is explicitly true; treat revealed output as sensitive. Does not change files or containers.", read, func(ctx context.Context, in configurationReadInput) (managed.FileConfigurationView, error) {
+	register(b, "yard_project_configuration_read", "Read project configuration", "Read current Compose, .env and env_file metadata from host files, including fingerprint and pending variable changes. Requires a compose: project ID, including Yard. File contents and variable values are hidden unless reveal is explicitly true; treat revealed output as sensitive. Does not change files or containers.", read, func(ctx context.Context, in configurationReadInput) (managed.FileConfigurationView, error) {
 		if err := configurationTarget(in.ID); err != nil {
 			return managed.FileConfigurationView{}, err
 		}
@@ -271,13 +271,13 @@ func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 		view, err := app.SaveProjectConfiguration(ctx, in.ID, managed.ConfigurationEdit{Fingerprint: in.Fingerprint, Service: in.Service, Variable: in.Name, Content: in.Value})
 		return application.RedactProjectConfiguration(view), err
 	})
-	register(b, "yard_project_schedule_get", "Project automatic updates", "Read the daily image update setting, explicit server timezone, next occurrence and last result. Also covers NoX Yard's own project and its daily self-update schedule.", read, func(ctx context.Context, in targetInput) (application.ScheduleStatus, error) {
+	register(b, "yard_project_schedule_get", "Project automatic updates", "Read the daily image update setting, explicit server timezone, next occurrence and last result. Also covers Yard's own project and its daily self-update schedule.", read, func(ctx context.Context, in targetInput) (application.ScheduleStatus, error) {
 		if err := target(in.ID, false); err != nil {
 			return application.ScheduleStatus{}, err
 		}
 		return app.ProjectSchedule(ctx, in.ID)
 	})
-	register(b, "yard_project_schedule_set", "Set project automatic updates", "Enable or disable daily updates, including NoX Yard, in the server timezone. Optional time selects HH:MM; omitting it preserves the saved time (initially 03:00). Enabling requires a supported running project and may replace its containers on future occurrences. Never starts stopped projects. New projects default to disabled; Yard preserves its existing enabled setting.", setting, func(ctx context.Context, in scheduleInput) (application.ScheduleStatus, error) {
+	register(b, "yard_project_schedule_set", "Set project automatic updates", "Enable or disable daily updates, including Yard, in the server timezone. Optional time selects HH:MM; omitting it preserves the saved time (initially 03:00). Enabling requires a supported running project and may replace its containers on future occurrences. Never starts stopped projects. New projects default to disabled; Yard preserves its existing enabled setting.", setting, func(ctx context.Context, in scheduleInput) (application.ScheduleStatus, error) {
 		if err := target(in.ID, false); err != nil {
 			return application.ScheduleStatus{}, err
 		}
@@ -420,10 +420,10 @@ func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 		return settingsInput{base}, err
 	})
 	register(b, "yard_self_update_status", "Self-update status", "Read current self-update settings and state without triggering a check.", read, func(ctx context.Context, _ empty) (selfupdate.Status, error) { return app.UpdateStatus(ctx) })
-	register(b, "yard_self_update_settings", "Configure self-updates", "Compatibility tool: set NoX Yard's automatic-update enabled state while preserving its daily scheduled time. intervalMinutes remains a required legacy field but no longer drives a timer. Does not trigger an immediate check. Prefer yard_project_schedule_set with Yard's project ID to edit the daily time; use yard_self_update_check_and_update for immediate installation.", write, func(ctx context.Context, in updateSettings) (selfupdate.Status, error) {
+	register(b, "yard_self_update_settings", "Configure self-updates", "Compatibility tool: set Yard's automatic-update enabled state while preserving its daily scheduled time. intervalMinutes remains a required legacy field but no longer drives a timer. Does not trigger an immediate check. Prefer yard_project_schedule_set with Yard's project ID to edit the daily time; use yard_self_update_check_and_update for immediate installation.", write, func(ctx context.Context, in updateSettings) (selfupdate.Status, error) {
 		return app.SetUpdateSettings(ctx, in.Automatic, in.IntervalMinutes)
 	})
-	register(b, "yard_self_update_check_and_update", "Check and update NoX Yard", "Queue a manual update check. If a newer image is available, it may install it and restart NoX Yard even when automatic updates are disabled. Returns accepted/current status; observe completion using yard_self_update_status.", write, func(ctx context.Context, _ empty) (selfupdate.Status, error) { return app.CheckAndUpdate(ctx) })
+	register(b, "yard_self_update_check_and_update", "Check and update Yard", "Queue a manual update check. If a newer image is available, it may install it and restart Yard even when automatic updates are disabled. Returns accepted/current status; observe completion using yard_self_update_status.", write, func(ctx context.Context, _ empty) (selfupdate.Status, error) { return app.CheckAndUpdate(ctx) })
 	if b.err != nil {
 		return nil, b.err
 	}

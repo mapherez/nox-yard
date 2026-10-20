@@ -24,9 +24,9 @@ const (
 
 var ErrNotFound = errors.New("target not found")
 var ErrChanged = errors.New("Docker removal plan changed")
-var ErrProtected = errors.New("NoX Yard cannot be stopped from its own web process")
+var ErrProtected = errors.New("Yard cannot be stopped from its own web process")
 var ErrInvalidAction = errors.New("invalid lifecycle action")
-var ErrConflict = errors.New("a NoX Yard maintenance helper is already running")
+var ErrConflict = errors.New("a Yard maintenance helper is already running")
 
 // Failure preserves the domain cause for machine clients without changing the
 // existing browser response's counters or human-readable errors.
@@ -142,7 +142,7 @@ func (m *Manager) Project(ctx context.Context, id string, action Action) (Result
 	if selfID != "" {
 		if err := m.launchSelfRestart(ctx, selfID, result.Failures...); err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, "NoX Yard: "+err.Error())
+			result.Errors = append(result.Errors, "Yard: "+err.Error())
 			result.Failures = append(result.Failures, Failure{Target: selfID, Cause: err})
 		} else {
 			result.Queued++

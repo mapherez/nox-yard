@@ -1,6 +1,6 @@
 # Developer documentation
 
-This directory is the **canonical technical documentation** for NoX Yard. The root README introduces the product; implementation details and decisions belong here. Start with Progress for current status, Features for implemented behavior, and the latest repository review for audit evidence. Plans and dated reviews preserve their original scope; later decisions can supersede them.
+This directory is the **canonical technical documentation** for Yard. The root README introduces the product; implementation details and decisions belong here. Start with Progress for current status, Features for implemented behavior, and the latest repository review for audit evidence. Plans and dated reviews preserve their original scope; later decisions can supersede them.
 
 | Document | Use it for |
 | --- | --- |

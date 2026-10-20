@@ -2,13 +2,13 @@
 
 ## System boundary
 
-NoX Yard manages one local Linux Docker Engine. The browser talks only to the NoX Yard web service; Docker socket access stays on the server side. The product is designed for a trusted LAN or VPN and may sit behind a user-managed HTTPS reverse proxy. Docker socket access gives the application broad control of the host, so the installation must not be exposed to untrusted users or networks.
+Yard manages one local Linux Docker Engine. The browser talks only to the Yard web service; Docker socket access stays on the server side. The product is designed for a trusted LAN or VPN and may sit behind a user-managed HTTPS reverse proxy. Docker socket access gives the application broad control of the host, so the installation must not be exposed to untrusted users or networks.
 
 ```text
 Browser (React)
   | REST, SSE, WebSocket
   v
-NoX Yard service (Go) ---- SQLite (/data)
+Yard service (Go) ---- SQLite (/data)
   |                       managed source/env files (host projects directory)
   | Docker Engine SDK
   v
@@ -41,7 +41,7 @@ External Compose projects require no host file mounts or adoption for Engine act
 
 C4 snapshots Engine-visible configuration, preserves assessed mounts/networks/ports/environment/labels and resource/security settings, verifies immutable replacements and retains original containers until success. Unsupported configurations are blocked before mutation. Dependency-aware rollback restores original IDs/names and running/stopped state; standalone history follows old/new identities. Explicit volume choice defaults off and shared resources remain protected across Engine and managed removal. See [External updates](External-Updates.md) for supported fields, bounds and recovery. Writable container layers are not persistent data. Managed projects use Docker Compose followed by bounded Docker runtime verification. Active replicas must remain running for five seconds and configured healthchecks must be healthy; declared one-shot services must exit zero. C3 snapshots supported prior configuration and restores old immutable images/configuration and running/stopped state after ordinary update/sync failure; uncertain restoration retains reservations for review.
 
-NoX Yard appears in the normal inventory. Its restart or update runs through an independent temporary job container, because the web service may stop mid-operation. Stop and remove actions for NoX Yard are unavailable in the UI.
+Yard appears in the normal inventory. Its restart or update runs through an independent temporary job container, because the web service may stop mid-operation. Stop and remove actions for Yard are unavailable in the UI.
 
 The implemented self-update flow, rollback snapshot, and operational preconditions are documented in [Self-Update](Self-Update.md).
 
