@@ -32,6 +32,7 @@ import {
   type SelfUpdateStatus,
 } from "./api";
 import styles from "./App.module.css";
+import settingsStyles from "./SettingsDrawer.module.css";
 import { useDrawerSwipe } from "./useDrawerSwipe";
 import { TerminalPanel } from "./TerminalPanel";
 import { LogsPanel } from "./LogsPanel";
@@ -279,15 +280,22 @@ function Dashboard({
   const skipLinkRef = useRef<HTMLAnchorElement>(null);
   const dashboardBodyRef = useRef<HTMLDivElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
-  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 47.99rem)").matches);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuCloseRef = useRef<HTMLButtonElement>(null);
+  const [overlayNavigation, setOverlayNavigation] = useState(() => window.matchMedia("(max-width: 79.99rem)").matches);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return window.localStorage.getItem("nox-yard-sidebar-collapsed") === "true"; }
     catch { return false; }
   });
-  const compactSidebar = !isMobile && sidebarCollapsed;
-  const closeMobileMenu = useCallback(() => setMobileOpen(false), []);
-  useDrawerSwipe(sidebarRef, "left", isMobile && mobileOpen, closeMobileMenu);
+  const compactSidebar = !overlayNavigation && sidebarCollapsed;
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+    requestAnimationFrame(() => {
+      if (!document.querySelector("dialog[open]") && menuButtonRef.current?.getClientRects().length) menuButtonRef.current.focus();
+    });
+  }, []);
+  useDrawerSwipe(sidebarRef, "left", overlayNavigation && menuOpen, closeMenu);
 
   const changeSidebar = useCallback((collapsed: boolean) => {
     setSidebarCollapsed(collapsed);
@@ -296,10 +304,10 @@ function Dashboard({
   }, []);
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 47.99rem)");
+    const media = window.matchMedia("(max-width: 79.99rem)");
     const sync = () => {
-      setIsMobile(media.matches);
-      if (!media.matches) setMobileOpen(false);
+      setOverlayNavigation(media.matches);
+      setMenuOpen(false);
     };
     media.addEventListener("change", sync);
     return () => media.removeEventListener("change", sync);
@@ -309,10 +317,18 @@ function Dashboard({
     const content = dashboardBodyRef.current;
     const skipLink = skipLinkRef.current;
     if (!content) return;
-    content.inert = mobileOpen;
-    if (skipLink) skipLink.inert = mobileOpen;
+    content.inert = menuOpen;
+    if (skipLink) skipLink.inert = menuOpen;
+    if (menuOpen) menuCloseRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && mobileOpen && !document.querySelector("dialog[open]")) setMobileOpen(false);
+      if (!menuOpen || document.querySelector("dialog[open]")) return;
+      if (event.key === "Escape") { event.preventDefault(); closeMenu(); }
+      if (event.key === "Tab") {
+        const controls = sidebarRef.current?.querySelectorAll<HTMLElement>("a[href], button:not(:disabled)");
+        const first = controls?.[0], last = controls?.[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
@@ -320,7 +336,7 @@ function Dashboard({
       if (skipLink) skipLink.inert = false;
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [mobileOpen]);
+  }, [menuOpen, closeMenu]);
 
   const selected = projects?.find((project) => project.id === selectedID);
   const displayName = username.charAt(0).toUpperCase() + username.slice(1);
@@ -339,25 +355,25 @@ function Dashboard({
   }
 
   return (
-    <div className={styles.dashboard} data-collapsed={compactSidebar} data-mobile-open={mobileOpen}>
+    <div className={styles.dashboard} data-collapsed={compactSidebar} data-menu-open={menuOpen}>
       <a ref={skipLinkRef} href="#content" className={styles.skipLink}>Skip to content</a>
-      {mobileOpen && <button type="button" className={styles.sidebarScrim} aria-label="Close menu" tabIndex={-1} onClick={() => setMobileOpen(false)} />}
-      <aside ref={sidebarRef} className={styles.sidebar} id="primary-sidebar">
+      {menuOpen && <button type="button" className={styles.sidebarScrim} aria-label="Close menu" tabIndex={-1} onClick={closeMenu} />}
+      <aside ref={sidebarRef} className={styles.sidebar} id="primary-sidebar" role={overlayNavigation && menuOpen ? "dialog" : undefined} aria-modal={overlayNavigation && menuOpen ? true : undefined} aria-label={overlayNavigation && menuOpen ? "Navigation menu" : undefined}>
         <div className={styles.sidebarHeader}>
           <div className={styles.sidebarBrand} aria-label="Yard">
             <span className={styles.brandName}>Yard</span>
           </div>
-          <button type="button" className={`${styles.sidebarToggle} ${compactSidebar ? styles.sidebarExpand : ""}`} aria-label={isMobile ? "Close menu" : compactSidebar ? "Expand sidebar" : "Hide sidebar"} title={isMobile ? "Close menu" : compactSidebar ? "Expand sidebar" : "Hide sidebar"} aria-expanded={!compactSidebar} onClick={() => isMobile ? setMobileOpen(false) : changeSidebar(!sidebarCollapsed)}>
+          <button ref={menuCloseRef} type="button" className={`${styles.sidebarToggle} ${compactSidebar ? styles.sidebarExpand : ""}`} aria-label={overlayNavigation ? "Close menu" : compactSidebar ? "Expand sidebar" : "Hide sidebar"} title={overlayNavigation ? "Close menu" : compactSidebar ? "Expand sidebar" : "Hide sidebar"} aria-expanded={!compactSidebar} onClick={() => overlayNavigation ? closeMenu() : changeSidebar(!sidebarCollapsed)}>
             <i className={`ph-bold ${compactSidebar ? "ph-sidebar-simple" : "ph-sidebar"}`} aria-hidden="true" />
           </button>
         </div>
         <nav aria-label="Primary" className={styles.sidebarNav}>
-          <a href="#projects" aria-current="page" className={styles.navLink} aria-label="Projects" title={compactSidebar ? "Projects" : undefined} onClick={() => setMobileOpen(false)}>
+          <a href="#projects" aria-current="page" className={styles.navLink} aria-label="Projects" title={compactSidebar ? "Projects" : undefined} onClick={() => { if (overlayNavigation) closeMenu(); }}>
             <i className="ph-fill ph-squares-four" aria-hidden="true" />{!compactSidebar && <span>Projects</span>}
           </a>
         </nav>
         <div className={styles.sidebarFooter}>
-          <button type="button" className={styles.navLink} aria-label="Settings" title={compactSidebar ? "Settings" : undefined} aria-haspopup="dialog" aria-controls="settings-drawer" aria-expanded={settingsOpen} onClick={() => { setMobileOpen(false); setSettingsOpen(true); }}>
+          <button type="button" className={styles.navLink} aria-label="Settings" title={compactSidebar ? "Settings" : undefined} aria-haspopup="dialog" aria-controls="settings-drawer" aria-expanded={settingsOpen} onClick={() => { setMenuOpen(false); setSettingsOpen(true); }}>
             <i className="ph-bold ph-sliders-horizontal" aria-hidden="true" />{!compactSidebar && <span>Settings</span>}
           </button>
           <div className={styles.accountRow}>
@@ -389,7 +405,7 @@ function Dashboard({
           </>} header={
           <div className={styles.dashboardHeader}>
             <div className={styles.pageHeading} id="projects">
-              <button type="button" className={styles.mobileMenuButton} aria-label="Open menu" aria-controls="primary-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><i className="ph-bold ph-list" aria-hidden="true" /></button>
+              <button ref={menuButtonRef} type="button" className={styles.menuButton} aria-label="Open menu" aria-haspopup="dialog" aria-controls="primary-sidebar" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><i className="ph-bold ph-list" aria-hidden="true" /></button>
               <div className={styles.headingCopy}>
                 <h1>Projects</h1>
               </div>
@@ -435,7 +451,7 @@ function Dashboard({
       </div>
       <ProjectDrawer project={selected} csrfToken={csrfToken} onChanged={refresh} onClose={() => setSelectedID(null)} />
       <NewProjectDrawer open={newProjectOpen} csrfToken={csrfToken} onChanged={refresh} onClose={() => { setNewProjectOpen(false); newProjectButtonRef.current?.focus(); }} />
-      <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} onClose={() => setSettingsOpen(false)} />
+      <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} onClose={() => { setSettingsOpen(false); if (overlayNavigation) menuButtonRef.current?.focus(); }} />
     </div>
   );
 }
@@ -1066,27 +1082,39 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
         </div>
         <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close settings"><i className="ph-bold ph-x" aria-hidden="true" /></button>
       </header>
-      <div className={styles.settingsContent}>
-		<section aria-labelledby="projects-directory-title" className={styles.settingsSection}>
-		  <h3 id="projects-directory-title">Projects directory</h3>
-		  <p>Choose an existing directory on the Docker host. New projects are saved as BASE/PROJECT_NAME/compose.yml. Relative bind mounts remain relative to that file.</p>
-		  <form onSubmit={(event) => { void saveProjectsDirectory(event); }} className={styles.settingsForm}>
-			<label htmlFor="projects-base">Absolute directory on Docker host</label>
-			<input id="projects-base" className={styles.settingsTextInput} type="text" value={projectsBase} onChange={(event) => setProjectsBase(event.target.value)} placeholder="/home/username/projects" required autoComplete="off" spellCheck={false} />
-			<button type="submit" className={styles.primaryButton} disabled={savingProjectsBase || projectsBase.trim() === savedProjectsBase}>{savingProjectsBase ? "Saving…" : "Save directory"}</button>
-			{projectsError && <p className={styles.updateError} role="alert">{projectsError}</p>}
-		  </form>
-		</section>
-        <section aria-labelledby="updates-title" className={styles.settingsSection}>
-          <h3 id="updates-title">Yard updates</h3>
-          <dl className={styles.updateFacts} aria-live="polite">
-            <div><dt>Status</dt><dd>{status ? labels[status.status] : "Loading"}</dd></div>
-            <div><dt>Last checked</dt><dd>{status?.lastChecked ? new Date(status.lastChecked).toLocaleString() : "Never"}</dd></div>
-            {status?.currentBuildSHA && <div><dt>Current build</dt><dd title={status.currentBuildSHA}>{status.currentBuildSHA.slice(0, 12)}</dd></div>}
+      <div className={`${styles.settingsContent} ${settingsStyles.content}`}>
+        <section aria-labelledby="projects-directory-title" className={settingsStyles.section}>
+          <div className={settingsStyles.heading}>
+            <h3 id="projects-directory-title"><i className="ph-bold ph-folder" aria-hidden="true" />Projects directory</h3>
+          </div>
+          <p id="projects-base-help" className={settingsStyles.description}>Choose an existing directory on the Docker host for new projects and exported logs.</p>
+          <form onSubmit={(event) => { void saveProjectsDirectory(event); }} className={settingsStyles.form}>
+            <div className={settingsStyles.field}>
+              <label htmlFor="projects-base">Absolute directory on Docker host</label>
+              <input id="projects-base" name="projectsBase" className={settingsStyles.input} type="text" value={projectsBase} onChange={(event) => setProjectsBase(event.target.value)} placeholder="/home/username/projects" required autoComplete="off" autoCapitalize="none" spellCheck={false} aria-describedby={`projects-base-help${projectsError ? " projects-base-error" : ""}`} />
+            </div>
+            <button type="submit" className={`${styles.inspectButton} ${settingsStyles.action}`} disabled={savingProjectsBase || projectsBase.trim() === savedProjectsBase}><i className="ph-bold ph-check" aria-hidden="true" />{savingProjectsBase ? "Saving…" : "Save directory"}</button>
+            {projectsError && <p id="projects-base-error" className={settingsStyles.error} role="alert">{projectsError}</p>}
+          </form>
+          <dl className={settingsStyles.paths}>
+            <div><dt>New projects</dt><dd><code>BASE/PROJECT_NAME/compose.yml</code></dd></div>
+            <div><dt>Exported logs</dt><dd><code>BASE/PROJECT_NAME/logs</code></dd></div>
           </dl>
-          <button type="button" className={styles.checkNowButton} disabled={!status || busy} onClick={() => { void checkNow(); }}>Check now</button>
-          {status?.status === "update_failed" && status.error && <p className={styles.updateError} role="alert">{status.error}</p>}
-          {error && <p className={styles.updateError} role="alert">{error}</p>}
+          <p className={settingsStyles.hint}>Existing Compose files stay in their current location. Relative bind mounts use that location. Standalone log folders use the container name.</p>
+        </section>
+        <section aria-labelledby="updates-title" className={settingsStyles.section}>
+          <div className={settingsStyles.heading}>
+            <h3 id="updates-title"><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />Yard updates</h3>
+            <button type="button" className={`${styles.inspectButton} ${settingsStyles.action}`} disabled={!status || busy} onClick={() => { void checkNow(); }}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />Check now</button>
+          </div>
+          <p className={settingsStyles.description}>Check now installs an available update. Manage automatic checks in Yard’s project drawer.</p>
+          <dl className={settingsStyles.facts} aria-live="polite">
+            <div><dt>Status</dt><dd><span className={`${styles.statusBadge} ${status?.status === "up_to_date" ? styles.statusRunning : status?.status === "update_failed" ? styles.statusStopped : busy ? styles.statusPartial : ""}`}>{status ? labels[status.status] : "Loading"}</span></dd></div>
+            <div><dt>Last checked</dt><dd>{status?.lastChecked ? <time dateTime={status.lastChecked}>{new Date(status.lastChecked).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</time> : "Never"}</dd></div>
+            {status?.currentBuildSHA && <div><dt>Current build</dt><dd><code title={status.currentBuildSHA}>{status.currentBuildSHA.slice(0, 12)}</code></dd></div>}
+          </dl>
+          {status?.status === "update_failed" && status.error && <p className={settingsStyles.error} role="alert">{status.error}</p>}
+          {error && <p className={settingsStyles.error} role="alert">{error}</p>}
         </section>
       </div>
     </div>

@@ -4,9 +4,9 @@
 
 **Phase:** C6 native-host acceptance and C7 runtime publication gates remain open.
 
-The current committed local source baseline is `3fc6a6d`, including D-036's CI-only pipeline, D-037's searchable Grid/List dashboard and the narrow-screen metric sizing correction. The earlier 2026-10-20 audit reviewed `ed6d7b3` (`v1.2.1`); its historical evidence remains in the [repository review](Repository-Review-2026-10-20.md). Source tags and local package versions do not establish completed remote publication or deployment.
+The current committed local source baseline is `0bfb264`, including D-036's CI-only pipeline, D-037's searchable Grid/List dashboard, the narrow-screen metric sizing correction and D-038's drawer/log-export implementation. The earlier 2026-10-20 audit reviewed `ed6d7b3` (`v1.2.1`); its historical evidence remains in the [repository review](Repository-Review-2026-10-20.md). Source tags and local package versions do not establish completed remote publication or deployment.
 
-The working tree now contains D-038's uniform wider drawers, Details hierarchy, full-height console tabs, log search and confirmed host-file export. This change does not push, create a release or deploy to a host. The [completion plan](Completion-Plan.md) retains its original native-host/runtime acceptance gates; later decisions refine implementation assumptions.
+The working tree now contains a visual Settings refinement consistent with D-038's drawers and overlay navigation for mobile/tablet/small desktop below 1280px. This change does not push, create a release or deploy to a host. The [completion plan](Completion-Plan.md) retains its original native-host/runtime acceptance gates; later decisions refine implementation assumptions.
 
 ## Implemented behavior
 
@@ -56,6 +56,18 @@ D-038 gives Project, Settings and New Project one responsive width, capped at ha
 Confirmed export captures the current browser buffer as UTF-8 text under the configured `BASE/PROJECT_NAME/logs`, even when an external project's Compose files are elsewhere. Standalone containers use `BASE/CONTAINER_NAME/logs`. It creates missing folders without relocating configuration; repeated same-minute exports get numeric suffixes. Last export reads the newest valid filename. The helper confines host access, preserves existing files, rejects symbolic-link directories and inherits host ownership. See [Features](Features.md).
 
 Verification passed `go test ./...`, `go vet ./...`, Linux amd64/arm64 backend cross-builds, frontend typecheck/production build and all seven browser suites. Browser fixtures cover 1920/1440/1280/1024/768/390/320px, consistent widths, centered controls, row order, private values, log matches, confirmation cancel/retry/focus, exact snapshot export and standalone paths; screenshots were inspected. The existing main-chunk warning remains (about 672.62 kB / 183.24 kB gzip). A network-isolated Linux helper container with only a disposable temporary bind mount successfully tested non-mutating status, directory creation, exact file writes, same-minute collision preservation and latest-file lookup on Docker Desktop. Its temporary image was removed. This is focused helper evidence, not the full application/native-host acceptance suite; no existing projects were modified.
+
+## Settings visual consistency
+
+Settings now uses matching bordered sections, Phosphor headings and compact actions. The projects directory field and Save share a row when space allows; new-project and log-export destinations have distinct examples. Yard updates places Check now near the heading and groups status, last checked and current build into wrapping columns, with explicit copy about immediate installation and automatic scheduling. Labels and help/error associations remain accessible; narrow screens stack content without changing the existing saving/update API behavior.
+
+Frontend typecheck/production build and the existing configuration/drawer browser suites passed. Shared widths and Settings overflow were checked at 1920/1440/1280/1024/768/390/320px; desktop/tablet/mobile screenshots were inspected. The existing large-main-chunk build warning remains. No backend or host runtime changes are part of this visual refinement.
+
+## Overlay navigation on tablet and small desktop
+
+Below 1280px, the sidebar now uses the same overlay navigation as mobile, opened by a Phosphor menu button immediately before Projects. Outside tap, leftward touch swipe, Escape and the close control dismiss it. Opening isolates the background, locks page scrolling and moves focus into the menu; keyboard traversal stays inside and dismissal restores the trigger. Crossing into wide desktop clears overlay state while preserving the saved desktop collapse preference. Dashboard search retains its existing desktop/tablet and mobile placement.
+
+Frontend typecheck/production build passed. All seven browser fixtures passed, with the drawer fixture rerun after adding responsive navigation coverage. Checks include real Chromium touch swipes at 1279/1024/768/390/320px, canceled gestures, vertical scrolling, outside dismissal, keyboard focus, Settings navigation and resizing across the 1280px boundary with the desktop preference retained. Tablet/mobile overlay screenshots were inspected. This changes frontend navigation only; the existing main-chunk warning remains.
 
 ## Previously recorded evidence
 

@@ -22,8 +22,8 @@ body {
 
 html:has(dialog[open]),
 body:has(dialog[open]),
-html:has([data-mobile-open="true"]),
-body:has([data-mobile-open="true"]) {
+html:has([data-menu-open="true"]),
+body:has([data-menu-open="true"]) {
   overflow: hidden;
 }
 

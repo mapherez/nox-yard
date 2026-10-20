@@ -32,7 +32,7 @@ async (originalPage) => {
       if(path==='/api/configuration-migration')return route.fulfill({json:[]});
       if(path.includes('/configuration/'))return route.fulfill({json:{available:false,state:'ready',directory:'/external/original-compose',files:[],variables:[]}});
       if(path==='/api/managed/settings')return route.fulfill({json:{projectsBase:'/srv/projects'}});
-      if(path==='/api/self-update')return route.fulfill({json:{automatic:false,intervalMinutes:15,status:'up_to_date'}});
+      if(path==='/api/self-update')return route.fulfill({json:{automatic:false,intervalMinutes:15,status:'up_to_date',lastChecked:'2026-10-20T11:37:00Z',currentBuildSHA:'123456789abcdef'}});
       if(path==='/api/jobs')return route.fulfill({json:[]});
       if(path.endsWith('/schedule'))return route.fulfill({json:{enabled:true,targetID:'compose:single',time:'03:00',timezone:'Europe/Lisbon',eligible:true,nextAt:1792530000,lastOutcome:'unchanged'}});
       if(path.endsWith('/logs/export')){
@@ -54,24 +54,72 @@ async (originalPage) => {
     await page.emulateMedia({reducedMotion:'reduce'});await page.setViewportSize({width:1440,height:1000});await page.goto('http://127.0.0.1:5173');
     const openSingle=()=>page.getByRole('button',{name:/Compose running single/}).click();
     const drawer=page.getByRole('dialog',{name:'single',exact:true});
-    for(const width of [1920,1440,1280,1024,768,390,320]){
+    // Keep desktop's preference across responsive menu use and breakpoint changes.
+    await page.getByRole('button',{name:'Hide sidebar',exact:true}).click();
+    await page.getByRole('button',{name:'Expand sidebar',exact:true}).waitFor();
+    const touch=await page.context().newCDPSession(page);
+    async function swipeMenu(type){
+      const point=(x,y)=>[{x,y,id:1}];
+      await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:point(210,300)});
+      await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:point(type==='vertical'?208:190,type==='vertical'?370:300)});
+      if(type==='close')await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:point(35,300)});
+      await touch.send('Input.dispatchTouchEvent',{type:type==='cancel'?'touchCancel':'touchEnd',touchPoints:[]});
+    }
+    for(const width of [1920,1440,1280,1279,1024,768,390,320]){
       await page.setViewportSize({width,height:1000});await openSingle();
       const box=await drawer.boundingBox();
       if(width>=1280&&box.width>width/2+1)throw Error('Desktop drawer exceeds half the screen');
       if(width<768&&Math.abs(box.width-width)>1)throw Error('Mobile drawer lost fullscreen');
-      if(width>=768&&width<1280&&box.width<width*.85)throw Error('Tablet drawer is too narrow');
+      if(width>=768&&width<1280&&box.width<Math.min(896,width*.85))throw Error('Tablet drawer is too narrow');
       const close=drawer.getByRole('button',{name:'Close project details'}),icon=close.locator('i.ph-x');
       const buttonBox=await close.boundingBox(),iconBox=await icon.boundingBox();
       if(Math.abs(buttonBox.x+buttonBox.width/2-iconBox.x-iconBox.width/2)>1||Math.abs(buttonBox.y+buttonBox.height/2-iconBox.y-iconBox.height/2)>1)throw Error('Close icon is off-center');
-      await close.click();if(width<768)await page.getByRole('button',{name:'Open menu',exact:true}).click();await page.getByRole('button',{name:'Settings',exact:true}).click();
+      await close.click();
+      const trigger=page.getByRole('button',{name:'Open menu',exact:true});
+      if(width<1280){
+        const menu=page.getByRole('dialog',{name:'Navigation menu',exact:true});
+        const heading=await page.getByRole('heading',{name:'Projects',exact:true}).boundingBox(),triggerBox=await trigger.boundingBox();
+        if(!triggerBox||triggerBox.x+triggerBox.width>heading.x)throw Error('Menu trigger is not beside Projects at '+width);
+        await trigger.click();await menu.waitFor();
+        if(!await page.locator('#content').evaluate(el=>el.parentElement.inert)||!await page.evaluate(()=>getComputedStyle(document.documentElement).overflow==='hidden'))throw Error('Open menu did not isolate background at '+width);
+        const closeMenu=menu.getByRole('button',{name:'Close menu',exact:true});
+        if(!await closeMenu.evaluate(el=>el===document.activeElement))throw Error('Menu did not receive focus');
+        await page.keyboard.press('Shift+Tab');
+        if(!await menu.getByRole('button',{name:'Sign out',exact:true}).evaluate(el=>el===document.activeElement))throw Error('Menu keyboard focus escaped');
+        await page.keyboard.press('Tab');await page.keyboard.press('Escape');await menu.waitFor({state:'hidden'});
+        await page.waitForFunction(()=>document.activeElement===document.querySelector('button[aria-label="Open menu"]'));
+        await trigger.click();await page.mouse.click(width-12,220);await menu.waitFor({state:'hidden'});
+        await trigger.click();
+        if(width===1024){
+          await swipeMenu('cancel');if(!await menu.isVisible())throw Error('Canceled swipe closed menu');
+          await swipeMenu('vertical');if(!await menu.isVisible())throw Error('Vertical scroll closed menu');
+          await page.screenshot({path:'output/playwright/sidebar-overlay-1024.png'});
+        }
+        if(width===320)await page.screenshot({path:'output/playwright/sidebar-overlay-320.png'});
+        await swipeMenu('close');await menu.waitFor({state:'hidden'});
+        await page.waitForFunction(()=>document.activeElement===document.querySelector('button[aria-label="Open menu"]'));
+        await trigger.click();
+      }else{
+        if(await trigger.isVisible())throw Error('Overlay trigger appeared on wide desktop');
+        await page.getByRole('button',{name:'Expand sidebar',exact:true}).waitFor();
+      }
+      await page.getByRole('button',{name:'Settings',exact:true}).click();
       const settings=page.getByRole('dialog',{name:'Settings',exact:true});
       if(Math.abs((await settings.boundingBox()).width-box.width)>1)throw Error('Settings drawer has a different width');
+      await settings.getByText('Current build',{exact:true}).waitFor();
+      if(await settings.evaluate(el=>el.scrollWidth>el.clientWidth+1))throw Error('Settings overflow at '+width);
+      if(width===1440||width===768||width===320)await page.screenshot({path:`output/playwright/settings-${width}.png`});
       await settings.getByRole('button',{name:'Close settings'}).click();
       await page.getByRole('button',{name:'New Project',exact:true}).click();
       const creation=page.getByRole('dialog',{name:'New Project',exact:true});
       if(Math.abs((await creation.boundingBox()).width-box.width)>1)throw Error('New Project drawer has a different width');
       await creation.getByRole('button',{name:'Close New Project'}).click();
     }
+    await page.setViewportSize({width:1024,height:1000});await page.getByRole('button',{name:'Open menu',exact:true}).click();
+    await page.setViewportSize({width:1440,height:1000});
+    await page.waitForFunction(()=>!document.querySelector('[data-menu-open="true"]')&&!document.querySelector('#content').parentElement.inert);
+    await page.getByRole('button',{name:'Expand sidebar',exact:true}).click();
+    await touch.detach();
     await page.setViewportSize({width:1440,height:1000});await openSingle();
     await drawer.getByRole('region',{name:'Project overview'}).waitFor();
     const tabs=drawer.getByRole('tab');if(await tabs.count()!==3)throw Error('Drawer lost tabs');
@@ -132,6 +180,6 @@ async (originalPage) => {
     await confirm.getByRole('button',{name:'Save log',exact:true}).click();await confirm.waitFor({state:'hidden'});
     if(!saved.has('standalone'))throw Error('Standalone export did not use its base/name/logs destination');
     if(errors.length)throw Error(errors.join('\n'));
-    console.log('PASS: uniform drawer sizes, centered Phosphor close, emphasized tabs, consistent Compose entry, row-major ports, private env values, full-height logs/terminal, literal highlighted search and confirmed plain-text host export with retry/persistence');
+    console.log('PASS: responsive overlay navigation with real touch swipe, keyboard focus and desktop preference preservation; uniform drawer sizes, centered Phosphor close, emphasized tabs, consistent Compose entry, row-major ports, private env values, full-height logs/terminal, literal highlighted search and confirmed plain-text host export with retry/persistence');
   } finally {await page.close()}
 }

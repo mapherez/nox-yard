@@ -1,0 +1,90 @@
+.content {
+  container: settings-content / inline-size;
+  gap: var(--space-5);
+}
+
+.section {
+  display: grid;
+  gap: var(--space-4);
+  min-inline-size: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.heading h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  margin: 0;
+  font-size: .95rem;
+  font-weight: 650;
+}
+
+.heading h3 i { color: var(--color-accent); }
+
+.description, .hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: .82rem;
+  line-height: 1.6;
+}
+
+.hint { font-size: .75rem; }
+
+.form, .field { display: grid; gap: var(--space-2); min-inline-size: 0; }
+.form { align-items: end; gap: var(--space-3); }
+.field label { color: var(--color-text-secondary); font-size: .78rem; }
+
+.input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.action { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-block-size: 2.75rem; justify-self: start; }
+
+.paths, .facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: var(--space-3);
+  min-inline-size: 0;
+  margin: 0;
+}
+
+.paths > div, .facts > div { display: grid; align-content: start; gap: var(--space-2); min-inline-size: 0; }
+.paths { padding-block-start: var(--space-4); border-block-start: 1px solid var(--color-border); }
+.paths dt, .facts dt { color: var(--color-text-muted); font-size: .73rem; }
+.paths dd, .facts dd { margin: 0; font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; }
+.paths code { font-size: .73rem; }
+.facts code { font-size: .8rem; }
+.form > .error { grid-column: 1 / -1; }
+.error { margin: 0; color: var(--color-danger); font-size: .83rem; overflow-wrap: anywhere; }
+
+@container settings-content (min-width: 34rem) {
+  .form { grid-template-columns: minmax(0, 1fr) auto; }
+  .paths { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (pointer: coarse) {
+  .input, .action { min-block-size: 3rem; }
+}
