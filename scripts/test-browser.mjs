@@ -10,7 +10,9 @@ import { randomUUID } from "node:crypto";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const session = "regression-" + randomUUID();
 const temp = path.join(root, ".tmp", session);
-const tests = ["smoke-history.cjs", "smoke-recreate.cjs", "smoke-schedules.cjs", "smoke-sessions.cjs", "smoke-configuration.cjs", "smoke-dashboard.cjs", "smoke-drawers.cjs"];
+const tests = ["smoke-history.cjs", "smoke-recreate.cjs", "smoke-schedules.cjs", "smoke-sessions.cjs", "smoke-configuration.cjs", "smoke-dashboard.cjs", "smoke-drawers.cjs", "smoke-machine.cjs"];
+const selectedTests = process.argv.slice(2);
+if (selectedTests.some(name => !tests.includes(name))) throw new Error("Unknown browser fixture");
 const port = await new Promise((resolve, reject) => {
  const server = createServer(); server.on("error", reject);
  server.listen(0, "127.0.0.1", () => { const port = server.address().port; server.close(() => resolve(port)); });
@@ -41,7 +43,7 @@ try {
   await new Promise(resolve => setTimeout(resolve, 100));
  }
  cli("open", "about:blank", "--browser", "chrome"); opened = true;
- for (const name of tests) {
+ for (const name of selectedTests.length ? selectedTests : tests) {
   const fixture = (await readFile(path.join(root, "scripts", name), "utf8")).replaceAll("http://127.0.0.1:5173", url);
   // Each suite owns its storage, init scripts, routes, listeners and viewport.
   // A previous suite must not silently change the next suite's environment.

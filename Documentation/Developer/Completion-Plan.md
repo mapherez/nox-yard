@@ -6,7 +6,7 @@ This is the planned execution path for completing the existing MVP, based on the
 
 The original plan remains the scope contract. This document breaks its remaining work into ordered implementation packages with dependencies, deliverables and acceptance gates. Each package should be delivered in focused changes that include the relevant backend, adapters, frontend, tests and documentation.
 
-The packages below preserve their 2026-10-08 baseline wording. Later decisions D-029–D-034 supersede their runtime-only/stored-DB and separate Yard interval assumptions: current host files are authoritative, browser updates use Pull → Recreate, and Yard shares daily scheduling. The CI release pipeline is implemented, while disposable Docker regression gates and native-host evidence remain separate acceptance requirements. Consult Progress before treating a package as outstanding.
+The packages below preserve their 2026-10-08 baseline wording. Later decisions D-029–D-034 supersede their runtime-only/stored-DB and separate Yard interval assumptions: current host files are authoritative, browser updates use Pull → Recreate, and Yard shares daily scheduling. D-040 supersedes the separate machine-authentication assumption: MCP and Control API share a local token and grants, with MCP on a separate opt-in listener. The CI release pipeline includes the MCP/network recovery Docker gate, while broader Docker regressions and native-host evidence remain separate acceptance requirements. Consult Progress before treating a package as outstanding.
 
 ## Scope and constraints
 

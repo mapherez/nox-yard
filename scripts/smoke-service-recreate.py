@@ -9,6 +9,7 @@ import socket
 import subprocess
 import time
 import urllib.request
+from machine_smoke import bootstrap_mcp
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--image", required=True)
@@ -25,6 +26,11 @@ with socket.socket() as probe:
     probe.bind(("127.0.0.1", 0))
     port = probe.getsockname()[1]
 origin = "http://127.0.0.1:" + str(port)
+with socket.socket() as probe:
+    probe.bind(("127.0.0.1", 0))
+    mcp_port = probe.getsockname()[1]
+mcp_origin = "http://127.0.0.1:" + str(mcp_port)
+mcp_token = ""
 sequence = 0
 
 def docker(*parts):
@@ -43,8 +49,8 @@ def compose(*parts):
 def rpc(method, params):
     global sequence
     sequence += 1
-    request = urllib.request.Request(origin + "/mcp", data=json.dumps({"jsonrpc": "2.0", "id": sequence, "method": method, "params": params}).encode(),
-        headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25"})
+    request = urllib.request.Request(mcp_origin + "/mcp", data=json.dumps({"jsonrpc": "2.0", "id": sequence, "method": method, "params": params}).encode(),
+        headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25", "Authorization": "Bearer " + mcp_token})
     with urllib.request.urlopen(request, timeout=65) as response:
         return json.load(response)["result"]
 
@@ -94,7 +100,7 @@ source = f'''services:
     image: {json.dumps(args.image)}
     labels: {{nox-yard.acceptance: {name}}}
     environment: {{NOX_DATA_DIR: /data, NOX_LISTEN_ADDR: ':8080'}}
-    ports: ['127.0.0.1:{port}:8080']
+    ports: ['127.0.0.1:{port}:8080', '127.0.0.1:{mcp_port}:8081']
     volumes: ['./data:/data', '/var/run/docker.sock:/var/run/docker.sock']
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1']
@@ -128,7 +134,8 @@ try:
     (base / "compose.yaml").write_text(source, newline="")
     (base / ".env").write_text("VALUE=initial\nFAIL=0\n", newline="")
     compose("up", "-d", "--no-build", "--pull", "never")
-    wait(lambda: rpc("tools/call", {"name": "yard_health", "arguments": {}}), "Yard did not start")
+    wait(lambda: urllib.request.urlopen(origin + "/healthz", timeout=3).status == 200, "Yard did not start")
+    _, _, mcp_token = bootstrap_mcp(origin)
     rpc("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "service-fixture", "version": "1"}})
     initial_peers = peers()
     initial_runs = (base / "state/init-runs").read_text()

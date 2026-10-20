@@ -13,6 +13,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/application"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
+	"github.com/mapherez/nox-yard/internal/machineauth"
 )
 
 func (s *Server) controlHandler() http.Handler {
@@ -26,6 +27,13 @@ func (s *Server) controlHandler() http.Handler {
 				w.Header().Set("Allow", method)
 				writeControlError(w, 405, "METHOD_NOT_ALLOWED", "Method is not supported for this route.")
 				return
+			}
+			if s.machineAccess && !public && method == http.MethodPost {
+				policy, ok := machineauth.FromContext(r.Context())
+				if !ok || !policy.Write {
+					writeControlError(w, 403, "FORBIDDEN", "Write access is required.")
+					return
+				}
 			}
 			handler(w, r)
 		})
@@ -70,7 +78,12 @@ func (s *Server) controlHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) controlInfo(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, 200, controlInfo{Service: "nox-yard", Version: s.controlVersion(), APIVersion: "v1", APIEnabled: s.control.enabled, Capabilities: []string{"docker-status", "project-inventory", "container-inspection", "container-lifecycle", "project-lifecycle", "container-image-pull", "project-image-pull"}})
+	enabled := s.control.enabled
+	if s.machineAccess {
+		settings, err := s.store.MachineSettings()
+		enabled = err == nil && settings.APIEnabled
+	}
+	writeJSON(w, 200, controlInfo{Service: "nox-yard", Version: s.controlVersion(), APIVersion: "v1", APIEnabled: enabled, Capabilities: []string{"docker-status", "project-inventory", "container-inspection", "container-lifecycle", "project-lifecycle", "container-image-pull", "project-image-pull"}})
 }
 
 func (s *Server) controlStatus(w http.ResponseWriter, r *http.Request) {

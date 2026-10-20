@@ -417,6 +417,8 @@ for file do
   if [ -f "$host/$file" ]; then chmod "$(stat -c %a "$host/$file")" "$temporary"; fileowner=$(stat -c '%u:%g' "$host/$file"); if [ "${fileowner%%:*}" = 0 ]; then fileowner="$owner"; fi; chown "$fileowner" "$temporary"
   else chown "$owner" "$temporary"; fi
   mv -f "$temporary" "$host/$file"
+ else
+  rm -f -- "$host/$file"
  fi
 done`
 

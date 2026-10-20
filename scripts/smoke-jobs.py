@@ -8,6 +8,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from machine_smoke import bootstrap_mcp
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--image", required=True)
@@ -29,6 +30,8 @@ yard = None
 workers = set()
 job_ids = set()
 url = ""
+mcp_url = ""
+mcp_token = ""
 
 def docker(*parts):
     completed = subprocess.run(["docker", *parts], capture_output=True, text=True)
@@ -50,7 +53,7 @@ def until(check, label, seconds=120):
 
 def request(path, payload=None):
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url + path, data=data, headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25"})
+    req = urllib.request.Request((mcp_url if path == "/mcp" else url) + path, data=data, headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25", "Authorization": "Bearer " + mcp_token})
     with urllib.request.urlopen(req, timeout=10) as response:
         return json.load(response)
 
@@ -66,10 +69,13 @@ def tool(method, payload=None, error=None):
     return value
 
 def address():
-    global url
+    global url, mcp_url, mcp_token
     info = json.loads(docker("inspect", yard))[0]
     url = "http://127.0.0.1:" + info["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostPort"]
+    mcp_url = "http://127.0.0.1:" + info["NetworkSettings"]["Ports"]["8081/tcp"][0]["HostPort"]
     until(lambda: request("/healthz"), "Yard health")
+    if not mcp_token:
+        _, _, mcp_token = bootstrap_mcp(url)
 
 def job(identifier):
     job_ids.add(identifier)
@@ -157,7 +163,7 @@ fi''')
     docker("build", "-t", image, str(base))
     docker("volume", "create", "--label", "nox-yard.jobs-smoke=" + suffix, volume)
     yard = docker("create", "--name", name, "--label", "nox-yard.jobs-smoke=" + suffix,
-        "--publish", "127.0.0.1::8080", "--mount", "type=volume,source=" + volume + ",target=/data",
+        "--publish", "127.0.0.1::8080", "--publish", "127.0.0.1::8081", "--mount", "type=volume,source=" + volume + ",target=/data",
         "--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
         "--env", "NOX_DATA_DIR=/data", image)
     docker("start", yard)

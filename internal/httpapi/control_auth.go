@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
+	"github.com/mapherez/nox-yard/internal/machineauth"
 	"net/http"
 	"strings"
 	"unicode"
@@ -51,6 +52,22 @@ func (s *Server) controlVersion() string {
 }
 
 func (s *Server) requireControlAuth(w http.ResponseWriter, r *http.Request) bool {
+	if s.machineAccess {
+		settings, err := s.store.MachineSettings()
+		if err != nil {
+			writeControlError(w, 503, "AUTH_UNAVAILABLE", "Authentication is unavailable.")
+			return false
+		}
+		if !settings.APIEnabled {
+			writeControlError(w, 503, "API_DISABLED", "The machine API is disabled.")
+			return false
+		}
+		if !s.machineTokenAuth(w, r) {
+			return false
+		}
+		*r = *r.WithContext(machineauth.WithPolicy(r.Context(), machineauth.Policy{Write: settings.Write, Secrets: settings.Secrets}))
+		return true
+	}
 	if !s.control.enabled {
 		writeControlError(w, http.StatusServiceUnavailable, "API_DISABLED", "The machine API is disabled.")
 		return false

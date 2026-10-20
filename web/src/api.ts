@@ -1,5 +1,15 @@
 import { trackInventoryAction } from "./inventoryUpdates";
 
+export type NetworkEndpoint = { bind: "127.0.0.1" | "0.0.0.0"; port: number };
+export type MachineSettings = { revision: number; mcpEnabled: boolean; apiEnabled: boolean; authMode: "token" | "anonymous"; write: boolean; secrets: boolean; autoApply: boolean; network: { yard: NetworkEndpoint; mcp: NetworkEndpoint }; hasToken: boolean; tokenCreatedAt: number };
+export type MachineStatus = { settings: MachineSettings; operational: boolean; networkStatus: { available: boolean; pending?: boolean; applied?: MachineSettings["network"]; reason?: string; job?: ManagedJob } | null };
+export type TokenEvent = { id: number; action: string; actor: string; createdAt: number };
+export function getMachineStatus(signal?: AbortSignal): Promise<MachineStatus> { return request("/api/machine", { signal }); }
+export function saveMachineSettings(settings: MachineSettings, csrfToken: string): Promise<{ settings: MachineSettings; applyError?: string }> { return request("/api/machine", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(settings) }); }
+export function rotateMachineToken(revoke: boolean, csrfToken: string): Promise<{ token: string }> { return request("/api/machine/token", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ revoke, confirm: true }) }); }
+export function getMachineTokenHistory(): Promise<TokenEvent[]> { return request("/api/machine/token/history"); }
+export function applyMachineNetwork(revision: number, csrfToken: string): Promise<ManagedJob> { return request("/api/machine/apply", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ revision, confirm: true }) }); }
+
 export const sessionExpiredEvent = "nox:session-expired";
 export function notifySessionExpired() {
   window.dispatchEvent(new Event(sessionExpiredEvent));

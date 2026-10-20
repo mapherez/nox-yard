@@ -22,8 +22,9 @@ FROM alpine:3.23 AS dev-backend
 RUN apk add --no-cache ca-certificates tzdata docker-cli-compose
 COPY --from=backend /out/nox-yard /usr/local/bin/nox-yard
 ENV NOX_DATA_DIR=/data \
-    NOX_LISTEN_ADDR=:8080
-EXPOSE 8080
+    NOX_LISTEN_ADDR=:8080 \
+    NOX_MCP_LISTEN_ADDR=:8081
+EXPOSE 8080 8081
 CMD ["nox-yard"]
 
 FROM alpine:3.23
@@ -33,6 +34,7 @@ COPY --from=backend /out/nox-yard /usr/local/bin/nox-yard
 COPY --from=frontend /src/web/dist /srv/nox-yard/web
 ENV NOX_DATA_DIR=/data \
     NOX_WEB_DIR=/srv/nox-yard/web \
-    NOX_LISTEN_ADDR=:8080
-EXPOSE 8080
+    NOX_LISTEN_ADDR=:8080 \
+    NOX_MCP_LISTEN_ADDR=:8081
+EXPOSE 8080 8081
 CMD ["nox-yard"]

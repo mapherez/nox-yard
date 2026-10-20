@@ -85,6 +85,8 @@ jobs:
           build-args: |
             BUILD_SHA=${{ github.sha }}
             BUILD_VERSION=${{ steps.metadata.outputs.version }}
+      - name: Check MCP access and network recovery
+        run: python3 scripts/smoke-machine.py --image nox-yard:ci-amd64
       - name: Build linux/arm64 image
         uses: docker/build-push-action@v7
         with:

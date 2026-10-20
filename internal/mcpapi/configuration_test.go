@@ -51,7 +51,7 @@ func TestConfigurationToolsUseSharedFilesAndProtectValues(t *testing.T) {
 		Variables: []managed.ConfigurationVariable{{Service: "web", Name: "TOKEN", Value: "private-env-value"}},
 	}}
 	app.Managed = c
-	server := httptest.NewServer(api.Handler())
+	server := httptest.NewServer(adapterHandler(api))
 	defer server.Close()
 	session := connect(t, server.URL+"/mcp")
 	read := func(reveal bool) string {
@@ -114,7 +114,7 @@ func TestConfigurationToolInputAndManagerErrors(t *testing.T) {
 	app, api, _ := fixture(t)
 	c := &configurationController{view: managed.FileConfigurationView{State: "ready"}, err: managed.ErrConflict}
 	app.Managed = c
-	server := httptest.NewServer(api.Handler())
+	server := httptest.NewServer(adapterHandler(api))
 	defer server.Close()
 	session := connect(t, server.URL+"/mcp")
 	for _, test := range []struct {

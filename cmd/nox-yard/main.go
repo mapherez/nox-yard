@@ -71,6 +71,9 @@ func run() error {
 		if len(os.Args) == 4 && os.Args[1] == "managed-worker" {
 			return managed.RunWorker(data, os.Args[2], os.Args[3])
 		}
+		if len(os.Args) == 4 && os.Args[1] == "network-worker" {
+			return managed.RunNetworkWorker(data, os.Args[2], os.Args[3])
+		}
 		if len(os.Args) == 2 && os.Args[1] == "reset-admin-password" {
 			return resetAdminPassword(data)
 		}
@@ -93,6 +96,20 @@ func run() error {
 	if err := api.ConfigureControlAPI(control); err != nil {
 		return err
 	}
+	initialNetwork := store.MachineNetwork{Yard: store.NetworkEndpoint{Bind: "127.0.0.1", Port: 8095}, MCP: store.NetworkEndpoint{Bind: "127.0.0.1", Port: 8096}}
+	inspectCtx, stopInspect := context.WithTimeout(context.Background(), 3*time.Second)
+	if actual, err := managed.DetectMachineNetwork(inspectCtx); err == nil {
+		if actual.Yard.Port != 0 {
+			initialNetwork.Yard = actual.Yard
+		}
+		if actual.MCP.Port != 0 {
+			initialNetwork.MCP = actual.MCP
+		}
+	}
+	stopInspect()
+	if err := data.InitializeMachine(initialNetwork, control.Enabled, control.Key); err != nil {
+		return err
+	}
 	dockerInventory, err := inventory.NewDockerReader()
 	if err != nil {
 		return err
@@ -104,6 +121,7 @@ func run() error {
 		return err
 	}
 	api.SetManaged(managedProjects)
+	api.ConfigureMachineAccess(managedProjects.MachineNetworkStatus, managedProjects.ApplyMachineNetwork)
 	api.SetLogs(dockerInventory)
 	api.SetTerminal(dockerInventory)
 	dockerLifecycle, err := lifecycle.New()
@@ -161,13 +179,13 @@ func run() error {
 	stopScheduler := projectScheduler.Start(ctx)
 	defer stopScheduler()
 	dockerInventory.Start(ctx, changes.Notify)
-	mcpRuntime, err := mcpapi.New(app, control.Version)
+	mcpHandler, err := mcpapi.NewHandler(app, control.Version)
 	if err != nil {
 		return err
 	}
-	api.SetMCPHandler(mcpRuntime.HTTPHandler())
+	api.SetMCPHandler(mcpHandler)
 	server := &http.Server{
-		Addr:              environment("NOX_LISTEN_ADDR", ":8080"),
+		Addr:              environment("NOX_LISTEN_ADDR", "127.0.0.1:8080"),
 		Handler:           api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -175,15 +193,32 @@ func run() error {
 		IdleTimeout:       60 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}
+	mcpServer := &http.Server{Addr: environment("NOX_MCP_LISTEN_ADDR", "127.0.0.1:8081"), Handler: api.MCPHandler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 130 * time.Second, IdleTimeout: 60 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
+	webListener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		return err
+	}
+	defer webListener.Close()
+	mcpListener, err := net.Listen("tcp", mcpServer.Addr)
+	if err != nil {
+		return err
+	}
+	defer mcpListener.Close()
+	api.SetMCPListening(true)
+	defer api.SetMCPListening(false)
 	updates.Start(ctx)
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
+		_ = mcpServer.Shutdown(shutdownCtx)
 	}()
 	log.Printf("Yard listening on %s", server.Addr)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	errorsCh := make(chan error, 2)
+	go func() { errorsCh <- server.Serve(webListener) }()
+	go func() { errorsCh <- mcpServer.Serve(mcpListener) }()
+	if err := <-errorsCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

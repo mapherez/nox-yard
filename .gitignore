@@ -27,6 +27,8 @@ web/.vite/
 *.tsbuildinfo
 
 # Logs and local tooling
+__pycache__/
+*.pyc
 logs/
 *.log
 .cache/

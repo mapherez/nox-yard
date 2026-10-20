@@ -18,6 +18,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/httpapi"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
+	"github.com/mapherez/nox-yard/internal/machineauth"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/mcpapi"
 	"github.com/mapherez/nox-yard/internal/schedule"
@@ -126,6 +127,15 @@ func fixture(t *testing.T) (*application.Service, *httpapi.Server, *noxmcp.Runti
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { data.Close() })
+	network := store.MachineNetwork{Yard: store.NetworkEndpoint{Bind: "127.0.0.1", Port: 8095}, MCP: store.NetworkEndpoint{Bind: "127.0.0.1", Port: 8096}}
+	if err := data.InitializeMachine(network, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := data.MachineSettings()
+	settings.MCPEnabled, settings.Write, settings.Secrets, settings.AuthMode = true, true, true, "anonymous"
+	if _, err := data.SaveMachineSettings(settings); err != nil {
+		t.Fatal(err)
+	}
 	app := application.New(data, inventory.NewNotifier())
 	api, err := httpapi.New(data, t.TempDir(), "", app)
 	if err != nil {
@@ -140,6 +150,19 @@ func fixture(t *testing.T) (*application.Service, *httpapi.Server, *noxmcp.Runti
 	}
 	api.SetMCPHandler(runtime.HTTPHandler())
 	return app, api, runtime
+}
+
+// Browser/facade parity tests share one ephemeral HTTP fixture, explicitly
+// dispatching to the two production handlers. Real listeners stay separate.
+func adapterHandler(api *httpapi.Server) http.Handler {
+	main, mcp := api.Handler(), api.MCPHandler()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/") {
+			mcp.ServeHTTP(w, r)
+			return
+		}
+		main.ServeHTTP(w, r)
+	})
 }
 func connect(t *testing.T, url string) *mcp.ClientSession {
 	t.Helper()
@@ -171,7 +194,7 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 	app, api, _ := fixture(t)
 	api.SetLifecycle(&controller{result: lifecycle.Result{Succeeded: 1}})
 	app.Updates = &updater{}
-	server := httptest.NewServer(api.Handler())
+	server := httptest.NewServer(adapterHandler(api))
 	defer server.Close()
 	session := connect(t, server.URL+"/mcp")
 	list, err := session.ListTools(context.Background(), nil)
@@ -363,7 +386,7 @@ func TestMCPPartialFailuresProtectionRemovalAndSelfUpdate(t *testing.T) {
 	api.SetLifecycle(c)
 	u := &updater{}
 	app.Updates = u
-	server := httptest.NewServer(api.Handler())
+	server := httptest.NewServer(adapterHandler(api))
 	defer server.Close()
 	session := connect(t, server.URL+"/mcp")
 	result := call(t, session, "yard_container_action", map[string]any{"id": id, "action": "restart"})
@@ -395,7 +418,7 @@ func TestMCPUsesHTTPNotifierAndController(t *testing.T) {
 	app, api, _ := fixture(t)
 	c := &controller{entered: make(chan struct{}), release: make(chan struct{}), result: lifecycle.Result{Succeeded: 1}}
 	api.SetLifecycle(c)
-	handler := api.Handler()
+	handler := adapterHandler(api)
 	setup := httptest.NewRecorder()
 	request := httptest.NewRequest("POST", "http://yard.test/api/setup", strings.NewReader(`{"username":"owner","password":"correct-horse-battery-staple"}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -467,7 +490,7 @@ func TestMCPUsesHTTPNotifierAndController(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer test-key")
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	api.Handler().ServeHTTP(w, req)
+	adapterHandler(api).ServeHTTP(w, req)
 	if w.Code != 200 || c.calls != 2 {
 		t.Fatalf("REST path: %d %s", w.Code, w.Body.String())
 	}
@@ -498,7 +521,7 @@ func TestComposeAcceptanceAndNotifierLifetime(t *testing.T) {
 	app, api, _ := fixture(t)
 	m := &asyncManaged{changes: app.Changes}
 	app.Managed = m
-	server := httptest.NewServer(api.Handler())
+	server := httptest.NewServer(adapterHandler(api))
 	defer server.Close()
 	session := connect(t, server.URL+"/mcp")
 	result := call(t, session, "yard_compose_operation", map[string]any{"name": "demo", "operation": "start", "removeVolumes": false})
@@ -550,7 +573,7 @@ func TestRuntimeTimeoutContextAndUnknownOutcome(t *testing.T) {
 	args := map[string]any{"id": id, "action": "restart"}
 	done := make(chan error, 1)
 	go func() {
-		_, err := runtime.Execute(context.Background(), "yard_container_action", args, nil)
+		_, err := runtime.Execute(machineauth.WithPolicy(context.Background(), machineauth.Policy{Write: true, Secrets: true}), "yard_container_action", args, nil)
 		done <- err
 	}()
 	ctx := <-c.seen
@@ -568,7 +591,10 @@ func TestRuntimeTimeoutContextAndUnknownOutcome(t *testing.T) {
 	app.Lifecycle = c
 	parent, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	go func() { _, err := runtime.Execute(parent, "yard_container_action", args, nil); done <- err }()
+	go func() {
+		_, err := runtime.Execute(machineauth.WithPolicy(parent, machineauth.Policy{Write: true, Secrets: true}), "yard_container_action", args, nil)
+		done <- err
+	}()
 	child := <-c.seen
 	parentDeadline, _ := parent.Deadline()
 	childDeadline, _ := child.Deadline()
@@ -590,7 +616,7 @@ func TestRuntimeTimeoutContextAndUnknownOutcome(t *testing.T) {
 func TestComposeSourceSettingsSchemasAndBrowserLogRegression(t *testing.T) {
 	app, api, _ := fixture(t)
 	app.Managed = &schemaManaged{}
-	server := httptest.NewServer(api.Handler())
+	server := httptest.NewServer(adapterHandler(api))
 	defer server.Close()
 	session := connect(t, server.URL+"/mcp")
 	source := map[string]any{"kind": "paste", "yaml": "services:\n  demo:\n    image: alpine:3.23\n"}

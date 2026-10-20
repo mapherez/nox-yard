@@ -7,12 +7,14 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "${NOX_BIND_ADDRESS:-0.0.0.0}:${NOX_PORT:-8095}:8080"
+      - "${NOX_BIND_ADDRESS:-127.0.0.1}:${NOX_PORT:-8095}:8080"
+      - "${NOX_MCP_BIND_ADDRESS:-127.0.0.1}:${NOX_MCP_PORT:-8096}:8081"
     environment:
       TZ: ${NOX_TIMEZONE:-Etc/UTC}
       NOX_DATA_DIR: /data
       NOX_WEB_DIR: /srv/nox-yard/web
       NOX_LISTEN_ADDR: :8080
+      NOX_MCP_LISTEN_ADDR: :8081
       NOX_PUBLIC_URL: ${NOX_PUBLIC_URL:-}
       NOX_YARD_API_ENABLED: ${NOX_YARD_API_ENABLED:-false}
       NOX_YARD_API_KEY: ${NOX_YARD_API_KEY:-}

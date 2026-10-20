@@ -9,10 +9,12 @@ services:
     init: true
     ports:
       - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
     environment:
       TZ: ${NOX_TIMEZONE:-Etc/UTC}
       NOX_DATA_DIR: /data
       NOX_LISTEN_ADDR: :8080
+      NOX_MCP_LISTEN_ADDR: :8081
       NOX_PUBLIC_URL: http://127.0.0.1:5173
       NOX_YARD_API_ENABLED: ${NOX_YARD_API_ENABLED:-false}
       NOX_YARD_API_KEY: ${NOX_YARD_API_KEY:-}

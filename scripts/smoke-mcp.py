@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 from http.cookiejar import CookieJar
 from pathlib import Path
+from machine_smoke import bootstrap_mcp
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--image", required=True)
@@ -43,6 +44,8 @@ managed_names = []
 events_response = None
 key = secrets.token_hex(32)
 sequence = 0
+mcp_urls = {}
+browsers = {}
 
 def docker(*arguments):
     result = subprocess.run(command + list(arguments), check=True, text=True,
@@ -84,9 +87,9 @@ def request(url, path, body=None, opener=None, headers=None, method=None):
 def rpc(url, method, params):
     global sequence
     sequence += 1
-    status, response = request(url, "/mcp", {
+    status, response = request(mcp_urls[url], "/mcp", {
         "jsonrpc": "2.0", "id": sequence, "method": method, "params": params,
-    }, headers={"Accept": "application/json, text/event-stream",
+    }, headers={"Accept": "application/json, text/event-stream", "Authorization": "Bearer " + key,
                 "MCP-Protocol-Version": "2025-11-25"})
     assert status == 200 and "result" in response, (status, response)
     return response["result"]
@@ -106,13 +109,15 @@ def ready(url):
 def address(identifier):
     info = json.loads(docker("inspect", identifier))[0]
     port = info["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostPort"]
-    return "http://127.0.0.1:" + port
+    url = "http://127.0.0.1:" + port
+    mcp_urls[url] = "http://127.0.0.1:" + info["NetworkSettings"]["Ports"]["8081/tcp"][0]["HostPort"]
+    return url
 
 def serve(image, platform="linux/amd64", socket=False):
     volume = "mcp-smoke-data-" + suffix + "-" + platform.split("/")[-1]
     docker("volume", "create", "--label", "nox-yard.mcp-smoke=" + suffix, volume)
     volumes.append(volume)
-    options = ["--platform", platform, "--publish", "127.0.0.1::8080",
+    options = ["--platform", platform, "--publish", "127.0.0.1::8080", "--publish", "127.0.0.1::8081",
                "--mount", "type=volume,source=" + volume + ",target=/data",
                "--env", "NOX_DATA_DIR=/data", "--env", "TZ=Europe/Lisbon", "--env", "NOX_YARD_API_ENABLED=true",
                "--env", "NOX_YARD_API_KEY=" + key,
@@ -125,6 +130,8 @@ def serve(image, platform="linux/amd64", socket=False):
     docker("start", identifier)
     url = address(identifier)
     until(lambda: ready(url), platform + " health")
+    browser, setup, _ = bootstrap_mcp(url, key)
+    browsers[identifier] = (browser, setup)
     rpc(url, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                            "clientInfo": {"name": "yard-smoke", "version": "1"}})
     assert len(rpc(url, "tools/list", {})["tools"]) == 35
@@ -175,7 +182,7 @@ try:
     for action in ("stop", "start", "restart"):
         assert tool(url, "yard_container_action", {"id": fixture, "action": action})["succeeded"] == 1
     tool(url, "yard_container_action", {"id": yard, "action": "stop"}, "TARGET_PROTECTED")
-    print("PASS: anonymous MCP, existing auth, lifecycle, logs, inspection, pull and self-protection", flush=True)
+    print("PASS: authenticated MCP, browser auth isolation, lifecycle, logs, inspection, pull and self-protection", flush=True)
 
     # C4 uses the same independent worker lifetime as managed operations.
     external = {"id": "container:" + fixture, "operation": "update"}
@@ -213,10 +220,7 @@ try:
     assert any(item == {"name": "MCP_TEST_VALUE", "value": "fixture"} for item in tool(url, "yard_container_environment", {"id": fixture})["environment"])
     print("PASS: C4 unchanged/recreate worker, new-target conflict, web restart, replacement identity/history and environment", flush=True)
 
-    browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
-    status, setup = request(url, "/api/setup", {"username": "smoke",
-        "password": secrets.token_hex(24)}, opener=browser, headers={"Origin": url})
-    assert status == 201, setup
+    browser, setup = browsers[yard]
     schedule_path = "/api/projects/container:" + fixture + "/schedule"
     status, browser_schedule = request(url, schedule_path, opener=browser)
     assert status == 200 and browser_schedule["targetID"] == "container:" + fixture and browser_schedule["enabled"] is False and browser_schedule["timezone"] == "Europe/Lisbon", browser_schedule
@@ -463,7 +467,7 @@ try:
     print("PASS: fingerprint protection, removal, queued self-restart, persisted session/settings and MCP recovery", flush=True)
     if args.arm64_image:
         serve(args.arm64_image, platform="linux/arm64")
-        print("PASS: ARM64 runtime health and anonymous MCP tool discovery", flush=True)
+        print("PASS: ARM64 runtime health and authenticated MCP tool discovery", flush=True)
 finally:
     if events_response:
         events_response.close()

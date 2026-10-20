@@ -13,6 +13,7 @@ import socket
 import subprocess
 import time
 import urllib.request
+from machine_smoke import enable_mcp
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--image", required=True)
@@ -43,6 +44,11 @@ with socket.socket() as probe:
     probe.bind(("127.0.0.1", 0))
     port = probe.getsockname()[1]
 origin = "http://127.0.0.1:" + str(port)
+with socket.socket() as probe:
+    probe.bind(("127.0.0.1", 0))
+    mcp_port = probe.getsockname()[1]
+mcp_origin = "http://127.0.0.1:" + str(mcp_port)
+mcp_token = ""
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 csrf = ""
 sequence = 0
@@ -50,9 +56,9 @@ sequence = 0
 def rpc(method, params):
     global sequence
     sequence += 1
-    request = urllib.request.Request(origin + "/mcp", data=json.dumps({
+    request = urllib.request.Request(mcp_origin + "/mcp", data=json.dumps({
         "jsonrpc": "2.0", "id": sequence, "method": method, "params": params,
-    }).encode(), headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+    }).encode(), headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream", "Authorization": "Bearer " + mcp_token,
                           "MCP-Protocol-Version": "2025-11-25"})
     with urllib.request.urlopen(request, timeout=65) as response:
         result = json.load(response)
@@ -113,7 +119,7 @@ source = f'''services:
       NOX_LISTEN_ADDR: ':8080'
       TZ: Europe/Lisbon
       NOX_FILE_TEST: '${{FILE_TEST}}'
-    ports: ['127.0.0.1:{port}:8080']
+    ports: ['127.0.0.1:{port}:8080', '127.0.0.1:{mcp_port}:8081']
     volumes: ['./data:/data', '/var/run/docker.sock:/var/run/docker.sock']
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1']
@@ -129,6 +135,7 @@ try:
     wait(lambda: api("/api/bootstrap"), "fixture did not start")
     api("/api/setup", {"username": "fixture", "password": "fixture-password-configuration"})
     csrf = api("/api/bootstrap")["csrfToken"]
+    mcp_token = enable_mcp(origin, opener, csrf)
     target = "/api/projects/compose:" + name
     configuration = api(target + "/configuration/read", {"reveal": True})
     assert configuration["available"] and configuration["state"] == "ready"

@@ -222,7 +222,9 @@ This creates or starts the Yard container in the background, using the supplied 
 
 Open the dashboard in your browser:
 
-**http://YOUR_HOST_IP:8095**
+**http://127.0.0.1:8095** on the Docker host.
+
+For access from another device on your trusted LAN/VPN, copy `.env.example` to `.env`, explicitly set `NOX_BIND_ADDRESS=0.0.0.0`, and recreate the service. The default host binding is local-only. A reverse proxy in another container can instead share Yard's Docker network.
 
 On your first visit, Yard guides you through creating the administrator account.
 
@@ -258,7 +260,9 @@ Common options include:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `NOX_PORT` | `8095` | HTTP port exposed on the host. |
-| `NOX_BIND_ADDRESS` | `0.0.0.0` | Host interface used for the published port. |
+| `NOX_BIND_ADDRESS` | `127.0.0.1` | Host interface for Yard UI and Control API. |
+| `NOX_MCP_PORT` | `8096` | Separate MCP port published on the host. |
+| `NOX_MCP_BIND_ADDRESS` | `127.0.0.1` | Host interface for MCP; MCP starts disabled. |
 | `NOX_PUBLIC_URL` | Empty | Browser-facing origin when using a reverse proxy. |
 | `NOX_TIMEZONE` | `Etc/UTC` | Server timezone used by project schedules. |
 
@@ -292,12 +296,16 @@ The application does not require a third-party account for its standard browser 
 Yard includes an embedded Model Context Protocol (MCP) endpoint for integration with compatible clients and automation workflows.
 
 ```text
-http://YOUR_HOST_IP:8095/mcp
+http://127.0.0.1:8096/mcp
 ```
 
 The MCP interface provides tools for inspecting Docker workloads, performing supported operations, retrieving job information, and interacting with Yard's management capabilities.
 
-The endpoint is always enabled and currently does **not require authentication**. It must remain restricted to a trusted private network.
+MCP is **disabled by default**. Enable it in **Settings → MCP & access**, generate a Yard token and configure the client with `Authorization: Bearer <TOKEN>`. Inspection is the default permission; writes and sensitive reads (environment values, file contents and logs) are separate opt-ins. Explicit anonymous access is available with a warning and uses the selected permissions.
+
+The sidebar indicator reports whether Yard's MCP server is operational. It opens the MCP settings; it does not report client sessions or a NoX Gateway registration. NoX Gateway integration remains pending its shared authentication/registration contract.
+
+Yard and MCP have independent host bindings/ports. Saving network changes leaves them pending until **Apply now**, unless automatic recreation was explicitly selected. A durable worker persists Compose/`.env`, recreates only Yard using the current image, checks health and actual port bindings, and attempts recovery on failure. The UI address may change; reconnect using the requested address. Automatic application requires a supported Compose installation with accessible source files.
 
 See the [MCP documentation](Documentation/Developer/MCP.md) for available tools, behaviors, and limitations.
 
@@ -305,11 +313,11 @@ See the [MCP documentation](Documentation/Developer/MCP.md) for available tools,
 
 Yard also offers an optional HTTP Control API for external applications and automation tools.
 
-Unlike the embedded MCP endpoint, this API uses independent Bearer-token authentication.
+It shares the single active Yard token with MCP. Generating a replacement immediately invalidates the old token for both interfaces; revocation is also immediate. Tokens are shown once and stored as hashes, with the latest ten token events available in the Settings History modal.
 
 The API exposes supported inventory, inspection, container lifecycle, and image-pull operations.
 
-It is disabled by default and can be enabled through deployment configuration.
+It is disabled by default and can be enabled in **Settings → MCP & access**. The Control API always requires a Yard token, including when MCP permits anonymous access. Read-only permissions also apply to the Control API.
 
 See the [Control API documentation](Documentation/Developer/Control-API.md) for setup instructions and endpoint contracts.
 

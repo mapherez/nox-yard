@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/application"
@@ -44,6 +45,10 @@ type Server struct {
 	terminal             inventory.TerminalManager
 	changes              *inventory.Notifier
 	control              controlSettings
+	machineAccess        bool
+	mcpListening         atomic.Bool
+	machineNetwork       func(context.Context) (any, error)
+	machineApply         func(context.Context, int64) (store.Job, error)
 	sessionCheckInterval time.Duration
 }
 
@@ -120,9 +125,21 @@ func (s *Server) SetSelfUpdate(manager *selfupdate.Manager) {
 
 // SetMCPHandler installs the always-on MCP adapter before serving requests.
 func (s *Server) SetMCPHandler(handler http.Handler) { s.mcp = handler }
+
+func (s *Server) ConfigureMachineAccess(status func(context.Context) (any, error), apply func(context.Context, int64) (store.Job, error)) {
+	s.machineAccess = true
+	s.machineNetwork = status
+	s.machineApply = apply
+}
+func (s *Server) SetMCPListening(ready bool) { s.mcpListening.Store(ready) }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /api/machine", s.machineSettingsGet)
+	mux.HandleFunc("PUT /api/machine", s.machineSettingsPut)
+	mux.HandleFunc("POST /api/machine/token", s.machineToken)
+	mux.HandleFunc("GET /api/machine/token/history", s.machineHistory)
+	mux.HandleFunc("POST /api/machine/apply", s.machineApplyNow)
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/projects", s.projects)
 	mux.HandleFunc("POST /api/projects/{id}/configuration/{operation}", s.projectConfiguration)
@@ -165,19 +182,7 @@ func (s *Server) Handler() http.Handler {
 	control := s.controlHandler()
 	return s.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/") {
-			if r.URL.Path != "/mcp" {
-				writeError(w, 404, "Not found.")
-				return
-			}
-			if origin := r.Header.Get("Origin"); origin != "" && !s.checkOrigin(w, r) {
-				return
-			}
-			w.Header().Set("Cache-Control", "no-store")
-			if s.mcp == nil {
-				writeError(w, 503, "MCP is unavailable.")
-				return
-			}
-			s.mcp.ServeHTTP(w, r)
+			writeError(w, 404, "MCP uses its separate port.")
 			return
 		}
 		if r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/") {

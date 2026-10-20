@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/application"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
+	"github.com/mapherez/nox-yard/internal/machineauth"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
@@ -98,6 +100,17 @@ func register[I, O any](b *builder, name, title, description string, f flags, ex
 			"cli": cli,
 		},
 		Execute: func(ctx noxmcp.ExecutionContext, args map[string]any) (map[string]any, error) {
+			policy, authorized := machineauth.FromContext(ctx.Context)
+			if !authorized {
+				return nil, &noxmcp.Error{Code: "AUTH_REQUIRED", Message: "MCP authentication is required."}
+			}
+			if !f.readOnly && !policy.Write {
+				return nil, &noxmcp.Error{Code: "FORBIDDEN", Message: "Write access is required."}
+			}
+			reveal, _ := args["reveal"].(bool)
+			if !policy.Secrets && (name == "yard_container_environment" || name == "yard_container_logs" || (name == "yard_project_configuration_read" && reveal)) {
+				return nil, &noxmcp.Error{Code: "FORBIDDEN", Message: "Sensitive data access is required."}
+			}
 			data, err := json.Marshal(args)
 			if err != nil {
 				return nil, err
@@ -243,7 +256,7 @@ func failures(items []lifecycle.Failure) []failure {
 	}
 	return result
 }
-func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
+func New(app *application.Service, version string, policies ...machineauth.Policy) (*noxmcp.Runtime, error) {
 	b := &builder{}
 	register(b, "yard_project_configuration_read", "Read project configuration", "Read current Compose, .env and env_file metadata from host files, including fingerprint and pending variable changes. Requires a compose: project ID, including Yard. File contents and variable values are hidden unless reveal is explicitly true; treat revealed output as sensitive. Does not change files or containers.", read, func(ctx context.Context, in configurationReadInput) (managed.FileConfigurationView, error) {
 		if err := configurationTarget(in.ID); err != nil {
@@ -427,5 +440,53 @@ func New(app *application.Service, version string) (*noxmcp.Runtime, error) {
 	if b.err != nil {
 		return nil, b.err
 	}
+	if len(policies) > 0 {
+		policy := policies[0]
+		allowed := []noxmcp.Tool{}
+		for _, tool := range b.tools {
+			if !policy.Write && !tool.ReadOnly {
+				continue
+			}
+			if !policy.Secrets && (tool.Name == "yard_container_environment" || tool.Name == "yard_container_logs") {
+				continue
+			}
+			allowed = append(allowed, tool)
+		}
+		b.tools = allowed
+	}
 	return noxmcp.New(noxmcp.Options{AppID: "nox-yard", Name: "nox-yard", Version: version, Timeout: Timeout, MaxInFlight: MaxInFlight, MaxPayloadBytes: MaxPayloadBytes, Tools: b.tools})
+}
+
+// NewHandler keeps the discovery catalog consistent with each request's grants.
+// Execution still enforces grants independently of catalog filtering.
+func NewHandler(app *application.Service, version string) (http.Handler, error) {
+	handlers := map[machineauth.Policy]http.Handler{}
+	inFlight := make(chan struct{}, MaxInFlight)
+	for _, write := range []bool{false, true} {
+		for _, secrets := range []bool{false, true} {
+			policy := machineauth.Policy{Write: write, Secrets: secrets}
+			runtime, err := New(app, version, policy)
+			if err != nil {
+				return nil, err
+			}
+			handlers[policy] = runtime.HTTPHandler()
+		}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		policy, ok := machineauth.FromContext(r.Context())
+		if !ok {
+			http.Error(w, "Authentication required.", 401)
+			return
+		}
+		select {
+		case inFlight <- struct{}{}:
+			defer func() { <-inFlight }()
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"MCP concurrency limit reached."}`))
+			return
+		}
+		handlers[policy].ServeHTTP(w, r)
+	}), nil
 }

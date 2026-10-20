@@ -33,6 +33,8 @@ import {
 } from "./api";
 import styles from "./App.module.css";
 import settingsStyles from "./SettingsDrawer.module.css";
+import { MachineAccessSettings, MCPIndicator } from "./MachineSettings";
+import { getMachineStatus, type MachineStatus } from "./api";
 import { useDrawerSwipe } from "./useDrawerSwipe";
 import { TerminalPanel } from "./TerminalPanel";
 import { LogsPanel } from "./LogsPanel";
@@ -275,6 +277,25 @@ function Dashboard({
   const { projects, inventoryError, collectedAt, refreshing, refresh } = useProjects();
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [focusMCP, setFocusMCP] = useState(false);
+  const [machineStatus, setMachineStatus] = useState<MachineStatus | null>(null);
+  const [machineError, setMachineError] = useState("");
+  const machineRequest = useRef<AbortController | null>(null);
+  const refreshMachine = useCallback(async () => {
+    machineRequest.current?.abort(); const controller = new AbortController(); machineRequest.current = controller;
+    try { const current = await getMachineStatus(controller.signal); if (!current.settings) throw new Error("Machine settings are unavailable."); if (!controller.signal.aborted) { setMachineStatus(current); setMachineError(""); } }
+    catch (cause) { if (!controller.signal.aborted) { setMachineStatus(null); setMachineError(cause instanceof Error ? cause.message : "Unable to read MCP status."); } }
+  }, []);
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState !== "hidden") void refreshMachine(); };
+    refresh(); document.addEventListener("visibilitychange", refresh);
+    return () => { machineRequest.current?.abort(); document.removeEventListener("visibilitychange", refresh); };
+  }, [refreshMachine]);
+  useEffect(() => {
+    if (!machineStatus?.settings.mcpEnabled && !machineStatus?.networkStatus?.pending && machineStatus?.networkStatus?.job?.status !== "running") return;
+    const interval = window.setInterval(() => { if (document.visibilityState !== "hidden") void refreshMachine(); }, machineStatus?.networkStatus?.job?.status === "running" ? 3000 : 30000);
+    return () => window.clearInterval(interval);
+  }, [machineStatus?.settings.mcpEnabled, machineStatus?.networkStatus?.pending, machineStatus?.networkStatus?.job?.status, refreshMachine]);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const newProjectButtonRef = useRef<HTMLButtonElement>(null);
   const skipLinkRef = useRef<HTMLAnchorElement>(null);
@@ -373,9 +394,10 @@ function Dashboard({
           </a>
         </nav>
         <div className={styles.sidebarFooter}>
-          <button type="button" className={styles.navLink} aria-label="Settings" title={compactSidebar ? "Settings" : undefined} aria-haspopup="dialog" aria-controls="settings-drawer" aria-expanded={settingsOpen} onClick={() => { setMenuOpen(false); setSettingsOpen(true); }}>
+          <button type="button" className={styles.navLink} aria-label="Settings" title={compactSidebar ? "Settings" : undefined} aria-haspopup="dialog" aria-controls="settings-drawer" aria-expanded={settingsOpen} onClick={() => { setMenuOpen(false); setFocusMCP(false); setSettingsOpen(true); void refreshMachine(); }}>
             <i className="ph-bold ph-sliders-horizontal" aria-hidden="true" />{!compactSidebar && <span>Settings</span>}
           </button>
+          <MCPIndicator status={machineStatus} compact={compactSidebar} onClick={() => { setMenuOpen(false); setFocusMCP(true); setSettingsOpen(true); void refreshMachine(); }} />
           <div className={styles.accountRow}>
             {compactSidebar
               ? <div className={styles.accountCompact}>
@@ -450,7 +472,7 @@ function Dashboard({
       </div>
       <ProjectDrawer project={selected} csrfToken={csrfToken} onChanged={refresh} onClose={() => setSelectedID(null)} />
       <NewProjectDrawer open={newProjectOpen} csrfToken={csrfToken} onChanged={refresh} onClose={() => { setNewProjectOpen(false); newProjectButtonRef.current?.focus(); }} />
-      <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} onClose={() => { setSettingsOpen(false); if (overlayNavigation) menuButtonRef.current?.focus(); }} />
+      <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} machineStatus={machineStatus} machineError={machineError} onMachineRefresh={refreshMachine} focusMCP={focusMCP} onClose={() => { setSettingsOpen(false); if (overlayNavigation) menuButtonRef.current?.focus(); }} />
     </div>
   );
 }
@@ -974,10 +996,11 @@ function RemovalItems({ items }: { items: { kind: string; id: string; name: stri
   </ul>;
 }
 
-function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken: string; onClose: () => void }) {
+function SettingsDrawer({ open, csrfToken, onClose, machineStatus, machineError, onMachineRefresh, focusMCP }: { open: boolean; csrfToken: string; onClose: () => void; machineStatus: MachineStatus | null; machineError: string; onMachineRefresh: () => Promise<void>; focusMCP: boolean }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dismiss = useCallback(() => dialogRef.current?.close(), []);
   useDrawerSwipe(dialogRef, "left", open, dismiss);
+  useEffect(() => { if (open && focusMCP) { const frame = requestAnimationFrame(() => document.getElementById("machine-access-settings")?.scrollIntoView({ block: "start" })); return () => cancelAnimationFrame(frame); } }, [open, focusMCP]);
   const [status, setStatus] = useState<SelfUpdateStatus | null>(null);
 	const [projectsBase, setProjectsBase] = useState("");
 	const [savedProjectsBase, setSavedProjectsBase] = useState("");
@@ -1082,6 +1105,7 @@ function SettingsDrawer({ open, csrfToken, onClose }: { open: boolean; csrfToken
         <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close settings"><i className="ph-bold ph-x" aria-hidden="true" /></button>
       </header>
       <div className={`${styles.settingsContent} ${settingsStyles.content}`}>
+        {open && <MachineAccessSettings status={machineStatus} error={machineError} csrfToken={csrfToken} onRefresh={onMachineRefresh} />}
         <section aria-labelledby="projects-directory-title" className={settingsStyles.section}>
           <div className={settingsStyles.heading}>
             <h3 id="projects-directory-title"><i className="ph-bold ph-folder" aria-hidden="true" />Projects directory</h3>
