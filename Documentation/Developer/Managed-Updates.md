@@ -4,9 +4,9 @@ Managed operations use the C2 independent worker and resource reservations. File
 
 ## Current file-backed operations
 
-[Configuration files](Configuration-Files.md) defines the current contract for managed and external projects: current host files are authoritative; Save changes files only; Start/Stop/Restart affect existing containers; Pull downloads only; Recreate applies current files with cached images and no pull/build. The browser no longer offers Update. Legacy update APIs/schedules still pull before applying current files. Migration exports DB-only values and clears the verified legacy active copies. The private job journal remains in SQLite.
+[Configuration files](Configuration-Files.md) defines the current contract for managed and external projects: current host files are authoritative; Save changes files only; Start/Stop/Restart affect existing containers; Pull downloads only; Recreate applies current files with cached images and no pull/build. The browser no longer offers Update. Legacy update APIs/schedules still pull before applying current files. Deploy/adopt/Sync persist interpolation values in .env within the operation and commit location-only metadata on success. The private job journal remains in SQLite.
 
-The source Sync/deployment protocol below remains for URL intake and compatibility. Its old-source snapshot is hydrated from current files after migration. Multi-file source editing uses the drawer's individual file editors.
+The source Sync/deployment protocol below remains for URL intake and compatibility. Its old-source snapshot is hydrated from current files. Multi-file source editing uses the drawer's individual file editors.
 
 Sync retains saved interpolation overrides that the new source still declares, and saved environment files that it still uses (including `.env`), when those inputs are omitted from the request. Explicit values/files replace their saved counterparts; an empty string is an explicit replacement, not an omission. A newly supplied `.env` assignment supersedes an inherited interpolation override for that key, while an explicitly supplied interpolation variable still wins. Removed variable/file declarations are dropped. The preview fingerprints and worker payload use the same effective inputs without returning saved secrets. The form omits untouched variable fields and sends edited fields even when cleared. Copy/new deployment does not inherit another project's inputs.
 
@@ -16,7 +16,7 @@ Replacement uses the complete validated Compose JSON model over stdin, with immu
 
 Pinned containers retain their original image reference in the reserved `nox-yard.image-reference` label. Inventory and cache-only Engine pulls use that reference; image verification, replacement and rollback still use actual immutable IDs. Engine pull history records the newly cached ID without changing deployed containers. Source definitions cannot supply the reserved label.
 
-Compose helpers mount host source read-only; pull works from the parent directory so it cannot create a missing project directory through its working-directory mount. Start of a complete stack starts the existing containers instead of running `up` against mutable cache tags. Stop/Start after rollback therefore preserves the restored version even while the failed target remains cached. Start/restart of migrated projects use existing Engine containers and do not apply edited files.
+Compose helpers mount host source read-only; pull works from the parent directory so it cannot create a missing project directory through its working-directory mount. Start of a complete stack starts the existing containers instead of running `up` against mutable cache tags. Stop/Start after rollback therefore preserves the restored version even while the failed target remains cached. Start/restart of file-backed projects use existing Engine containers and do not apply edited files.
 
 ## Snapshot and supported replacement
 

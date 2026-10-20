@@ -6,9 +6,80 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"gopkg.in/yaml.v3"
 	"os"
+	"os/exec"
+	"path"
 	"strings"
 	"testing"
+
+	"github.com/mapherez/nox-yard/internal/store"
 )
+
+func TestProjectFilesIncludeReviewedInterpolationValues(t *testing.T) {
+	project := store.ManagedProject{YAML: "services: {}", VariablesJSON: `{"TOKEN":"literal$value","EMPTY":""}`, EnvFilesJSON: `{".env":"TOKEN=old\nOTHER=keep","app.env":"SERVICE=value\n"}`}
+	files, err := projectFiles(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files["compose.yml"] != project.YAML || files["app.env"] != "SERVICE=value\n" || files[".env"] != "TOKEN=old\nOTHER=keep\nEMPTY=\"\"\nTOKEN=\"literal$$value\"\n" {
+		t.Fatalf("incorrect direct deployment files: %#v", files)
+	}
+}
+
+func TestDeploymentFilesDockerOwnership(t *testing.T) {
+	prefix := os.Getenv("NOX_MANAGED_ACCEPTANCE_NAME")
+	if !strings.HasPrefix(prefix, "managed-smoke-") {
+		t.Skip("requires disposable managed fixture")
+	}
+	ctx := t.Context()
+	docker := func(args ...string) string {
+		t.Helper()
+		output, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("ownership fixture: %s: %v", output, err)
+		}
+		return strings.TrimSpace(string(output))
+	}
+	volume := prefix + "-direct-files"
+	docker("volume", "create", "--label", "nox-yard.acceptance="+prefix, volume)
+	t.Cleanup(func() { _ = exec.Command("docker", "volume", "rm", volume).Run() })
+	image := os.Getenv("NOX_HELPER_IMAGE")
+	mount := "type=volume,source=" + volume + ",target=/fixture"
+	docker("run", "--rm", "--mount", mount, "--entrypoint", "chown", image, "1001:1001", "/fixture")
+	base := docker("volume", "inspect", "--format", "{{.Mountpoint}}", volume)
+	project := store.ManagedProject{Name: prefix + "-files", ProjectDir: path.Join(base, "project"), YAML: "services:\n  app:\n    image: alpine:3.23\n    env_file: [config/app.env]\n    environment: {TOKEN: '${TOKEN}'}\n", VariablesJSON: `{"TOKEN":"literal$value"}`, EnvFilesJSON: `{"config/app.env":"SERVICE=value\n"}`}
+	for _, mode := range []string{"prepare", "commit", "verified"} {
+		if err := hostProjectFiles(ctx, project.ProjectDir, nil, project, mode); err != nil {
+			t.Fatal(mode, err)
+		}
+	}
+	owners := docker("run", "--rm", "--mount", mount, "--entrypoint", "stat", image, "-c", "%u:%g", "/fixture/project", "/fixture/project/compose.yml", "/fixture/project/.env", "/fixture/project/config", "/fixture/project/config/app.env")
+	if owners != strings.TrimSpace(strings.Repeat("1001:1001\n", 5)) {
+		t.Fatalf("host ownership not preserved: %s", owners)
+	}
+	docker("run", "--rm", "--user", "1001:1001", "--mount", mount, "--entrypoint", "sh", image, "-c", "test -w /fixture/project/compose.yml && test -w /fixture/project/.env && test -w /fixture/project/config/app.env")
+	// Adoption creates only reviewed missing files, then persists interpolation
+	// overrides within that same operation, without a conversion pass afterward.
+	docker("run", "--rm", "--mount", mount, "--entrypoint", "sh", image, "-c", "mkdir /fixture/adopt; chown 1001:1001 /fixture/adopt")
+	project.ProjectDir = path.Join(base, "adopt")
+	env := map[string]string{".env": "TOKEN=old\nOTHER=keep\n", "config/app.env": "SERVICE=value\n"}
+	encoded, _ := json.Marshal(env)
+	project.EnvFilesJSON = string(encoded)
+	identity, err := adoptionFiles(ctx, project.ProjectDir, project.YAML, env, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adoptionFiles(ctx, project.ProjectDir, project.YAML, env, identity, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeProjectVariables(ctx, project); err != nil {
+		t.Fatal(err)
+	}
+	got := docker("run", "--rm", "--user", "1001:1001", "--mount", mount, "--entrypoint", "cat", image, "/fixture/adopt/.env")
+	if !strings.Contains(got, "OTHER=keep") || !strings.Contains(got, `TOKEN="literal$$value"`) {
+		t.Fatal("adoption lost interpolation or existing values", got)
+	}
+	docker("run", "--rm", "--user", "1001:1001", "--mount", mount, "--entrypoint", "sh", image, "-c", "test -w /fixture/adopt/compose.yml && test -w /fixture/adopt/.env && test -w /fixture/adopt/config/app.env")
+}
 
 func TestConfigurationEditsTargetSourceFiles(t *testing.T) {
 	for _, test := range []struct {

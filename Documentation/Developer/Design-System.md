@@ -52,7 +52,7 @@ The account avatar and small status dots are intentionally circular. Status dots
 | [`global.css`](../../web/src/styles/global.css) | Base page styles, native control typography, focus outlines, text selection, and scroll locking. |
 | [`App.module.css`](../../web/src/App.module.css) | Authentication, app shell, project cards, settings, details, dialogs, and log/terminal surfaces. |
 | [`NewProjectDrawer.module.css`](../../web/src/NewProjectDrawer.module.css) | Source selection, Compose fields, environment forms, and deployment preview. |
-| [`ProjectConfiguration.module.css`](../../web/src/ProjectConfiguration.module.css) | Inline variable controls, migration feedback and collapsed host-file editors. |
+| [`ProjectConfiguration.module.css`](../../web/src/ProjectConfiguration.module.css) | Inline variable controls and collapsed host-file editors. |
 | [`ProjectSchedule.module.css`](../../web/src/ProjectSchedule.module.css) | Daily project and Yard schedule controls. |
 | [`LogsPanel.module.css`](../../web/src/LogsPanel.module.css) | Full-height log output, search highlights and snapshot export confirmation. |
 | [`SettingsDrawer.module.css`](../../web/src/SettingsDrawer.module.css) | Grouped Settings sections, responsive directory form, path examples and update facts. |

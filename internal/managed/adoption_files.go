@@ -39,11 +39,18 @@ done
 identity=$(sha256sum /tmp/nox-identities); identity=${identity%% *}
 if [ -n "$expected" ] && [ "$expected" != "$identity" ]; then echo 'Adoption files changed; review again' >&2; exit 73; fi
 if [ "$write" = yes ]; then
+  owner=$(stat -c '%u:%g' /host)
   for file do
     if [ -f "/tmp/nox-adoption/$file" ] && [ ! -e "/host/$file" ]; then
       directory=$(dirname "$file")
       mkdir -p "/host/$directory"
+      parent="/host/$directory"
+      while [ "$parent" != /host ] && [ "$parent" != /host/. ]; do
+        if [ "$(stat -c %u "$parent")" = 0 ]; then chown "$owner" "$parent"; fi
+        parent=$(dirname "$parent")
+      done
       (set -C; cat "/tmp/nox-adoption/$file" > "/host/$file")
+      chown "$owner" "/host/$file"
     fi
   done
 fi

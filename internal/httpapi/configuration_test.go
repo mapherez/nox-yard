@@ -28,9 +28,6 @@ func (s *configurationStub) SaveConfiguration(_ context.Context, _ string, in ma
 	}
 	return s.Configuration(context.Background(), "")
 }
-func (s *configurationStub) RetryConfigurationMigration(context.Context, string, bool) error {
-	return nil
-}
 
 func TestConfigurationRoutesProtectSecretsAndConcurrentWrites(t *testing.T) {
 	data, api := newTestServer(t, t.TempDir(), "")
@@ -54,7 +51,7 @@ func TestConfigurationRoutesProtectSecretsAndConcurrentWrites(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		return w
 	}
-	for _, operation := range []string{"read", "save", "retry-migration"} {
+	for _, operation := range []string{"read", "save"} {
 		if w := request(operation, "http://yard.test", session.CSRFToken, `{}`, false); w.Code != 401 {
 			t.Fatal("anonymous configuration access", operation, w.Code)
 		}
@@ -88,9 +85,18 @@ func TestConfigurationRoutesProtectSecretsAndConcurrentWrites(t *testing.T) {
 	if strings.Contains(string(encoded), "private-") {
 		t.Fatal("configuration edit leaked into public job history")
 	}
-	migration := httptest.NewRecorder()
-	handler.ServeHTTP(migration, httptest.NewRequest(http.MethodGet, "http://yard.test/api/configuration-migration", nil))
-	if migration.Code != 401 {
-		t.Fatal("anonymous migration status", migration.Code)
+	for _, path := range []string{"/api/configuration-migration", "/api/projects/compose:sample/configuration/retry-migration"} {
+		r := httptest.NewRequest(http.MethodGet, "http://yard.test"+path, nil)
+		r.AddCookie(cookie)
+		if strings.Contains(path, "retry-migration") {
+			r.Method = http.MethodPost
+			r.Header.Set("Origin", "http://yard.test")
+			r.Header.Set("X-CSRF-Token", session.CSRFToken)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("retired endpoint %s returned %d", path, w.Code)
+		}
 	}
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
-import { useProjectConfiguration, ComposeConfiguration, ConfigurationMigrationStatus, EnvironmentValue, type ConfigurationControl } from "./ProjectConfiguration";
+import { useProjectConfiguration, ComposeConfiguration, EnvironmentValue, type ConfigurationControl } from "./ProjectConfiguration";
 import {
   checkSelfUpdateNow,
   createAdministrator,
@@ -393,7 +393,6 @@ function Dashboard({
 
       <div ref={dashboardBodyRef} className={styles.dashboardBody}>
         <main id="content" tabIndex={-1} className={styles.content}>
-          <ConfigurationMigrationStatus />
           <ProjectBrowser projects={projects} username={username} selectedID={selectedID} onSelect={setSelectedID} rowCells={project => <>
             <td><span className={`${styles.statusBadge} ${statusClass(project.operation || project.state)}`}>{project.operation || project.state}</span></td>
             <td><span>{healthLabel(project.health)}</span></td>
@@ -594,14 +593,14 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
       {terminalUnavailable && <p className={styles.terminalUnavailable} role="status">Terminal unavailable: /bin/sh is missing from this {project.containers.length === 1 ? "container" : "project's containers"}.</p>}
       <div ref={contentRef} id={`${tabsID}-${activeTab}-panel`} role="tabpanel" aria-labelledby={`${tabsID}-${activeTab}-tab`} className={`${styles.settingsContent} ${styles.projectDrawerContent} ${activeTab !== "details" ? styles.consoleContent : ""}`}>
         {activeTab === "details" ? <>
-        {project.kind === "managed-compose" && !activeContainer && <ManagedProjectControls key={`managed:${project.id}`} project={project} csrfToken={csrfToken} onChanged={onChanged} busy={operations.blocked || configuration.blocked} onAccepted={operations.refresh} onRecreate={() => setRecreateTarget({id:project.id,name:project.name,operation:"recreate"})} onRemove={() => setRemovalTarget({kind:"project",id:project.id,name:project.name,managedName:project.name})} />}
+        {project.kind === "managed-compose" && !activeContainer && <ManagedProjectControls key={`managed:${project.id}`} project={project} csrfToken={csrfToken} onChanged={onChanged} busy={operations.blocked} onAccepted={operations.refresh} onRecreate={() => setRecreateTarget({id:project.id,name:project.name,operation:"recreate"})} onRemove={() => setRemovalTarget({kind:"project",id:project.id,name:project.name,managedName:project.name})} />}
         {activeContainer && project.kind !== "standalone" && <button ref={backButtonRef} type="button" className={styles.backButton} onClick={() => showContainer(null)}><i className="ph-bold ph-arrow-left" aria-hidden="true" />Back to project</button>}
         {!activeContainer && <>
           {project.kind === "external-compose" && <LifecycleControls
             name={project.name}
             state={project.state}
             selfTarget={project.containers.some((container) => project.name === "nox-yard" && container.service === "nox-yard")}
-            busy={busyTarget !== null || Boolean(project.operation) || operations.blocked || configuration.blocked}
+            busy={busyTarget !== null || Boolean(project.operation) || operations.blocked}
             onRun={(action) => runAction("project", project.id, action)}
             pullLabel="Pull"
             removeLabel="Remove project"
@@ -629,7 +628,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
               container={activeContainer}
               configuration={configuration}
               csrfToken={csrfToken}
-              busy={busyTarget !== null || Boolean(activeContainer.operation) || operations.blocked || configuration.blocked}
+              busy={busyTarget !== null || Boolean(activeContainer.operation) || operations.blocked}
               selfTarget={project.name === "nox-yard" && activeContainer.service === "nox-yard"}
               helperTarget={activeContainer.name.startsWith("nox-yard-update-")}
               onRun={(action) => runAction("container", activeContainer.id, action)}

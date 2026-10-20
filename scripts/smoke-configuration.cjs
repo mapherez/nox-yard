@@ -1,4 +1,4 @@
-/* Inline environment editing, source accordion, migration gating and Yard controls. */
+/* On-demand file editing without migration polling; source and Yard controls. */
 async (page) => {
   await page.unrouteAll({behavior:'wait'});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
@@ -7,9 +7,9 @@ async (page) => {
   const container=(id,service)=>({...metrics,id,name:service+'-1',service,image:'fixture/app',state:'running',health:'healthy',terminalAvailable:true});
   const completed=(id,service)=>({...container(id,service),state:'exited',completed:true,health:'none'});
   const projects=[{...metrics,id:'compose:sample',name:'sample',kind:'managed-compose',state:'running',health:'healthy',containers:[container(id,'web'),completed('c'.repeat(64),'state-init'),completed('d'.repeat(64),'volume-init')]},{...metrics,id:'compose:nox-yard',name:'nox-yard',kind:'external-compose',state:'running',health:'healthy',containers:[container(yardID,'nox-yard')]}];
-  let state='migrating',writes=0,failOnce=true,currentValue='running-value',pending=false,checks=0,servicePreviews=0,serviceSubmits=0;
+  let writes=0,failOnce=true,currentValue='running-value',pending=false,checks=0,servicePreviews=0,serviceSubmits=0,migrationRequests=0,configurationReads=0;
   let compose='services:\n  web:\n    image: fixture/app\n    env_file: [app.env]\n';
-  const view=(reveal)=>({available:state==='ready',state,directory:'/srv/sample',fingerprint:String(writes).padStart(64,'0'),files:state==='ready'?[{path:'compose.yaml',compose:true,content:reveal?compose:''},{path:'app.env',compose:false,content:reveal?'TOKEN='+currentValue+'\nOTHER=keep\n':''}]:[],variables:state==='ready'?[{name:'TOKEN',service:'web',value:reveal?currentValue:'',pending}]:[]});
+  const view=(reveal)=>({available:true,directory:'/srv/sample',fingerprint:String(writes).padStart(64,'0'),files:[{path:'compose.yaml',compose:true,content:reveal?compose:''},{path:'app.env',compose:false,content:reveal?'TOKEN='+currentValue+'\nOTHER=keep\n':''}],variables:[{name:'TOKEN',service:'web',value:reveal?currentValue:'',pending}]});
   await page.route('**/api/**',route=>{
     const request=route.request(),path=new URL(request.url()).pathname;
     if(path==='/api/bootstrap')return route.fulfill({json:{authenticated:true,needsSetup:false,username:'owner',csrfToken:'fixture'}});
@@ -25,8 +25,8 @@ async (page) => {
       const body=request.postDataJSON();if(body.id!=='compose:sample'||body.service!=='web'||body.operation!=='recreate'||body.fingerprint!=='f'.repeat(64)||!body.confirm)throw Error('managed service submission lost reviewed scope');
       serviceSubmits++;return route.fulfill({status:202,json:{id:'service-job',projectName:'sample',targetID:'compose:sample',operation:'recreate',status:'succeeded'}});
     }
-    if(path==='/api/configuration-migration')return route.fulfill({json:[{name:'sample',state}]});
-    if(path.endsWith('/configuration/read'))return route.fulfill({json:view(request.postDataJSON()?.reveal)});
+    if(path.includes('configuration-migration')||path.endsWith('/retry-migration')){migrationRequests++;return route.fulfill({status:404,json:{error:'Removed'}})}
+    if(path.endsWith('/configuration/read')){configurationReads++;return route.fulfill({json:view(request.postDataJSON()?.reveal)})}
     if(path.endsWith('/configuration/save')){
       const body=request.postDataJSON();if(body.fingerprint!==String(writes).padStart(64,'0'))throw Error('wrong configuration fingerprint');
       if(failOnce){failOnce=false;return route.fulfill({status:409,json:{error:'Files changed. Reload before saving.'}})}
@@ -45,10 +45,6 @@ async (page) => {
   const drawer=page.getByRole('dialog',{name:'sample',exact:true});
   await drawer.getByRole('button',{name:/state-init state-init-1 completed/}).waitFor();
   await drawer.getByRole('button',{name:/volume-init volume-init-1 completed/}).waitFor();
-  await drawer.getByText('Migrating configuration…',{exact:true}).waitFor();
-  await drawer.getByLabel('More actions',{exact:true}).click();
-  if(!await drawer.getByRole('button',{name:'Recreate',exact:true}).isDisabled())throw Error('migration did not gate Recreate');
-  await drawer.getByLabel('More actions',{exact:true}).click();state='ready';
   await drawer.getByRole('button',{name:/web web-1 running/}).click();
   await drawer.getByRole('button',{name:'Edit TOKEN',exact:true}).waitFor();
   const accordion=drawer.locator('details').filter({has:page.locator('summary').filter({hasText:'Compose and environment files'})});
@@ -103,6 +99,10 @@ async (page) => {
   await settings.getByText('Current build',{exact:true}).waitFor();
   if(await settings.getByRole('radio').count()||await settings.getByRole('checkbox').count())throw Error('old interval/automatic controls remain in Settings');
   await settings.getByRole('button',{name:'Check now',exact:true}).click();if(checks!==1)throw Error('Check now did not use manual path');
+  await page.clock.install();
+  const reads=configurationReads;
+  await page.clock.fastForward(30_000);
+  if(migrationRequests||configurationReads!==reads)throw Error('Retired migration or configuration polling is still running');
   if(errors.length)throw Error(errors.join('\n'));
-  console.log('PASS: migration gating, inline env edit/save/cancel semantics, stale draft, collapsed Compose editor, uniform Yard actions, daily schedule, simplified Settings and responsive layout');
+  console.log('PASS: zero migration requests/background configuration polling, inline env edit/save/cancel semantics, stale draft, collapsed Compose editor, uniform Yard actions, daily schedule, simplified Settings and responsive layout');
 }

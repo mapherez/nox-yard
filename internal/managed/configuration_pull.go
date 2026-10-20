@@ -22,9 +22,6 @@ func (m *Manager) PullServiceFiles(ctx context.Context, name, service string) (l
 
 func (m *Manager) pullFiles(ctx context.Context, name, service string) (lifecycle.MaintenanceResult, error) {
 	result := lifecycle.MaintenanceResult{}
-	if err := m.configurationReady(name); err != nil {
-		return result, err
-	}
 	source, err := m.readFileSnapshot(ctx, name)
 	if err != nil {
 		return result, err

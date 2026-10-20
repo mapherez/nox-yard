@@ -126,7 +126,6 @@ func run() error {
 	defer stop()
 	app.ResourceKeys = jobs.TargetResources
 	app.ResourceImages = jobs.Images
-	managedProjects.StartConfigurationMigration(ctx)
 	observer := &jobs.Observer{Data: data, Changes: changes, Verify: func(ctx context.Context, job store.Job) error {
 		if job.Domain == "engine" && (job.Operation == "update" || job.Operation == "recreate") {
 			return recreator.Reconcile(ctx, job)

@@ -4,7 +4,6 @@ async (page) => {
   await page.unrouteAll({behavior:'wait'});
   await page.route('**/api/**', route => {
     const path=new URL(route.request().url()).pathname;
-    if(path==='/api/configuration-migration') return route.fulfill({json:[]});
     if(path.includes('/configuration/')) return route.fulfill({json:{available:false,state:'ready',files:[],variables:[]}});
     if(path.endsWith('/schedule')) return route.fulfill({json:{enabled:false,targetID:'compose:sample',timezone:'Etc/UTC',time:'03:00',eligible:true}});
     if(path==='/api/recreate/preview') return route.fulfill({json:{fingerprint:'a'.repeat(64),items:[],order:[]}});

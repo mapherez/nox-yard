@@ -80,7 +80,7 @@ Before anything is created, a validation and preview step displays the proposed 
 
 Once confirmed, Yard prepares the project files on the Docker host, pulls the required images, and deploys the stack.
 
-Managed projects retain their original host file locations for subsequent operations. Current Compose and environment files are authoritative; SQLite holds application metadata, history, and private recovery snapshots. Legacy database configuration is exported through a verified migration.
+Managed projects retain their original host file locations for subsequent operations. Current Compose and environment files are authoritative; SQLite holds application metadata, history, and private recovery snapshots. New deployments and adoption save their configuration directly to those host files within the operation.
 
 **Note:** Compose deployments have validation requirements. Image builds and unresolved local file dependencies are not supported through the new-project workflow. See the [feature documentation](Documentation/Developer/Features.md) for the supported configurations.
 

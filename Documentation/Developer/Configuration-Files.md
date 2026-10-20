@@ -8,7 +8,7 @@ The existing environment fields have pencil, save/check and cancel controls. Edi
 
 The **Compose and environment files** accordion starts closed. It contains a full text editor and **Save** for each original Compose/environment filename. Compose merge order and relative bind bases survive. Invalid YAML written from the terminal remains readable for repair, but cannot be used by Recreate. File errors never silently select an old DB configuration.
 
-Saving changes files only. The activation flow is **edit → Save → Recreate**. Existing containers, images, volumes and application data remain untouched by Save. Each write requires a current fingerprint over directory, ordered Compose names and file bytes. Validation precedes writing; the host helper compares the old bytes again before same-directory atomic renames. Concurrent changes produce a conflict and retain the browser draft. Reload before retrying. A crash between multiple migration file writes is resumable; the migration does not become Ready before complete read-back verification.
+Saving changes files only. The activation flow is **edit → Save → Recreate**. Existing containers, images, volumes and application data remain untouched by Save. Each write requires a current fingerprint over directory, ordered Compose names and file bytes. Validation precedes writing; the host helper compares the old bytes again before same-directory atomic renames. Concurrent changes produce a conflict and retain the browser draft. Reload before retrying.
 
 ## Uniform actions
 
@@ -29,19 +29,13 @@ Missing Compose files permit the existing assessed Engine fallback, preserving r
 
 File-backed recreation runs in the independent worker. It journals actual old Engine inspections and retains old images before mutation. Native Compose receives the full resolved definition with immutable image IDs, original image references and original relative-bind base. Existing stopped services remain stopped; new services start. Bounded readiness and image verification precede success. Ordinary failure restores the previous runtime from the private inspections without undoing the user's saved source edits. Named/anonymous volumes and bind data are never deleted by recovery. Shared application writes and database migrations are not undone. Interrupted/uncertain workers retain recovery reservations; observers do not replay commands.
 
-## Automatic migration
+## Direct deployment persistence
 
-The web process starts migration before serving project mutations. Workers opening SQLite do not start another migrator. Managed projects receive one of:
+Deploy/copy/Sync write Compose and environment files within the existing reviewed job. Interpolation overrides become deterministic, escaped `.env` assignments before deployment; adoption saves them as part of its own job. Successful completion atomically commits the terminal job result and location-only project metadata. Private operation payloads retain the source/recovery information needed by workers, while active configuration is read from host files.
 
-- **Migrating:** queued or exporting; file edits, Recreate and automatic replacement are blocked.
-- **Ready:** files were materialized, validated and read back successfully, and their verified recovery snapshot was persisted before the active DB contents were cleared.
-- **Needs attention:** export or validation failed, including conflicting manual files. Existing files and legacy configuration remain recoverable. The project offers **Retry migration** and **Use current files**; the latter explicitly chooses conflicting host definitions after validation, while exporting missing DB-only values without overwriting local assignments.
+Configuration reads occur on opening or explicitly refreshing the drawer; there is no configuration polling. The completed one-off DB-to-file conversion has been removed: no startup migrator, periodic scan, dashboard notice, migration buttons or migration endpoints remain. Historical jobs and compatibility database columns are retained as data. This version assumes that conversion already completed; installations still holding DB-only configuration must complete it on the preceding release before upgrading.
 
-Startup resumes pending exports and recovers legacy missing directories/original filenames from Docker labels. Equivalent multi-file sources migrate automatically with their original merge order; different resolved configurations require explicit conflict resolution. Migration waits for active jobs; cancellation does not turn a pending project into a permanent failure. Other projects, inventory and logs remain available. A temporary global progress/completion notice and the per-project state replace any permanent migration CTA. Do not estimate readiness by waiting a fixed number of minutes: use the reported state.
-
-DB interpolation variables are exported into `.env`, including values not previously present on disk. Effective environment and published ports are compared against the legacy resolution before export completion. Existing different files are never silently overwritten. A guarded transaction requires the exact old record, matching verified export fingerprint and a completed private recovery job before blanking `managed_projects.yaml`, `variables_json` and `env_files_json`. The compatibility columns remain; active configuration no longer depends on them. Locations, accounts, preferences, history and native private job snapshots remain in SQLite.
-
-Only configuration files and directories created for them are repaired/written. Ownership follows the project/host base owner; later atomic replacements preserve existing non-root ownership and mode. The Yard data directory and its exact SQLite/WAL/SHM files receive the host owner, including when root workers reopen the DB. Application data is never recursively chowned.
+Direct project-file writes inherit the project/base owner. Atomic file edits preserve existing non-root ownership and mode. SQLite/WAL/SHM ownership handling remains part of storage opening. Application data is never recursively chowned.
 
 ## Authenticated browser API
 
@@ -49,8 +43,6 @@ All configuration POSTs require the existing session, exact Origin and CSRF toke
 
 - `POST /api/projects/{id}/configuration/read` accepts `{"reveal":false}` by default. Metadata and pending flags are returned, with file contents and variable values redacted. `true` explicitly reveals them.
 - `POST /api/projects/{id}/configuration/save` accepts `fingerprint`, `content` and either `path` or `service` + `variable`. It validates, writes and returns the refreshed saved view. Stale fingerprints return 409.
-- `POST /api/projects/{id}/configuration/retry-migration` accepts `{"useCurrentFiles":false}`; `true` explicitly resolves in favor of the existing host files.
-- Authenticated `GET /api/configuration-migration` exposes per-project migration metadata only.
 
 IDs use `compose:NAME`. Contents/values do not enter public job records, previews or error logs. The existing Control API v1 remains unchanged. Internal recovery snapshots remain sensitive native Yard data.
 
@@ -60,4 +52,4 @@ Existing `POST /api/recreate/preview` and `/api/recreate/submit` also accept opt
 
 The Yard drawer uses the same editors, Pull/Recreate/Restart and daily schedule. Independent recreation stops the web process before making its SQLite rollback snapshot, applies the current host files and verifies health. Failure restores SQLite before restarting the previous runtime. Edited host files are preserved for correction. See [Self-update](Self-Update.md) for Check now, daily scheduling and the no-files fallback.
 
-See [Development](Development.md) for disposable file-migration, native-worker, browser and Engine-fallback fixtures.
+See [Development](Development.md) for direct-persistence, native-worker, browser and Engine-fallback fixtures.

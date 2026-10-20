@@ -8,21 +8,63 @@ import (
 	"os/exec"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mapherez/nox-yard/internal/store"
 )
 
 func projectFiles(project store.ManagedProject) (map[string]string, error) {
-	_, env, err := projectEnvironment(project)
+	variables, env, err := projectEnvironment(project)
 	if err != nil {
 		return nil, err
 	}
 	files := map[string]string{"compose.yml": project.YAML}
-	for name, value := range env {
+	for name, value := range materializedEnvironment(variables, env) {
 		files[name] = value
 	}
 	return files, nil
+}
+
+// Deployment inputs become host files inside the reviewed operation, before
+// its metadata is committed. They never require a later background conversion.
+func materializedEnvironment(variables, files map[string]string) map[string]string {
+	result := map[string]string{}
+	for name, content := range files {
+		result[name] = content
+	}
+	if len(variables) == 0 {
+		return result
+	}
+	content := result[".env"]
+	if content != "" && !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	keys := make([]string, 0, len(variables))
+	for key := range variables {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		content += key + "=" + dotenvLiteral(variables[key]) + "\n"
+	}
+	result[".env"] = content
+	return result
+}
+
+func dotenvLiteral(value string) string { return strconv.Quote(strings.ReplaceAll(value, "$", "$$")) }
+
+func writeProjectVariables(ctx context.Context, project store.ManagedProject) error {
+	variables, env, err := projectEnvironment(project)
+	if err != nil || len(variables) == 0 {
+		return err
+	}
+	before := FileSnapshot{Directory: project.ProjectDir, Files: map[string]string{}}
+	if content, exists := env[".env"]; exists {
+		before.Files[".env"] = content
+	}
+	after := FileSnapshot{Directory: project.ProjectDir, Files: map[string]string{".env": materializedEnvironment(variables, env)[".env"]}}
+	return saveConfigurationFiles(ctx, before, after)
 }
 
 // The private job payload is the durable file journal. Each rename is atomic;
@@ -38,6 +80,8 @@ while [ "$parent" != / ]; do
   [ ! -L "$parent" ] || exit 73
   parent=$(dirname "$parent")
 done
+owner=$(stat -c '%u:%g' "$(dirname "$host")")
+if [ -d "$host" ] && [ "$(stat -c %u "$host")" != 0 ]; then owner=$(stat -c '%u:%g' "$host"); fi
 for file do
   parent=$(dirname "$file")
   while [ "$parent" != . ]; do
@@ -63,15 +107,27 @@ for file do
   fi
 done
 if [ "$mode" = check ] || [ "$mode" = verified ]; then exit 0; fi
-if [ "$mode" = prepare ]; then mkdir -p "$host"; exit 0; fi
+if [ "$mode" = prepare ]; then
+  mkdir -p "$host"
+  if [ "$(stat -c %u "$host")" = 0 ]; then chown "$owner" "$host"; fi
+  exit 0
+fi
 version=new
 if [ "$mode" = restore ]; then version=old; fi
 for file do
   if [ -f "/tmp/journal/$version/$file" ]; then
     mkdir -p "$host/$(dirname "$file")"
+    parent="$host/$(dirname "$file")"
+    while [ "$parent" != "$host" ]; do
+      if [ "$(stat -c %u "$parent")" = 0 ]; then chown "$owner" "$parent"; fi
+      parent=$(dirname "$parent")
+    done
     # Same-filesystem temporary file plus rename; never truncate the active file.
     temporary=$(mktemp "$host/$(dirname "$file")/.nox-write-XXXXXX")
     cat "/tmp/journal/$version/$file" > "$temporary"
+    fileowner="$owner"
+    if [ -f "$host/$file" ] && [ "$(stat -c %u "$host/$file")" != 0 ]; then fileowner=$(stat -c '%u:%g' "$host/$file"); fi
+    chown "$fileowner" "$temporary"
     mv -f "$temporary" "$host/$file"
   else
     rm -f "$host/$file"

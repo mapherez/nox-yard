@@ -126,7 +126,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/bootstrap", s.bootstrap)
 	mux.HandleFunc("GET /api/projects", s.projects)
 	mux.HandleFunc("POST /api/projects/{id}/configuration/{operation}", s.projectConfiguration)
-	mux.HandleFunc("GET /api/configuration-migration", s.configurationMigration)
 	mux.HandleFunc("GET /api/projects/events", s.projectEvents)
 	mux.HandleFunc("GET /api/projects/{id}/schedule", s.projectSchedule)
 	mux.HandleFunc("PUT /api/projects/{id}/schedule", s.projectSchedule)

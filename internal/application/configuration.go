@@ -12,7 +12,6 @@ import (
 type fileController interface {
 	Configuration(context.Context, string) (managed.FileConfigurationView, error)
 	SaveConfiguration(context.Context, string, managed.ConfigurationEdit) (managed.FileConfigurationView, error)
-	RetryConfigurationMigration(context.Context, string, bool) error
 	FilePreview(context.Context, string, string) (recreate.Preview, error)
 	FileOperation(context.Context, string, string, string) (store.Job, error)
 }
@@ -74,15 +73,4 @@ func (s *Service) SaveProjectConfiguration(ctx context.Context, id string, input
 	view, err := controller.SaveConfiguration(jobs.WithJob(ctx, job), name, input)
 	s.finishOperation(job, err != nil, err)
 	return view, err
-}
-func (s *Service) RetryProjectMigration(ctx context.Context, id string, useCurrent bool) error {
-	name, ok := strings.CutPrefix(id, "compose:")
-	if !ok || !ValidTarget(id, false) {
-		return ErrInvalidRemoval
-	}
-	controller, ok := s.Managed.(fileController)
-	if !ok {
-		return ErrUnavailable
-	}
-	return controller.RetryConfigurationMigration(ctx, name, useCurrent)
 }

@@ -87,9 +87,6 @@ func (m *Manager) enqueue(ctx context.Context, project store.ManagedProject, ope
 			_ = m.data.FinishJob(job.ID, job.Owner, "failed", "failed", "Project configuration could not be saved.", "")
 			return store.ManagedJob{}, err
 		}
-		if m.filesEnabled {
-			_ = m.data.SetFileConfiguration(store.FileConfiguration{Name: project.Name, Directory: project.ProjectDir, ComposeFiles: `["compose.yml"]`, State: "migrating"})
-		}
 	}
 	if err := m.launch(ctx, m.data, job, "managed-worker"); err != nil {
 		// A transport timeout can happen after Docker created or started the worker.
@@ -185,10 +182,12 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 		if err := progress("committing"); err != nil {
 			return err
 		}
+		if err := writeProjectVariables(ctx, project); err != nil {
+			return fail("Project interpolation values could not be saved to the host files.")
+		}
 		if err := m.data.CommitManagedJob(job, &project, false, "verified"); err != nil {
 			return fail("Adopted files were preserved, but project metadata could not be saved.")
 		}
-		_ = m.data.SetFileConfiguration(store.FileConfiguration{Name: project.Name, Directory: project.ProjectDir, ComposeFiles: `["compose.yml"]`, State: "migrating"})
 		return nil
 	}
 	if job.Operation == "new" || job.Operation == "copy" || job.Operation == "sync" || job.Operation == "update" || job.Operation == "pull" {

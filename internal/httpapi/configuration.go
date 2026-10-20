@@ -30,17 +30,6 @@ func (s *Server) projectConfiguration(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		output, err = s.application.SaveProjectConfiguration(r.Context(), r.PathValue("id"), input)
-	case "retry-migration":
-		var input struct {
-			UseCurrentFiles bool `json:"useCurrentFiles"`
-		}
-		if !decodeJSON(w, r, &input) {
-			return
-		}
-		err = s.application.RetryProjectMigration(r.Context(), r.PathValue("id"), input.UseCurrentFiles)
-		if err == nil {
-			output, err = s.application.ProjectConfiguration(r.Context(), r.PathValue("id"))
-		}
 	default:
 		http.NotFound(w, r)
 		return
@@ -51,15 +40,4 @@ func (s *Server) projectConfiguration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, output)
-}
-func (s *Server) configurationMigration(w http.ResponseWriter, r *http.Request) {
-	if !s.requireSession(w, r, false) {
-		return
-	}
-	states, err := s.store.FileConfigurations(r.Context())
-	if err != nil {
-		writeError(w, 500, "Cannot read configuration migration status.")
-		return
-	}
-	writeJSON(w, 200, states)
 }

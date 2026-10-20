@@ -12,7 +12,6 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
@@ -52,8 +51,6 @@ type ProjectPreview struct {
 }
 
 type Manager struct {
-	migrationMu   sync.Mutex
-	filesEnabled  bool
 	data          *store.Store
 	inventory     inventory.Reader
 	changes       *inventory.Notifier
@@ -420,11 +417,8 @@ func (m *Manager) operation(name, operation string, removeVolumes bool, removalF
 	if !found {
 		return store.ManagedJob{}, fmt.Errorf("%w: managed project not found", ErrConflict)
 	}
-	if state, exists, _ := m.data.FileConfiguration(name); exists {
+	if _, exists, _ := m.data.FileConfiguration(name); exists {
 		if operation == "pull" || operation == "update" || operation == "recreate" {
-			if state.State != "ready" {
-				return store.Job{}, fmt.Errorf("%w: finish configuration migration before this operation", ErrConflict)
-			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			job, err := m.FileOperation(ctx, name, operation, "")

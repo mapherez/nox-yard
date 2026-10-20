@@ -20,7 +20,6 @@ async (page) => {
     const pathname=new URL(route.request().url()).pathname;
     if(pathname==='/api/bootstrap') return route.fulfill({json:{authenticated:true,needsSetup:false,username:'dashboard-fixture',csrfToken:'fixture'}});
     if(pathname==='/api/projects') return route.fulfill({json:{collectedAt:'2026-10-20T10:00:00Z',projects}});
-    if(pathname==='/api/configuration-migration') return route.fulfill({json:[]});
     if(pathname==='/api/jobs') return route.fulfill({json:[]});
     if(pathname.endsWith('/schedule')) return route.fulfill({json:{enabled:false,targetID:'compose:adguard',timezone:'Etc/UTC',time:'03:00',eligible:true}});
     if(pathname.includes('/configuration/')) return route.fulfill({json:{available:false,state:'ready',files:[],variables:[]}});

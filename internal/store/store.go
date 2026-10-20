@@ -76,7 +76,7 @@ func migrate(db *sql.DB) error {
 	if err := migrateScheduleTimes(db); err != nil {
 		return err
 	}
-	return migrateConfigurations(db)
+	return ensureFileConfigurationTable(db)
 }
 
 func migrateBase(db *sql.DB) error {

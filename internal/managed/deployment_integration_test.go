@@ -186,12 +186,24 @@ volumes:
 	assertSource := func(want store.ManagedProject) {
 		t.Helper()
 		actual, _, err := data.ManagedProject(prefix)
-		if err != nil || actual.YAML != want.YAML || actual.VariablesJSON != want.VariablesJSON || actual.EnvFilesJSON != want.EnvFilesJSON {
-			t.Fatal("SQL source differs from expected version")
+		if err != nil || actual.YAML != "" || actual.VariablesJSON != "{}" || actual.EnvFilesJSON != "{}" {
+			t.Fatal("active configuration was retained in SQL")
 		}
 		if err := hostProjectFiles(ctx, want.ProjectDir, &want, want, "verified"); err != nil {
-			t.Fatal("host source differs from SQL", err)
+			t.Fatal("host source differs from reviewed configuration", err)
 		}
+	}
+	readProject := func(name string) store.ManagedProject {
+		t.Helper()
+		project, _, err := data.ManagedProject(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		project, err = m.hydrateFileProject(ctx, project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return project
 	}
 	submit(request, "succeeded")
 	original := web()
@@ -291,7 +303,7 @@ volumes:
 			docker("stop", item.ID)
 		}
 	}
-	prior, _, _ := data.ManagedProject(prefix)
+	prior := readProject(prefix)
 	publish("BAD")
 	failed = operation("update", "failed")
 	if failed.Outcome != "rolled_back" || failed.Rollback != "restored" {
@@ -374,7 +386,7 @@ volumes:
 	t.Log("PASS: explicit URL sync/cancel; unhealthy source sync restores host files, env and SQL consistently")
 	source = strings.Replace(source, "    healthcheck: {test: [CMD, 'false'], interval: 1s, timeout: 1s, retries: 1}\n", "", 1)
 	submit(sync, "succeeded")
-	next, _, _ := data.ManagedProject(prefix)
+	next := readProject(prefix)
 	if next.YAML == prior.YAML || next.EnvFilesJSON == prior.EnvFilesJSON {
 		t.Fatal("verified sync source was not committed")
 	}
@@ -438,12 +450,10 @@ volumes:
 	}
 	t.Log("PASS: unsupported sources rejected before mutation; errors/history omit private source/env snapshots")
 	t.Run("materialized environment", TestMaterializedEnvironmentDocker)
-	if err := m.migrateConfiguration(ctx, next, false); err != nil {
-		t.Fatal("file migration", err)
-	}
+	t.Run("direct file ownership", TestDeploymentFilesDockerOwnership)
 	cleared, _, _ := data.ManagedProject(prefix)
 	if cleared.YAML != "" || cleared.VariablesJSON != "{}" || cleared.EnvFilesJSON != "{}" {
-		t.Fatal("migration retained active database configuration")
+		t.Fatal("deployment retained active database configuration")
 	}
 	configuration, err := m.Configuration(ctx, prefix)
 	if err != nil || !configuration.Available || configuration.State != "ready" {
@@ -490,7 +500,7 @@ volumes:
 	}
 	assertData()
 	docker("start", registry)
-	t.Log("PASS: migration exports .env; inline edits preserve containers until cached-only Recreate and stale writes are rejected")
+	t.Log("PASS: deployment writes .env; inline edits preserve containers until cached-only Recreate and stale writes are rejected")
 	// Preserve original filenames and Compose merge order across manual edits.
 	originalFiles, err := m.readFileSnapshot(ctx, prefix)
 	if err != nil {
@@ -579,5 +589,4 @@ volumes:
 	}
 	assertData()
 	t.Log("PASS: file-based unhealthy rollback restores runtime and data while preserving the user's edited Compose")
-	testConfigurationMigrationDocker(t, ctx, m, data, prefix, docker)
 }

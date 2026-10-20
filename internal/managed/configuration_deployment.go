@@ -40,9 +40,6 @@ func (m *Manager) ServiceFilePreview(ctx context.Context, name, operation, servi
 	if operation != "recreate" && operation != "update" && operation != "pull" {
 		return recreate.Preview{}, ErrInvalidSource
 	}
-	if err := m.configurationReady(name); err != nil {
-		return recreate.Preview{}, err
-	}
 	source, err := m.readFileSnapshot(ctx, name)
 	if err != nil {
 		return recreate.Preview{}, err
@@ -97,9 +94,6 @@ func (m *Manager) ServiceFileOperation(ctx context.Context, name, operation, ser
 	}
 	if operation != "pull" && operation != "recreate" && operation != "update" {
 		return store.Job{}, ErrInvalidSource
-	}
-	if err := m.configurationReady(name); err != nil {
-		return store.Job{}, err
 	}
 	preview, err := m.ServiceFilePreview(ctx, name, operation, service)
 	if err != nil {
@@ -302,8 +296,14 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 			return m.data.FinishJob(job.ID, job.Owner, "succeeded", "skipped", reason, "")
 		}
 	}
-	// Native Compose decides whether configuration changed on legacy update
-	// operations. Explicit Recreate always recreates, even with identical images.
+	if job.Operation == "update" && unchangedImages(preview.model, runtime, targets) {
+		if err := m.data.FinishJob(job.ID, job.Owner, "succeeded", "unchanged", "", ""); err != nil {
+			return err
+		}
+		m.cleanupDeployment(job, payload.Deployment)
+		return nil
+	}
+	// Explicit Recreate applies saved configuration even with identical images.
 	work.Definition, err = resolvedDefinition(preview, work.Source.Directory, targets)
 	if err != nil {
 		return fail("Resolved configuration could not be prepared.")
@@ -451,9 +451,6 @@ func fileAutomaticRuntime(name string, preview Preview, runtime []container.Insp
 	return len(runtime) == 1 && runtime[0].State != nil && runtime[0].State.Running && !runtime[0].State.Restarting && !runtime[0].State.Paused && runtime[0].State.Health != nil && runtime[0].State.Health.Status == "healthy"
 }
 func (m *Manager) AssessFileAutomatic(ctx context.Context, name string) error {
-	if err := m.configurationReady(name); err != nil {
-		return err
-	}
 	source, err := m.readFileSnapshot(ctx, name)
 	if err != nil {
 		return err

@@ -134,7 +134,16 @@ func (s *Store) CommitManagedJob(job Job, project *ManagedProject, remove bool, 
 			return err
 		}
 	} else if project != nil {
-		if err := saveManagedProject(tx, *project); err != nil {
+		metadata := *project
+		if project.ProjectDir != "" {
+			// Verified deployment/adoption already wrote the authoritative files.
+			// Commit location-only metadata with the terminal job CAS.
+			metadata.YAML, metadata.VariablesJSON, metadata.EnvFilesJSON = "", "{}", "{}"
+			if _, err := tx.Exec(`INSERT INTO file_configurations(name,directory,compose_files,state,error) VALUES(?,?,?,'ready','') ON CONFLICT(name) DO UPDATE SET directory=excluded.directory,compose_files=excluded.compose_files,state='ready',error=''`, project.Name, project.ProjectDir, `["compose.yml"]`); err != nil {
+				return err
+			}
+		}
+		if err := saveManagedProject(tx, metadata); err != nil {
 			return err
 		}
 	}

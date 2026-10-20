@@ -292,11 +292,11 @@ func (m *Manager) readFileSnapshotMode(ctx context.Context, name string, allowIn
 
 // Hydration is transient: persisted managed records contain locations only.
 func (m *Manager) hydrateFileProject(ctx context.Context, project store.ManagedProject) (store.ManagedProject, error) {
-	state, found, err := m.data.FileConfiguration(project.Name)
+	_, found, err := m.data.FileConfiguration(project.Name)
 	if err != nil {
 		return project, err
 	}
-	if !found || state.State != "ready" {
+	if !found {
 		return project, nil
 	}
 	snapshot, err := m.readFileSnapshot(ctx, project.Name)
@@ -465,32 +465,8 @@ func saveConfigurationFiles(ctx context.Context, before, after FileSnapshot) err
 	return nil
 }
 
-func (m *Manager) configurationReady(name string) error {
-	state, found, err := m.data.FileConfiguration(name)
-	if err != nil {
-		return err
-	}
-	if found && state.State != "ready" {
-		return fmt.Errorf("%w: project configuration is %s; finish migration before editing or recreating", ErrConflict, state.State)
-	}
-	return nil
-}
-
 func (m *Manager) Configuration(ctx context.Context, name string) (FileConfigurationView, error) {
 	view := FileConfigurationView{State: "ready", Files: []ConfigurationFile{}, Variables: []ConfigurationVariable{}}
-	if state, found, err := m.data.FileConfiguration(name); err != nil {
-		return view, err
-	} else if found && state.State != "ready" {
-		view.State, view.Error = state.State, state.Error
-		return view, nil
-	}
-	if project, legacy, err := m.data.ManagedProject(name); err != nil {
-		return view, err
-	} else if legacy && project.YAML != "" {
-		view.State = "migrating"
-		_ = m.data.SetFileConfiguration(store.FileConfiguration{Name: name, Directory: project.ProjectDir, ComposeFiles: `["compose.yml"]`, State: "migrating"})
-		return view, nil
-	}
 	snapshot, err := m.readFileSnapshotMode(ctx, name, true)
 	if errors.Is(err, ErrFilesMissing) {
 		return view, nil
@@ -554,9 +530,6 @@ func (m *Manager) Configuration(ctx context.Context, name string) (FileConfigura
 }
 
 func (m *Manager) SaveConfiguration(ctx context.Context, name string, input ConfigurationEdit) (FileConfigurationView, error) {
-	if err := m.configurationReady(name); err != nil {
-		return FileConfigurationView{}, err
-	}
 	active, err := m.data.Jobs(ctx, "compose:"+name, true)
 	if err != nil {
 		return FileConfigurationView{}, err
