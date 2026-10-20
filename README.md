@@ -35,6 +35,9 @@ Get an overview of the Docker workloads running on your host.
 - View container states, health information, and project status.
 - Monitor CPU usage, memory consumption, and uptime.
 - See containers grouped by their Compose project.
+- Switch between a card grid and a compact table with the same project information and horizontal scrolling on narrow screens.
+- Search project, container and service names as you type; container matches keep their parent project visible.
+- Drag projects into a custom order or sort names A to Z / Z to A; the browser remembers the view and order.
 - Receive live inventory updates when Docker changes, including changes made outside Yard.
 - Access individual projects and containers through contextual detail panels.
 

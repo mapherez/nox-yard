@@ -4,9 +4,9 @@
 
 **Phase:** C6 native-host acceptance and C7 runtime publication gates remain open.
 
-The current local source baseline is `33f201151a4bb61808de42a32f24f6fe01f40133`, the `v1.3.0` release request after the Yard product rename. The earlier 2026-10-20 audit reviewed `ed6d7b3` (`v1.2.1`); its historical evidence remains in the [repository review](Repository-Review-2026-10-20.md). Source tags and local package versions do not establish completed remote publication or deployment.
+The current local source baseline is `0fff17e`, which commits D-036's CI-only automatic validation and single global pipeline lane, after the `v1.3.0` release request and Yard product rename. The earlier 2026-10-20 audit reviewed `ed6d7b3` (`v1.2.1`); its historical evidence remains in the [repository review](Repository-Review-2026-10-20.md). Source tags and local package versions do not establish completed remote publication or deployment.
 
-The working tree now contains D-036's CI-only automatic validation and single global pipeline lane. This change does not push, create a release or deploy to a host. The [completion plan](Completion-Plan.md) retains its original native-host/runtime acceptance gates; later decisions refine implementation assumptions.
+The working tree now contains D-037's searchable project Grid/List views, ordering controls and browser regressions. This change does not push, create a release or deploy to a host. The [completion plan](Completion-Plan.md) retains its original native-host/runtime acceptance gates; later decisions refine implementation assumptions.
 
 ## Implemented behavior
 
@@ -42,6 +42,12 @@ Validation passed Go tests/vet, 53 release-tooling tests, frontend typecheck/bui
 D-036 removes automatic project tests/builds from push. The recognized legacy Yard pre-push hook was retired in this clone; the compatibility installer safely handles older clones and preserves custom hooks. Full checks remain available manually and mandatory in CI. Pinned actionlint is now part of those source checks. One workflow-level repository-wide lane covers source validation → Docker builds/ARM64 smoke → conditional publication, with a newer push canceling/replacing the preceding run. The publisher adds no independent lane or repeated source suite.
 
 All 59 release/hook tests passed, including clean unpushed commits traveling with the release, LF/CRLF hook migration, repeated cleanup and custom-hook preservation. Both workflows passed actionlint 1.7.12, changed shell scripts passed syntax checks and diff whitespace checks passed. These are local implementation checks using temporary Git remotes, not a live observation of GitHub cancellation/publication; the updated policy takes effect remotely only after these source changes are pushed. No release or push was performed here. Native-host acceptance remains open.
+
+## Searchable project views and ordering
+
+D-037 adds a full-width live search, Grid/List views (List uses a compact semantic table with approximately 44px rows and contained horizontal scrolling on narrow screens), natural A–Z/Z–A sorting and shared manual ordering. Matching a container/service retains its parent project. Reordering previews insertion with a floating ghost, blue empty slot and neighboring movement. Pointer/touch grips and keyboard arrows/Home/End share the same behavior; canceling does not persist the preview. Layout, sort mode and manual order are browser-local per administrator, with an in-memory fallback when storage is blocked. See [Features](Features.md).
+
+Frontend typecheck/production build and all six browser fixtures passed. The dashboard fixture additionally verifies persisted views/sorts/orders, grouped search, the sixth-to-second insertion example, filtered slot preservation, keyboard focus, autoscroll, Escape/outside-drop/touch cancellation, live inventory removal, metric updates during drag and blocked storage. Responsive checks and inspected screenshots cover 1440/1024/768/390/320 px, with all columns reachable through horizontal scrolling in the compact table. Mouse/touch drag and row-sized drop markers are also checked after horizontal scrolling. The existing large-main-chunk build warning remains. Browser checks use API fixtures and do not mutate host containers; no backend, release or runtime-host acceptance is implied.
 
 ## Previously recorded evidence
 

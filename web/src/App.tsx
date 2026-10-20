@@ -42,6 +42,7 @@ import { useOperationHistory } from "./useOperationHistory";
 import { OperationHistory } from "./OperationHistory";
 import { ProjectSchedule } from "./ProjectSchedule";
 import { RecreateConfirmation, type RecreateTarget } from "./RecreateConfirmation";
+import { ProjectBrowser } from "./ProjectBrowser";
 
 type View =
   | { kind: "loading" }
@@ -378,6 +379,15 @@ function Dashboard({
       <div ref={dashboardBodyRef} className={styles.dashboardBody}>
         <main id="content" tabIndex={-1} className={styles.content}>
           <ConfigurationMigrationStatus />
+          <ProjectBrowser projects={projects} username={username} selectedID={selectedID} onSelect={setSelectedID} rowCells={project => <>
+            <td><span className={`${styles.statusBadge} ${statusClass(project.operation || project.state)}`}>{project.operation || project.state}</span></td>
+            <td><span>{healthLabel(project.health)}</span></td>
+            <td><span className={styles.cardKind}><i className={`ph-bold ${project.kind === "standalone" ? "ph-cube" : "ph-stack"}`} aria-hidden="true" />{project.kind === "standalone" ? "Container" : project.kind === "managed-compose" ? "Managed Compose" : "Compose"}</span></td>
+            <td><span>{project.containers.length}</span></td>
+            <td><span>{formatCPU(project.cpuPercent)}</span></td>
+            <td><span>{formatBytes(project.memoryBytes)}</span></td>
+            <td><span>{formatUptime(project.uptimeSeconds)}</span></td>
+          </>} header={
           <div className={styles.dashboardHeader}>
             <div className={styles.pageHeading} id="projects">
               <button type="button" className={styles.mobileMenuButton} aria-label="Open menu" aria-controls="primary-sidebar" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)}><i className="ph-bold ph-list" aria-hidden="true" /></button>
@@ -398,7 +408,7 @@ function Dashboard({
               <span>{collectedAt && `Updated ${new Date(collectedAt).toLocaleTimeString()}`}</span>
             </div>}
           </div>
-
+          } notices={<>
           {error && <p className={styles.formError} role="alert">{error}</p>}
           {inventoryError && <p className={styles.inventoryError} role="alert">{inventoryError}</p>}
           {projects === null && !inventoryError && <div className={styles.emptyPanel} role="status">Loading Docker projects…</div>}
@@ -407,17 +417,8 @@ function Dashboard({
             <h2 id="empty-title">No containers found</h2>
             <p>Compose projects and standalone containers on this host will appear here.</p>
           </section>}
-          {projects && projects.length > 0 && <>
-            <section className={styles.projectGrid} aria-label="Docker projects">
-              {projects.map((project) => <button
-                key={project.id}
-                type="button"
-                className={styles.projectCard}
-                aria-haspopup="dialog"
-                aria-controls="project-drawer"
-                aria-expanded={selectedID === project.id}
-                onClick={() => setSelectedID(project.id)}
-              >
+          </>}>
+              {(project) => <>
                 <span className={styles.cardTopline}>
                   <span className={styles.cardKind}><i className={`ph-bold ${project.kind === "standalone" ? "ph-cube" : "ph-stack"}`} aria-hidden="true" />{project.kind === "standalone" ? "Container" : project.kind === "managed-compose" ? "Managed Compose" : "Compose"}</span>
                   <span className={`${styles.statusBadge} ${statusClass(project.operation || project.state)}`}>{project.operation || project.state}</span>
@@ -429,9 +430,8 @@ function Dashboard({
                   <Metric label="Memory" value={formatBytes(project.memoryBytes)} />
                   <Metric label="Uptime" value={formatUptime(project.uptimeSeconds)} />
                 </span>
-              </button>)}
-            </section>
-          </>}
+              </>}
+          </ProjectBrowser>
         </main>
       </div>
       <ProjectDrawer project={selected} csrfToken={csrfToken} onChanged={refresh} onClose={() => setSelectedID(null)} />

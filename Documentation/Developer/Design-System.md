@@ -2,13 +2,13 @@
 
 ## Direction
 
-The interface is dark-only, desktop-first, and usable on tablets and phones. Use neutral graphite surfaces, soft off-white text, compact icon navigation, subtle boundaries, and restrained spacing. Reserve the muted steel-blue accent for focus, selection, and small action details. Status colors are desaturated green, amber, and red with subdued backgrounds. Avoid blue-tinted page surfaces, gradients, glows, oversized headings, decorative dashboard statistics, and marketing copy in operational views.
+The interface is dark-only, desktop-first, and usable on tablets and phones. Use neutral graphite surfaces, soft off-white text, compact icon navigation, subtle boundaries, and restrained spacing. Reserve the muted steel-blue accent for focus, selection, and small action details. Status colors are desaturated green, amber, and red with subdued backgrounds. Avoid blue-tinted page surfaces, gradients, decorative glows, oversized headings, decorative dashboard statistics, and marketing copy in operational views. The active drag destination is an intentional exception: a blue empty slot with a stronger border and a restrained glow identifies the future position.
 
 Keep existing icon-only actions icon-only, including Refresh, New Project, sidebar controls, and container lifecycle controls. Preserve their accessible names and tooltips. Modernization should improve reading order, spacing, and state clarity without adding decorative UI or replacing action icons with text labels.
 
 The product name is **Yard**, part of the **NoX** environment. Use a text-only Yard wordmark: large on authentication screens, with clear separation above the mobile form, and smaller in the sidebar. The collapsed sidebar retains a compact Yard name that yields to its Expand control on hover/focus. Do not restore the former N badge. The favicon is a white Y on its blue background. Repository, environment-variable and runtime identifiers retain their existing `nox-yard`/`NOX` names.
 
-Use one clear primary action per view. Keep the Projects dashboard focused on project cards; project details open in a right-side modal drawer and global settings open in a left-side modal drawer. Put future detail and destructive actions in contextual drawers or dialogs. The product language is English only; no theme switcher or localization framework is planned.
+Use one clear primary action per view. Keep the Projects dashboard focused on projects in a grid or compact list; project details open in a right-side modal drawer and global settings open in a left-side modal drawer. Put future detail and destructive actions in contextual drawers or dialogs. The product language is English only; no theme switcher or localization framework is planned.
 
 ## Visual baseline for future changes
 
@@ -72,9 +72,9 @@ The account avatar and small status dots are intentionally circular. Status dots
 
 Use content-driven layouts with CSS Grid/Flexbox and a small number of documented breakpoints. Initial layout targets:
 
-- **Desktop (about 1024px and above):** collapsible left sidebar, multi-column card grid, right-side project details, and left-side settings.
-- **Tablet (768–1023px):** the same sidebar states with fewer card columns; drawers overlay rather than shrink the project grid.
-- **Mobile (below 768px):** no persistent sidebar. A menu button beside the dashboard Refresh action opens the wide sidebar as an overlay. The full-width dashboard header keeps both actions and the project count/update time visible while cards scroll beneath its opaque canvas background. Cards use one column and drawers fill the viewport.
+- **Desktop (about 1024px and above):** collapsible left sidebar, multi-column card grid or compact table rows, right-side project details, and left-side settings. Search spans the content width above the header.
+- **Tablet (768–1023px):** the same sidebar states with fewer card columns or compact table rows with horizontal scrolling; drawers overlay rather than shrink the project collection. Search remains above the header.
+- **Mobile (below 768px):** no persistent sidebar. A menu button beside the dashboard Refresh action opens the wide sidebar as an overlay. The full-width dashboard header and the search immediately below it remain visible while projects scroll beneath their opaque canvas background. Cards use one column. List keeps compact table rows and scrolls horizontally inside its own region; metadata never stacks into cards. Drawers fill the viewport.
 
 The wide sidebar shows the Yard wordmark and navigation labels, with Settings and the account at the bottom. Its Hide button remains beside the brand. The narrow state shows a compact Yard wordmark, navigation icons and a circular account initial; hovering over or focusing the brand reveals the Expand control, and hovering over or focusing the account reveals Sign out. The desktop/tablet width preference is stored in the browser. Mobile always opens the wide sidebar and does not change that preference. Keep the main content inert while the mobile sidebar is open; Escape and the backdrop close it. Native modal dialogs provide focus handling and Escape dismissal for drawers. A shared drawer layout keeps each header visible while its content scrolls, and an open drawer locks background scrolling on all viewports.
 
@@ -86,6 +86,9 @@ These values are starting points, not device identities. Check narrow screens, 2
 
 - Show a project's aggregate state, health, container count, CPU, memory, and uptime on its card. Selecting a card opens a drawer with its container details already visible. Keep the card action target and per-card action menu distinct when an action menu is added.
 - The dashboard has a compact visible Projects heading and icon actions. Keep inventory counts and the update time in a secondary metadata row. Card metrics use tabular numerals and subtle separators; project names remain the strongest text within each card.
+- Put the Grid/List toggle and Sort menu in a compact toolbar above results. The same project information and shared order apply to both views. Search filters parent projects by project/container/service name. Keep empty search results distinct from an empty Docker inventory.
+- List uses a semantic table with column headers, approximately 44px rows, subtle horizontal separators and a focusable horizontal scroll region. Keep the reorder grip visible during horizontal scrolling; pin project names on wider screens and let them scroll on mobile to leave room for the other columns. Keep the ghost and blue drop marker at row height.
+- Separate the reorder grip from the details button so clicks, text selection and vertical touch scrolling retain their normal behavior. Drag with Pointer Events, use a floating ghost and a blue empty destination slot, and shift neighboring projects to preview insertion. Support keyboard arrows/Home/End and Escape cancellation. Respect reduced motion for shift animations. View and order preferences are browser-local per administrator; see [Features](Features.md).
 - The **New Project** flow is a source step, variable entry, validation/preview, then confirmation. Show service/image/port/volume/network changes before a URL sync or adoption.
 - Use present-tense, concise English labels: “Pull images”, “Recreate”, “Remove project”. Save writes configuration; Recreate applies it. Keep the legacy Update operation out of browser menus. Destructive confirmations must name the affected project and whether volumes will be deleted.
 - Mask environment and configuration values that may contain credentials. Reveal only after an explicit action in an authenticated session; avoid copying sensitive values into toasts or URLs.

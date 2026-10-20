@@ -67,7 +67,7 @@ npm ci --prefix web
 sh scripts/ci-local.sh
 ```
 
-`check.sh` checks tracked Go formatting, runs vet, validates both workflows with pinned actionlint 1.7.12 and validates Compose. `test.sh` runs Go and release-tooling tests, frontend typecheck/build and all five deterministic browser fixtures. Compose configuration requires the CLI/plugin, but not a running daemon. Real Docker acceptance needs an Engine. The frontend runner starts an ephemeral loopback preview with pinned Playwright CLI 0.1.22/Chrome; CI installs Chrome before invoking it. Manual failures remain failures; no optional check is silently reported as passed. The frontend build creates ignored `web/dist/` output.
+`check.sh` checks tracked Go formatting, runs vet, validates both workflows with pinned actionlint 1.7.12 and validates Compose. `test.sh` runs Go and release-tooling tests, frontend typecheck/build and all six deterministic browser fixtures. These cover history, recreate, schedules, sessions, configuration and dashboard search/view/sort/reordering (mouse, touch and keyboard). Compose configuration requires the CLI/plugin, but not a running daemon. Real Docker acceptance needs an Engine. The frontend runner starts an ephemeral loopback preview with pinned Playwright CLI 0.1.22/Chrome; CI installs Chrome before invoking it. Manual failures remain failures; no optional check is silently reported as passed. The frontend build creates ignored `web/dist/` output.
 
 Older clones may still have the full-suite pre-push hook. Retire it once using Git Bash on Windows or a POSIX shell:
 

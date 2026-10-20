@@ -966,6 +966,189 @@
   gap: var(--space-5);
 }
 
+.projectHeadingGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.projectSearch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  inline-size: 100%;
+  min-block-size: 3rem;
+  margin-block-end: var(--space-6);
+  padding-inline: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+  color: var(--color-text-muted);
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.projectSearch:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+.projectSearch > i { font-size: 1.15rem; }
+.projectSearch input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 2.9rem;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 0.9rem;
+}
+.projectSearch input::placeholder { color: var(--color-text-muted); opacity: 1; }
+.projectSearch input::-webkit-search-cancel-button { display: none; }
+.projectSearch button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+.projectSearch button:hover { background: var(--color-surface-2); color: var(--color-text-primary); }
+
+.projectToolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block-end: var(--space-5);
+}
+.projectResultSummary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+.projectViewActions { display: flex; flex: none; gap: var(--space-2); }
+.projectViewToggle {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+}
+.projectViewToggle button,
+.projectSortButton {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-block-size: 2.2rem;
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-sm) - 3px);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+.projectViewToggle button { min-inline-size: 2.2rem; }
+.projectViewToggle button:hover,
+.projectSortButton:hover { color: var(--color-text-primary); background: var(--color-surface-2); }
+.projectViewToggle button[aria-pressed="true"] { border-color: var(--color-accent-border); background: var(--color-accent-subtle); color: var(--color-accent-hover); }
+.projectViewActions i { font-size: 1.1rem; }
+.projectSort { position: relative; display: flex; }
+.projectSortButton { gap: var(--space-2); padding-inline: var(--space-3); border-color: var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-1); font-size: 0.8rem; }
+.projectSortButton > i:last-child { font-size: 0.7rem; }
+.projectSortMenu {
+  position: absolute;
+  z-index: 8;
+  inset-block-start: calc(100% + var(--space-2));
+  inset-inline-end: 0;
+  inline-size: 12.5rem;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-1);
+  box-shadow: var(--shadow-panel);
+}
+.projectSortMenu button { display: flex; align-items: center; gap: var(--space-3); inline-size: 100%; min-block-size: 2.75rem; padding: var(--space-3); border: 0; border-radius: calc(var(--radius-sm) - 3px); background: transparent; color: var(--color-text-secondary); text-align: start; font-size: 0.83rem; }
+.projectSortMenu button:hover,
+.projectSortMenu button:focus-visible { background: var(--color-accent-subtle); color: var(--color-accent-hover); }
+.projectSortMenu button > span { flex: 1; }
+.projectNoResults { display: grid; justify-items: center; gap: var(--space-3); padding: var(--space-12) var(--space-5); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); text-align: center; }
+.projectNoResults > i { color: var(--color-accent); font-size: 1.7rem; }
+.projectNoResults h2 { margin: 0; font-size: 1.1rem; }
+.projectNoResults p { margin: 0 0 var(--space-3); color: var(--color-text-muted); font-size: 0.85rem; }
+
+.projectItem { position: relative; min-inline-size: 0; }
+.projectItem > .projectCard { inline-size: 100%; block-size: 100%; }
+.projectItem .cardTopline,
+.projectDragGhost .cardTopline { padding-inline-end: 1.65rem; }
+.projectDragHandle {
+  position: absolute;
+  inset-block-start: 1rem;
+  inset-inline-end: 0.75rem;
+  display: grid;
+  place-items: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.projectDragHandle:hover,
+.projectDragHandle:focus-visible { border-color: var(--color-accent-border); background: var(--color-accent-subtle); color: var(--color-accent-hover); }
+.projectDragHandle i { font-size: 1.1rem; }
+.projectGrid:has([data-dragging="true"]) button { cursor: grabbing; }
+.projectItem[data-dragging="true"] > button { visibility: hidden; }
+.projectItem[data-drop-target="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-subtle);
+  box-shadow: 0 0 0 3px rgb(145 172 203 / 0.08), inset 0 0 24px rgb(145 172 203 / 0.05), 0 0 20px rgb(145 172 203 / 0.12);
+  pointer-events: none;
+}
+.projectDragGhost {
+  position: fixed;
+  z-index: 50;
+  inset: 0 auto auto 0;
+  pointer-events: none;
+  opacity: 0.94;
+  filter: drop-shadow(0 16px 24px rgb(0 0 0 / 0.35));
+  will-change: transform;
+}
+.projectDragGhost .projectCard { inline-size: 100%; block-size: 100%; border-color: var(--color-accent); }
+.projectDragGhost .projectDragHandle { color: var(--color-accent-hover); }
+
+@media (max-width: 47.99rem) {
+  .projectHeadingGroup { position: sticky; z-index: 5; inset-block-start: 0; margin-block-start: calc(-1 * var(--space-6)); margin-inline: calc(-1 * var(--space-5)); padding: var(--space-6) var(--space-5) 0; background: var(--color-canvas); }
+  .projectHeadingGroup > .dashboardHeader { position: static; margin: 0; padding: 0 0 var(--space-5); }
+  .projectHeadingGroup > .projectSearch { order: 1; margin-block: 0 var(--space-4); }
+  .projectToolbar { margin-block-end: var(--space-4); }
+  .projectResultSummary { max-inline-size: 8rem; font-size: 0.7rem; }
+  .projectResultSummary > i { display: none; }
+  .projectSortButton { padding-inline: var(--space-2); }
+  .projectSortButton > span,
+  .projectSortButton > i:last-child { display: none; }
+  .projectSortButton { min-inline-size: 2.7rem; }
+  .projectViewToggle button { min-inline-size: 2.35rem; min-block-size: 2.35rem; }
+  .projectCard .cardMetrics { gap: var(--space-2); }
+  .projectCard .cardMetrics .metric + .metric { padding-inline-start: var(--space-2); }
+}
+
 .projectCard {
   display: flex;
   min-inline-size: 0;
