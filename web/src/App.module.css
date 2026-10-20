@@ -997,15 +997,10 @@
   .projectSortButton > i:last-child { display: none; }
   .projectSortButton { min-inline-size: 2.7rem; }
   .projectViewToggle button { min-inline-size: 2.35rem; min-block-size: 2.35rem; }
-  .projectCard .cardMetrics {
-    /* Reserve Memory's content width across different system fonts. */
-    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
-    gap: var(--space-2);
-  }
-  .projectCard .cardMetrics .metric + .metric { padding-inline-start: var(--space-2); }
 }
 
 .projectCard {
+  container: project-card / inline-size;
   display: flex;
   min-inline-size: 0;
   min-block-size: 13.5rem;
@@ -1138,6 +1133,17 @@
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cardMetrics .metric strong { white-space: normal; overflow-wrap: anywhere; }
+
+@container project-card (max-width: 20rem) {
+  .cardMetrics {
+    /* Narrow cards also occur in multi-column desktop/tablet grids. */
+    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+  .cardMetrics .metric + .metric { padding-inline-start: var(--space-2); }
 }
 
 .closeButton {

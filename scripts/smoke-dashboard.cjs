@@ -12,7 +12,7 @@ async (page) => {
   });
   const names=['adguard','grafana-alloy','home-assistant','metro-motion','nginx-proxy-manager','node-exporter','nox-backend','nox-yard','z-exporter'];
   let projects=names.map((name,index)=>({
-    id:`compose:${name}`,name,kind:index===3?'managed-compose':index===6?'standalone':'external-compose',state:index===8?'stopped':'running',health:index===8?'none':'healthy',cpuPercent:index/10,memoryBytes:16*1024*1024,uptimeSeconds:100000,networkRxBytes:0,networkTxBytes:0,
+    id:`compose:${name}`,name,kind:index===3?'managed-compose':index===6?'standalone':'external-compose',state:index===8?'stopped':'running',health:index===8?'none':'healthy',cpuPercent:index===3?1600:index/10,memoryBytes:index===3?1023.9*1024**3:16*1024*1024,uptimeSeconds:index===3?1000*86400+23*3600:100000,networkRxBytes:0,networkTxBytes:0,
     containers:[{id:`container-${index}`,name:index===2?'smart-home-web':`${name}-1`,service:index===2?'automation-service':'app',image:'fixture:latest',state:'running',health:'healthy',terminalAvailable:true,cpuPercent:0.2,memoryBytes:16*1024*1024,uptimeSeconds:100000,networkRxBytes:0,networkTxBytes:0}],
   }));
   const errors=[]; const onError=error=>errors.push(error.message); page.on('pageerror',onError);
@@ -36,7 +36,7 @@ async (page) => {
   const item=name=>collection.locator(`[data-project-id="compose:${name}"]`);
   const handle=name=>item(name).locator('[data-drag-handle]');
   const assertMetricsFit=async label=>{
-    const truncated=await items().evaluateAll(items=>items.flatMap(el=>Array.from(el.querySelectorAll('strong')).filter(value=>value.scrollWidth>value.clientWidth+1).map(value=>({text:value.textContent,needed:value.scrollWidth,available:value.clientWidth}))));
+    const truncated=await items().evaluateAll(items=>items.flatMap(el=>Array.from(el.querySelectorAll('strong')).filter(value=>value.scrollWidth>value.clientWidth+1||value.scrollHeight>value.clientHeight+1).map(value=>({text:value.textContent,needed:value.scrollWidth,available:value.clientWidth,neededHeight:value.scrollHeight,availableHeight:value.clientHeight}))));
     if(truncated.length)throw Error(`${label}: ${JSON.stringify(truncated)}`);
   };
   const search=page.getByRole('searchbox',{name:'Search projects and containers'});
@@ -139,15 +139,16 @@ async (page) => {
   // Validate both layouts at narrow tablet/mobile sizes and capture review artifacts.
   for(const layout of ['grid','list']){
     await page.getByRole('button',{name:layout==='grid'?'Grid view':'List view',exact:true}).click();
-    for(const width of [1440,1024,768,390,320]){
+    for(const width of [1440,1280,1279,1180,1024,768,390,320]){
       await page.setViewportSize({width,height:1000});await page.evaluate(()=>scrollTo(0,0));
       if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error(`${layout} overflows at ${width}px`);
       if(await items().evaluateAll(items=>items.some(el=>el.scrollWidth>el.clientWidth+1)))throw Error(`${layout} item overflows at ${width}px`);
       await assertMetricsFit(`${layout} metric values truncated at ${width}px`);
-      if(layout==='grid'&&width===320){
-        // Exercise wider numeric glyphs even on hosts whose system font fits.
+      if(layout==='grid'){
+        // Cover narrow cards at every viewport, including three columns on tablet.
+        // Wider glyphs reproduce the Linux font failure on Windows too.
         const widerFont=await page.addStyleTag({content:'[data-layout="grid"] [data-project-id] strong { font-family: monospace; letter-spacing: 0.075em; }'});
-        await assertMetricsFit('Grid metrics truncated with wider fallback font at 320px');
+        await assertMetricsFit(`Grid metrics truncated with wider fallback font at ${width}px`);
         await widerFont.evaluate(el=>el.remove());
       }
       if(layout==='list'){
@@ -172,6 +173,24 @@ async (page) => {
       }
     }
   }
+  // Sweep card widths between named breakpoints, in both desktop sidebar states.
+  // Font stress is deliberate: local Windows success must cover wider Linux glyphs.
+  await page.getByRole('button',{name:'Grid view',exact:true}).click();
+  const stressFont=await page.addStyleTag({content:'[data-layout="grid"] [data-project-id] strong { font-family: monospace; letter-spacing: 0.075em; font-size: 1rem; }'});
+  const widths=[...new Set([...Array.from({length:41},(_,index)=>320+index*40),767,768,1279,1280])].sort((a,b)=>a-b);
+  for(const width of widths){
+    await page.setViewportSize({width,height:1000});
+    await assertMetricsFit(`Grid sweep truncated metrics at ${width}px`);
+    if(await items().evaluateAll(items=>items.some(el=>el.scrollWidth>el.clientWidth+1)))throw Error('Grid sweep overflows at '+width);
+  }
+  await page.getByRole('button',{name:'Hide sidebar',exact:true}).click();
+  for(const width of widths.filter(width=>width>=1280)){
+    await page.setViewportSize({width,height:1000});
+    await assertMetricsFit(`Collapsed sidebar grid truncated metrics at ${width}px`);
+  }
+  await page.getByRole('button',{name:'Expand sidebar',exact:true}).click();
+  await stressFont.evaluate(el=>el.remove());
+  await page.getByRole('button',{name:'List view',exact:true}).click();
   // Use actual Chromium touch input, not synthetic pointer handlers.
   await page.setViewportSize({width:390,height:1000});
   await page.evaluate(()=>scrollTo(0,0));
@@ -210,5 +229,5 @@ async (page) => {
   await expectOrder(['grafana-alloy','adguard',...names.slice(2).filter(name=>name!=='node-exporter')]);
   if(errors.length)throw Error('Dashboard browser errors: '+errors.join('; '));
   page.off('pageerror',onError);
-  console.log('PASS: grid/table parity, compact rows and headers, contained horizontal scroll, live grouped search, persisted views/sorts/orders, mouse/touch/keyboard reordering including scrolled tables, ghost/preview, cancel, filtered slots, live removal and 1440/1024/768/390/320px');
+  console.log('PASS: grid/table parity, compact rows and headers, contained horizontal scroll, live grouped search, persisted views/sorts/orders, mouse/touch/keyboard reordering including scrolled tables, ghost/preview, cancel, filtered slots, live removal, 320–1920px metric sweep, wider fonts and large values with both desktop sidebar states');
 }

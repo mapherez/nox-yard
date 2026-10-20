@@ -42,7 +42,14 @@ try {
  }
  cli("open", "about:blank", "--browser", "chrome"); opened = true;
  for (const name of tests) {
-  const code = (await readFile(path.join(root, "scripts", name), "utf8")).replaceAll("http://127.0.0.1:5173", url);
+  const fixture = (await readFile(path.join(root, "scripts", name), "utf8")).replaceAll("http://127.0.0.1:5173", url);
+  // Each suite owns its storage, init scripts, routes, listeners and viewport.
+  // A previous suite must not silently change the next suite's environment.
+  const code = `async (originalPage) => {
+    const context = await originalPage.context().browser().newContext({ viewport: { width: 1440, height: 1000 } });
+    try { await (${fixture})(await context.newPage()); }
+    finally { await context.close(); }
+  }`;
   const relative = `.tmp/${session}/${name}`;
   await writeFile(path.join(root, relative), code);
   const output = cli("run-code", "--filename", relative);

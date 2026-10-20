@@ -47,6 +47,31 @@ Before a release commit exists, a preparation/commit failure restores `package.j
 
 After a successful push, inspect the **CI** run, including its dependent Release job. If CI fails, fix the code and issue a new release request, or rerun CI when the failure was environmental and the commit remains valid. Do not push an old tag expecting an independent Release workflow. If image publication succeeds but GitHub Release creation fails, the image remains; retry the failed job only after inspecting that state. The current request identity and downgrade/conflict guards still apply.
 
+### Reuse an unpublished version after a source correction
+
+Re-running an existing GitHub Actions run uses its original SHA/ref, so it cannot pick up a later source fix. A failed pre-publication attempt does not require consuming a new version number. Reuse is appropriate only after confirming the original pipeline is completed, its publication jobs were skipped, and neither a GitHub Release nor a GHCR image exists for that version. If any publication exists, preserve its tag and use a new version, or recover the matching original publication as described above.
+
+For the failed `v1.3.1` attempt, the preceding published version is `1.3.0`. After checking the conditions above, run from the repository root in PowerShell:
+
+```powershell
+# Restore the preceding version metadata before committing the source correction.
+npm pkg set version=1.3.0
+```
+
+Commit the source corrections, tests, documentation and `package.json` together. Pending local commits are supported; they need not be pushed separately. Then remove the unpublished attempt's tag, guarded against an unexpected remote change, and create the fresh request:
+
+```powershell
+$failedTagObject = git rev-parse refs/tags/v1.3.1
+if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the failed local tag.' }
+git push "--force-with-lease=refs/tags/v1.3.1:$failedTagObject" origin :refs/tags/v1.3.1
+if ($LASTEXITCODE -ne 0) { throw 'Remote tag changed or deletion failed; stop and inspect.' }
+git tag -d v1.3.1
+if ($LASTEXITCODE -ne 0) { throw 'Local tag deletion failed; stop and inspect.' }
+npm run release -- 1.3.1
+```
+
+This keeps the branch history and source corrections. Only the unshipped attempt's tag is replaced; the normal release script creates a new version-only commit and annotated tag, then atomically pushes the branch/tag to start fresh CI followed by publication. The old failed run still targets the old commit and is not the retry mechanism. A disposable Git integration test covers this recovery path and verifies the new tag contains the corrected source.
+
 ## Tooling validation
 
-`node --test scripts/release.test.mjs` uses disposable Git repositories and local bare remotes. It exercises real commits, annotated tags, atomic pushes, failed commits/pushes, request identity, normal-push exclusion, metadata, duplicate publication and conflict/downgrade handling. Tests never publish to GitHub or GHCR. These tests also run in `scripts/ci-local.sh` and normal CI. Use actionlint to validate the caller/callee workflow syntax and job dependencies.
+`node --test scripts/release.test.mjs` uses disposable Git repositories and local bare remotes. It exercises real commits, annotated tags, atomic pushes, failed commits/pushes, request identity, normal-push exclusion, metadata, duplicate publication, conflict/downgrade handling and the documented same-version recovery after an unpublished source failure. Tests never publish to GitHub or GHCR. These tests also run in `scripts/ci-local.sh` and normal CI. Use actionlint to validate the caller/callee workflow syntax and job dependencies.

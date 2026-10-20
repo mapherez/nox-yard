@@ -239,6 +239,32 @@ test('release includes clean local commits that have not been pushed yet', (t) =
   assert.equal(requestedRelease({cwd:f.root,revision:result.commit,ref:'refs/heads/delivery/topic'}), 'v1.0.0');
 });
 
+test('an unpublished failed request can be recreated for the same version after a source fix', (t) => {
+  const f = fixture(t);
+  const first = f.release('1.0.0');
+  const originalTag = f.git('rev-parse', 'refs/tags/v1.0.0');
+  // The documented recovery first confirms no GitHub/registry publication.
+  // Restore only version metadata alongside the source fix; preserve history.
+  const metadata = JSON.parse(f.packageContents());
+  metadata.version = '0.0.0';
+  writeFileSync(join(f.root, 'package.json'), JSON.stringify(metadata, null, 2) + '\n');
+  writeFileSync(join(f.root, 'other.txt'), 'fixed source\n');
+  f.git('add', 'package.json', 'other.txt');
+  f.git('commit', '-m', 'Fix source before retrying unpublished release');
+  const fixed = f.git('rev-parse', 'HEAD');
+  f.git('push', `--force-with-lease=refs/tags/v1.0.0:${originalTag}`, 'origin', ':refs/tags/v1.0.0');
+  f.git('tag', '-d', 'v1.0.0');
+  const second = f.release('1.0.0');
+  assert.notEqual(second.commit, first.commit);
+  assert.equal(f.git('rev-parse', `${second.commit}^`), fixed);
+  assert.equal(f.git('merge-base', first.commit, second.commit), first.commit);
+  assert.equal(f.remoteGit('rev-parse', 'refs/heads/delivery/topic'), second.commit);
+  assert.equal(f.remoteGit('rev-parse', 'refs/tags/v1.0.0^{commit}'), second.commit);
+  assert.equal(f.remoteGit('show', 'v1.0.0:other.txt'), 'fixed source');
+  assert.equal(requestedRelease({cwd:f.root,revision:second.commit,ref:'refs/heads/delivery/topic'}), 'v1.0.0');
+  assert.throws(() => requestedRelease({cwd:f.root,revision:first.commit,ref:'refs/heads/delivery/topic'}), /does not match its annotated tag/);
+});
+
 function hookFixture(t) {
   const f = fixture(t);
   copyFileSync(join(scripts, 'install-hooks.sh'), join(f.root, 'scripts', 'install-hooks.sh'));

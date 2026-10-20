@@ -4,9 +4,9 @@
 
 **Phase:** C6 native-host acceptance and C7 runtime publication gates remain open.
 
-The current committed local source baseline is `0bfb264`, including D-036's CI-only pipeline, D-037's searchable Grid/List dashboard, the narrow-screen metric sizing correction and D-038's drawer/log-export implementation. The earlier 2026-10-20 audit reviewed `ed6d7b3` (`v1.2.1`); its historical evidence remains in the [repository review](Repository-Review-2026-10-20.md). Source tags and local package versions do not establish completed remote publication or deployment.
+The current committed local source baseline is `e4a20b5`, the `v1.3.1` release request after `d5b39e2` committed the Settings and overlay-navigation refinements. It includes D-036's CI-only pipeline, D-037's searchable Grid/List dashboard and D-038's drawers/log export. The earlier 2026-10-20 audit reviewed `ed6d7b3` (`v1.2.1`); its historical evidence remains in the [repository review](Repository-Review-2026-10-20.md). Source tags and local package versions do not establish completed remote publication or deployment.
 
-The working tree now contains a visual Settings refinement consistent with D-038's drawers and overlay navigation for mobile/tablet/small desktop below 1280px. This change does not push, create a release or deploy to a host. The [completion plan](Completion-Plan.md) retains its original native-host/runtime acceptance gates; later decisions refine implementation assumptions.
+The working tree now fixes metric truncation in narrow dashboard cards at tablet/desktop widths, with stronger browser coverage across the navigation breakpoint and wider system fonts. This change does not push, create a release or deploy to a host. The [completion plan](Completion-Plan.md) retains its original native-host/runtime acceptance gates; later decisions refine implementation assumptions.
 
 ## Implemented behavior
 
@@ -68,6 +68,18 @@ Frontend typecheck/production build and the existing configuration/drawer browse
 Below 1280px, the sidebar now uses the same overlay navigation as mobile, opened by a Phosphor menu button immediately before Projects. Outside tap, leftward touch swipe, Escape and the close control dismiss it. Opening isolates the background, locks page scrolling and moves focus into the menu; keyboard traversal stays inside and dismissal restores the trigger. Crossing into wide desktop clears overlay state while preserving the saved desktop collapse preference. Dashboard search retains its existing desktop/tablet and mobile placement.
 
 Frontend typecheck/production build passed. All seven browser fixtures passed, with the drawer fixture rerun after adding responsive navigation coverage. Checks include real Chromium touch swipes at 1279/1024/768/390/320px, canceled gestures, vertical scrolling, outside dismissal, keyboard focus, Settings navigation and resizing across the 1280px boundary with the desktop preference retained. Tablet/mobile overlay screenshots were inspected. This changes frontend navigation only; the existing main-chunk warning remains.
+
+## CI correction for narrow-card metrics
+
+The [v1.3.1 source-validation job](https://github.com/mapherez/nox-yard/actions/runs/39417697668/job/118610733583) failed in the dashboard browser fixture at 1024px: the Linux memory text needed 69px while its equal-width track provided 65px. Overlay navigation allowed three cards at that viewport, exposing a layout constraint previously handled only below the mobile breakpoint. Go checks, workflow/Compose validation, release tooling and frontend build passed in that run. Docker builds and release publication were skipped by their CI dependencies.
+
+Make each project card an inline-size query container and apply the compact metric spacing/content-sized memory track whenever the card itself is narrow, including drag ghosts. Longer metric values may wrap instead of being clipped. The dashboard fixture now stresses wider numeric fonts at every checked grid width and includes 1280/1279/1180px around the sidebar breakpoint. Before the fix, this reproduced the failure locally at 1024px (70px needed, 65px available).
+
+After the fix, frontend typecheck/production build and all seven browser fixtures passed locally. The expanded dashboard checks cover 1440/1280/1279/1180/1024/768/390/320px with the wider-font stress applied at every grid width; the 1024px screenshot was inspected. The existing main-chunk warning remains. This is local Windows browser evidence; the corrected source has not yet been pushed or verified by a new Linux CI run. The existing failed run retains the old source SHA.
+
+Further hardening isolates every browser fixture in a fresh context, preventing storage, startup scripts, routes, listeners and viewport changes from leaking between suites. The dashboard additionally sweeps 320–1920px in 40px steps plus exact responsive boundaries, with larger/wider glyphs, high multi-core CPU, large memory and long uptime values, and both expanded/collapsed desktop sidebars. All seven suites passed with this stronger coverage. The tests continue to fail on clipped values; the correction changes card sizing rather than relaxing assertions.
+
+Remote checks found no GitHub Release for `v1.3.1` and GHCR returned HTTP 404 for its manifest; the old pipeline skipped Docker/publication. Reusing this unpublished version is therefore possible with a corrected source commit and a fresh request/tag. [Releases](Releases.md#reuse-an-unpublished-version-after-a-source-correction) documents the exact PowerShell recovery, including a lease-guarded deletion of the failed attempt's tag and resetting only package version metadata before the source-fix commit. A new disposable-Git integration regression verifies corrected source in the recreated same-version tag, preserved commit ancestry, a valid fresh CI request and rejection of the old request. All 60 release-tooling tests passed. The real repository's version, tags and branch were not changed by these tests.
 
 ## Previously recorded evidence
 
