@@ -1000,7 +1000,7 @@ function SettingsDrawer({ open, csrfToken, onClose, machineStatus, machineError,
   const dialogRef = useRef<HTMLDialogElement>(null);
   const dismiss = useCallback(() => dialogRef.current?.close(), []);
   useDrawerSwipe(dialogRef, "left", open, dismiss);
-  useEffect(() => { if (open && focusMCP) { const frame = requestAnimationFrame(() => document.getElementById("machine-access-settings")?.scrollIntoView({ block: "start" })); return () => cancelAnimationFrame(frame); } }, [open, focusMCP]);
+  useEffect(() => { if (open && focusMCP) { const frame = requestAnimationFrame(() => { const panel = document.getElementById("machine-access-settings"); if (panel instanceof HTMLDetailsElement) { panel.open = true; panel.scrollIntoView({ block: "start" }); } }); return () => cancelAnimationFrame(frame); } }, [open, focusMCP]);
   const [status, setStatus] = useState<SelfUpdateStatus | null>(null);
 	const [projectsBase, setProjectsBase] = useState("");
 	const [savedProjectsBase, setSavedProjectsBase] = useState("");
@@ -1105,7 +1105,20 @@ function SettingsDrawer({ open, csrfToken, onClose, machineStatus, machineError,
         <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close settings"><i className="ph-bold ph-x" aria-hidden="true" /></button>
       </header>
       <div className={`${styles.settingsContent} ${settingsStyles.content}`}>
-        {open && <MachineAccessSettings status={machineStatus} error={machineError} csrfToken={csrfToken} onRefresh={onMachineRefresh} />}
+        <section aria-labelledby="updates-title" className={settingsStyles.section}>
+          <div className={settingsStyles.heading}>
+            <h3 id="updates-title"><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />Yard updates</h3>
+            <button type="button" className={`${styles.inspectButton} ${settingsStyles.action}`} disabled={!status || busy} onClick={() => { void checkNow(); }}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />Check now</button>
+          </div>
+          <p className={settingsStyles.description}>Check now installs an available update. Manage automatic checks in Yard’s project drawer.</p>
+          <dl className={settingsStyles.facts} aria-live="polite">
+            <div><dt>Status</dt><dd><span className={`${styles.statusBadge} ${status?.status === "up_to_date" ? styles.statusRunning : status?.status === "update_failed" ? styles.statusStopped : busy ? styles.statusPartial : ""}`}>{status ? labels[status.status] : "Loading"}</span></dd></div>
+            <div><dt>Last checked</dt><dd>{status?.lastChecked ? <time dateTime={status.lastChecked}>{new Date(status.lastChecked).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</time> : "Never"}</dd></div>
+            {status?.currentBuildSHA && <div><dt>Current build</dt><dd><code title={status.currentBuildSHA}>{status.currentBuildSHA.slice(0, 12)}</code></dd></div>}
+          </dl>
+          {status?.status === "update_failed" && status.error && <p className={settingsStyles.error} role="alert">{status.error}</p>}
+          {error && <p className={settingsStyles.error} role="alert">{error}</p>}
+        </section>
         <section aria-labelledby="projects-directory-title" className={settingsStyles.section}>
           <div className={settingsStyles.heading}>
             <h3 id="projects-directory-title"><i className="ph-bold ph-folder" aria-hidden="true" />Projects directory</h3>
@@ -1125,20 +1138,7 @@ function SettingsDrawer({ open, csrfToken, onClose, machineStatus, machineError,
           </dl>
           <p className={settingsStyles.hint}>Existing Compose files stay in their current location. Relative bind mounts use that location. Standalone log folders use the container name.</p>
         </section>
-        <section aria-labelledby="updates-title" className={settingsStyles.section}>
-          <div className={settingsStyles.heading}>
-            <h3 id="updates-title"><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />Yard updates</h3>
-            <button type="button" className={`${styles.inspectButton} ${settingsStyles.action}`} disabled={!status || busy} onClick={() => { void checkNow(); }}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />Check now</button>
-          </div>
-          <p className={settingsStyles.description}>Check now installs an available update. Manage automatic checks in Yard’s project drawer.</p>
-          <dl className={settingsStyles.facts} aria-live="polite">
-            <div><dt>Status</dt><dd><span className={`${styles.statusBadge} ${status?.status === "up_to_date" ? styles.statusRunning : status?.status === "update_failed" ? styles.statusStopped : busy ? styles.statusPartial : ""}`}>{status ? labels[status.status] : "Loading"}</span></dd></div>
-            <div><dt>Last checked</dt><dd>{status?.lastChecked ? <time dateTime={status.lastChecked}>{new Date(status.lastChecked).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</time> : "Never"}</dd></div>
-            {status?.currentBuildSHA && <div><dt>Current build</dt><dd><code title={status.currentBuildSHA}>{status.currentBuildSHA.slice(0, 12)}</code></dd></div>}
-          </dl>
-          {status?.status === "update_failed" && status.error && <p className={settingsStyles.error} role="alert">{status.error}</p>}
-          {error && <p className={settingsStyles.error} role="alert">{error}</p>}
-        </section>
+        {open && <MachineAccessSettings status={machineStatus} error={machineError} csrfToken={csrfToken} onRefresh={onMachineRefresh} />}
       </div>
     </div>
   </dialog>;

@@ -1,6 +1,6 @@
 # Developer documentation
 
-This directory is the **canonical technical documentation** for Yard. The root README introduces the product; implementation details and decisions belong here. Start with Progress for current status, Features for implemented behavior, and the latest repository review for audit evidence. Plans and dated reviews preserve their original scope; later decisions can supersede them.
+This directory is the **canonical technical documentation** for Yard. The root README introduces the product; installation and everyday use belong in the [user documentation](../User/README.md). Implementation details and decisions belong here. Start with Progress for current status, Features for implemented behavior, and the latest repository review for audit evidence. Plans and dated reviews preserve their original scope; later decisions can supersede them. Hardware-specific examples in historical plans and validation records describe test environments, not the product's target audience.
 
 | Document | Use it for |
 | --- | --- |
@@ -15,7 +15,7 @@ This directory is the **canonical technical documentation** for Yard. The root R
 | [Decisions](Decisions.md) | Decisions that constrain later work and their reasons. |
 | [Development Guide](Development.md) | Repository conventions, workflow, and maintenance instructions. |
 | [Releases](Releases.md) | One-command formal releases, stable/prerelease channels, and recovery. |
-| [Host validation](Host-Validation.md) | Isolated Pi 5/Linux acceptance, upgrade/password/backup recovery and native-host evidence. |
+| [Host validation](Host-Validation.md) | Isolated native Linux acceptance, upgrade/password/backup recovery and host evidence. |
 | [Progress](Progress.md) | Single current phase checkpoint and remaining work. |
 | [Features](Features.md) | Notes on implemented features and their operational behavior. |
 | [Managed updates](Managed-Updates.md) | Managed image comparison, explicit source sync and rollback. |

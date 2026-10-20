@@ -72,8 +72,12 @@ export function MachineAccessSettings({ status, error: loadError, csrfToken, onR
   const applying = network?.job?.status === "running";
   const modalTitle = modal === "rotate" ? "Generate a new Yard token?" : modal === "revoke" ? "Revoke the Yard token?" : modal === "history" ? "Token history" : modal === "token" ? "Your new Yard token" : modal === "save" ? "Save and apply network changes?" : "Apply network changes?";
 
-  return <section id="machine-access-settings" aria-labelledby={`${prefix}-title`} className={settingsStyles.section}>
-    <div className={settingsStyles.heading}><h3 id={`${prefix}-title`}><i className="ph-bold ph-plugs-connected" aria-hidden="true" />MCP &amp; access</h3><span className={machineStyles.state}><span className={machineStyles.dot} data-ready={status?.operational === true} aria-hidden="true" />{!status?.settings ? "Unavailable" : !status.settings.mcpEnabled ? "Disabled" : status.operational ? "Operational" : "Unavailable"}</span></div>
+  return <details id="machine-access-settings" aria-labelledby={`${prefix}-title`} className={`${settingsStyles.section} ${machineStyles.accordion}`}>
+    <summary className={`${settingsStyles.heading} ${machineStyles.summary}`}>
+      <h3 id={`${prefix}-title`}><i className="ph-bold ph-plugs-connected" aria-hidden="true" />MCP &amp; access</h3>
+      <span className={machineStyles.summaryState}><span className={machineStyles.state}><span className={machineStyles.dot} data-ready={status?.settings.mcpEnabled === true} aria-hidden="true" />{!status?.settings ? "Unavailable" : status.settings.mcpEnabled ? "Enabled" : "Disabled"}</span><i className={`ph-bold ph-caret-right ${machineStyles.caret}`} aria-hidden="true" /></span>
+    </summary>
+    <div className={machineStyles.content}>
     <p className={settingsStyles.description}>Connect MCP clients directly to Yard. MCP is off by default and uses its own port.</p>
     {loadError && <p className={settingsStyles.error} role="alert">{loadError}</p>}
     {!draft ? <button type="button" className={styles.inspectButton} onClick={() => { void onRefresh(); }}>Retry machine settings</button> : <>
@@ -111,5 +115,6 @@ export function MachineAccessSettings({ status, error: loadError, csrfToken, onR
         <div className={styles.confirmActions}><button type="button" autoFocus className={styles.inspectButton} disabled={busy} onClick={close}>{modal === "history" || modal === "token" ? "Close" : "Cancel"}</button>{modal && modal !== "history" && modal !== "token" && <button type="button" className={styles.inspectButton} disabled={busy} onClick={() => { void perform(modal); }}>{busy ? "Working…" : modal === "rotate" ? "Generate token" : modal === "revoke" ? "Revoke token" : "Apply changes"}</button>}</div>
       </div>
     </dialog>
-  </section>;
+    </div>
+  </details>;
 }

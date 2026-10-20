@@ -1,5 +1,15 @@
 # Formal releases
 
+## Prepare user-facing notes
+
+Maintain [CHANGELOG.md](../../CHANGELOG.md) alongside product changes. Keep pending changes under `## Unreleased`; before a release, move them into an exact version heading such as `## 1.3.4` or `## 1.3.4-rc.1` and commit those notes with the implementation. Use short descriptions of user-visible improvements, fixes, and any action required to upgrade. Do not use commit subjects as the release summary.
+
+The publisher reads the matching section from the exact CI source commit and puts it first in the GitHub Release. Signature, digest, source SHA, and verification instructions remain available in an expandable section; GitHub's generated changes follow. Missing or empty version notes fall back to a changelog link and generated changes, without blocking publication or publishing Unreleased content. Previously published releases are not rewritten.
+
+The release command still changes only `package.json`; prepare and commit notes **before** invoking it. Adding notes does not add a workflow or change CI/publication sequencing.
+
+## Start a release
+
 Run from the repository root with no modified, staged or untracked files:
 
 ```sh

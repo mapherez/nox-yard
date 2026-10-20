@@ -4,7 +4,7 @@
 
 - Go 1.26.9 or later in the 1.26 series for the root module `github.com/mapherez/nox-yard`; this patch floor addresses the standard-library advisories found in the 2026-10-20 review. See the [official Go release history](https://go.dev/doc/devel/release#go1.26).
 - Node.js 24 for `web/` (`.nvmrc`), with npm and the committed `web/package-lock.json`.
-- Docker Engine and the Compose plugin on a Linux integration host. Raspberry Pi 5 (`linux/arm64`) is the primary release target; `linux/amd64` is also intended.
+- Docker Engine and the Compose plugin on a Linux integration host. Release images support `linux/arm64` and `linux/amd64`; Yard targets homelabs across both architectures.
 
 ## Repository layout
 

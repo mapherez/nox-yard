@@ -121,7 +121,7 @@ jobs:
             --certificate-github-workflow-trigger push \
             -a "release=$RELEASE_TAG" -a "revision=$GITHUB_SHA" \
             "ghcr.io/mapherez/nox-yard@$IMAGE_DIGEST"
-      - name: Create GitHub Release with generated notes
+      - name: Create GitHub Release with user-facing notes
         if: steps.guard.outputs.publish == 'true'
         uses: actions/github-script@v8
         env:
@@ -131,24 +131,22 @@ jobs:
         with:
           script: |
             const { pathToFileURL } = require('node:url');
-            const { publicationMarker } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-request.mjs`).href);
+            const { readFileSync } = require('node:fs');
+            const { releaseBody } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/release-notes.mjs`).href);
             await github.rest.repos.createRelease({
               ...context.repo,
               tag_name: process.env.RELEASE_TAG,
               target_commitish: context.sha,
               name: process.env.RELEASE_TAG,
-              body: [
-                publicationMarker(context.sha),
-                '',
-                '### Signed container image',
-                '',
-                `Image: \`ghcr.io/mapherez/nox-yard@${process.env.IMAGE_DIGEST}\``,
-                `Source commit: \`${context.sha}\``,
-                `Signer: \`https://github.com/${context.repo.owner}/${context.repo.repo}/.github/workflows/release.yml@${context.ref}\``,
-                '',
-                'Keyless Cosign signature verified with GitHub Actions OIDC. BuildKit SLSA provenance is included in the signed multi-architecture index.',
-                'Verification instructions: https://github.com/mapherez/nox-yard/blob/' + context.sha + '/Documentation/Developer/Releases.md#verify-a-release-image',
-              ].join('\n'),
+              body: releaseBody({
+                changelog: readFileSync(`${process.env.GITHUB_WORKSPACE}/CHANGELOG.md`, 'utf8'),
+                tag: process.env.RELEASE_TAG,
+                sha: context.sha,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: context.ref,
+                digest: process.env.IMAGE_DIGEST,
+              }),
               generate_release_notes: true,
               draft: false,
               prerelease: process.env.RELEASE_PRERELEASE === 'true',

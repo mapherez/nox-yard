@@ -45,7 +45,7 @@ async (page) => {
   if(historyReads!==1||await historyDialog.getByText(/yard_fixture_secret/).count())throw Error('history leaks token or polls');
   await page.keyboard.press('Escape');if(!await drawer.isVisible())throw Error('Escape closed parent drawer');
   await drawer.getByLabel('Enable MCP',{exact:true}).check();await drawer.getByRole('button',{name:'Save access settings',exact:true}).click();
-  await drawer.getByText('Operational',{exact:true}).waitFor();
+  await drawer.getByText('Enabled',{exact:true}).waitFor();
   await drawer.getByLabel('MCP authentication',{exact:true}).selectOption('anonymous');await drawer.getByText(/Anyone who can reach/).waitFor();
   await drawer.getByLabel('Allow writes:',{exact:false}).check();await drawer.getByRole('button',{name:'Save access settings',exact:true}).click();
   await drawer.getByRole('button',{name:'Save access settings',exact:true}).waitFor({state:'visible'});

@@ -9,6 +9,35 @@ import { commandRunner, release } from './release.mjs';
 import { assertLatestStable, checkReleaseVersion, parseVersion } from './release-version.mjs';
 import { image, releaseMetadata, source, writeMetadataOutputs } from './release-metadata.mjs';
 import { publicationMarker, requestedRelease, shouldPublish } from './release-request.mjs';
+import { releaseBody, releaseSummary } from './release-notes.mjs';
+
+test('release notes select only the exact version, including prereleases and CRLF', () => {
+  const changelog = '# Changelog\r\n\r\n## Unreleased\r\nFuture work\r\n## 1.3.4-rc.1\r\nPreview\r\n## 1.3.4\r\n### Added\r\n- New feature\r\n## 1.3.3\r\nOlder work\r\n';
+  assert.equal(releaseSummary(changelog, 'v1.3.4'), '### Added\n- New feature');
+  assert.equal(releaseSummary(changelog, 'v1.3.4-rc.1'), 'Preview');
+  assert.equal(releaseSummary(changelog, 'v1.3.5'), '');
+  assert.equal(releaseSummary('## Unreleased\nOnly future work\n', 'v1.3.5'), '');
+  assert.equal(releaseSummary('## 1.3.4\n\n## 1.3.3\nOlder work', 'v1.3.4'), '');
+});
+
+test('release notes ignore apparent version headings inside code fences', () => {
+  const changelog = ['# Changelog', '```md', '## 1.3.4', 'Example only', '```', '## 1.3.4', 'Real notes', '~~~md', '## Nested example', '~~~', '## 1.3.3', 'Older notes'].join('\n');
+  assert.equal(releaseSummary(changelog, 'v1.3.4'), 'Real notes\n~~~md\n## Nested example\n~~~');
+});
+
+test('published body keeps user notes first and preserves verification and duplicate-run identity', () => {
+  const input = { changelog: '## 1.3.4\n- A user-facing improvement\n## 1.3.3\nOld change', tag: 'v1.3.4', sha: 'a'.repeat(40), owner: 'mapherez', repo: 'nox-yard', ref: 'refs/heads/master', digest: `sha256:${'b'.repeat(64)}` };
+  const body = releaseBody(input);
+  assert.ok(body.includes(publicationMarker(input.sha)));
+  assert.ok(body.indexOf('A user-facing improvement') < body.indexOf('<details>'));
+  assert.ok(!body.includes('Old change'));
+  assert.ok(body.includes(`ghcr.io/mapherez/nox-yard@${input.digest}`));
+  assert.ok(body.includes('https://github.com/mapherez/nox-yard/.github/workflows/release.yml@refs/heads/master'));
+  assert.ok(body.includes(`/blob/${input.sha}/Documentation/Developer/Releases.md#verify-a-release-image`));
+  const fallback = releaseBody({ ...input, tag: 'v1.3.5' });
+  assert.ok(fallback.includes('generated changes below'));
+  assert.ok(!fallback.includes('A user-facing improvement'));
+});
 
 const scripts = dirname(fileURLToPath(import.meta.url));
 const sha = 'a'.repeat(40);
