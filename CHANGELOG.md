@@ -4,13 +4,25 @@ User-facing changes in Yard. Entries summarize tagged source changes; [GitHub Re
 
 ## Unreleased
 
+## 1.3.4
+
+### Clearer Settings
+
 - Settings shows the running Yard version alongside update status and build information.
-- Consolidated developer status and separated historical plans/reviews into an archive; clarified legacy upgrade requirements.
-- Settings now prioritizes Yard updates, then the projects directory, with MCP controls in a collapsed accordion that keeps its enabled/disabled indicator visible.
+- Yard updates now appear first, followed by the projects directory. MCP controls sit in a collapsed accordion with an always-visible enabled/disabled indicator.
+
+### Easier to get started
+
 - Reorganized the README around installation and everyday homelab use.
 - Added a Quickstart, user guide, and configuration guide.
-- Added version-by-version release summaries.
-- Future GitHub Releases put the matching changelog summary first, with image verification details in an expandable section.
+- Updated technical documentation and clarified upgrade requirements for older installations.
+
+### More useful release notes
+
+- Added a user-facing changelog with version-by-version summaries.
+- GitHub Releases now put the matching changelog summary first, with image verification details in an expandable section.
+
+[Release](https://github.com/mapherez/nox-yard/releases/tag/v1.3.4) · [Changes](https://github.com/mapherez/nox-yard/compare/v1.3.3...v1.3.4)
 
 ## 1.3.3
 
