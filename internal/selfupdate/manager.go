@@ -19,6 +19,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/schedule"
 	"github.com/mapherez/nox-yard/internal/store"
+	"github.com/mapherez/nox-yard/internal/yardrelease"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
@@ -276,7 +277,8 @@ func (m *Manager) check(ctx context.Context, manual bool) error {
 	if err != nil {
 		return m.checkError(err)
 	}
-	if available.ImageID != current.Image && m.Files == nil {
+	currentMatches := available.MatchesImageID(current.Image) || (current.ImageManifestDescriptor != nil && string(current.ImageManifestDescriptor.Digest) == available.ManifestDigest)
+	if !currentMatches && m.Files == nil {
 		if _, _, _, err := replacementConfig(current, available.ImageID); err != nil {
 			return m.checkError(err)
 		}
@@ -284,7 +286,7 @@ func (m *Manager) check(ctx context.Context, manual bool) error {
 	if err := m.store.RecordSelfUpdateCheck(""); err != nil {
 		return err
 	}
-	if current.Image == available.ImageID {
+	if currentMatches {
 		return m.store.ClearSelfUpdateFailure()
 	}
 	if available.ManifestDigest == "" {
@@ -304,8 +306,14 @@ func (m *Manager) check(ctx context.Context, manual bool) error {
 		name := current.Config.Labels["com.docker.compose.project"]
 		_, err := m.Files.FileOperation(ctx, name, "update", "")
 		if !errors.Is(err, managed.ErrFilesMissing) {
-			return err
+			if err != nil {
+				return m.checkError(err)
+			}
+			return nil
 		}
+	}
+	if err := yardrelease.Verify(ctx, available); err != nil {
+		return m.checkError(err)
 	}
 	jobID, err := randomID()
 	if err != nil {
@@ -319,7 +327,11 @@ func (m *Manager) check(ctx context.Context, manual bool) error {
 	if err := m.store.CreateSelfUpdateJobContext(ctx, job); err != nil {
 		return err
 	}
-	if err := pullAndVerify(ctx, cli, available.ImageID); err != nil {
+	actualID, err := pullAndVerify(ctx, cli, available)
+	if err != nil {
+		return m.failJobWithTag(cli, jobID, current.Image, err)
+	}
+	if err := m.store.SetSelfUpdateTarget(jobID, job.TargetImageID, actualID); err != nil {
 		return m.failJobWithTag(cli, jobID, current.Image, err)
 	}
 	if err := launchWorker(ctx, cli, current, jobID, m.store); err != nil {
@@ -463,25 +475,25 @@ func requiredMounts(self container.InspectResponse) ([]mount.Mount, error) {
 	return result, nil
 }
 
-func pullAndVerify(ctx context.Context, cli *client.Client, expectedID string) error {
-	stream, err := cli.ImagePull(ctx, imageReference, client.ImagePullOptions{
+func pullAndVerify(ctx context.Context, cli *client.Client, candidate release) (string, error) {
+	stream, err := cli.ImagePull(ctx, candidate.Reference(), client.ImagePullOptions{
 		Platforms: []ocispec.Platform{{OS: "linux", Architecture: runtime.GOARCH}},
 	})
 	if err != nil {
-		return fmt.Errorf("pull latest image: %w", err)
+		return "", fmt.Errorf("pull verified Yard image: %w", err)
 	}
 	defer stream.Close()
 	if err := stream.Wait(ctx); err != nil {
-		return fmt.Errorf("pull latest image: %w", err)
+		return "", fmt.Errorf("pull verified Yard image: %w", err)
 	}
-	inspected, err := cli.ImageInspect(ctx, imageReference)
+	inspected, err := cli.ImageInspect(ctx, candidate.Reference())
 	if err != nil {
-		return fmt.Errorf("inspect pulled image: %w", err)
+		return "", fmt.Errorf("inspect pulled image: %w", err)
 	}
-	if inspected.ID != expectedID {
-		return errors.New("latest changed while it was being pulled; update aborted")
+	if !candidate.MatchesImageID(inspected.ID) || inspected.Os != "linux" || inspected.Architecture != runtime.GOARCH {
+		return "", errors.New("pulled image does not match the verified Yard release or platform; update aborted")
 	}
-	return nil
+	return inspected.ID, nil
 }
 
 func launchWorker(ctx context.Context, cli *client.Client, self container.InspectResponse, jobID string, data *store.Store) error {

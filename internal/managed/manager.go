@@ -19,6 +19,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/store"
+	"github.com/mapherez/nox-yard/internal/yardrelease"
 	"github.com/moby/moby/api/types/container"
 )
 
@@ -51,20 +52,21 @@ type ProjectPreview struct {
 }
 
 type Manager struct {
-	data          *store.Store
-	inventory     inventory.Reader
-	changes       *inventory.Notifier
-	runtime       runtimeReader
-	imageDefaults func(context.Context, string) (imageDefaults, error)
-	adoptionFiles func(context.Context, string, string, map[string]string, string, bool) (string, error)
-	launch        func(context.Context, *store.Store, store.Job, string) error
-	loadSource    func(context.Context, SourceInput) (Source, error)
+	data              *store.Store
+	inventory         inventory.Reader
+	changes           *inventory.Notifier
+	runtime           runtimeReader
+	imageDefaults     func(context.Context, string) (imageDefaults, error)
+	adoptionFiles     func(context.Context, string, string, map[string]string, string, bool) (string, error)
+	launch            func(context.Context, *store.Store, store.Job, string) error
+	loadSource        func(context.Context, SourceInput) (Source, error)
+	verifyYardRelease func(context.Context, string, string) (yardrelease.Candidate, error)
 }
 
 func (m *Manager) SetNotifier(changes *inventory.Notifier) { m.changes = changes }
 
 func NewManager(data *store.Store, reader inventory.Reader) (*Manager, error) {
-	return &Manager{data: data, inventory: reader, runtime: readProjectRuntime, imageDefaults: readImageDefaults, adoptionFiles: adoptionFiles, launch: jobs.Launch, loadSource: LoadSource}, nil
+	return &Manager{data: data, inventory: reader, runtime: readProjectRuntime, imageDefaults: readImageDefaults, adoptionFiles: adoptionFiles, launch: jobs.Launch, loadSource: LoadSource, verifyYardRelease: yardrelease.Trusted}, nil
 }
 
 func (m *Manager) ProjectsBase() (string, error) { return m.data.ProjectsBase() }

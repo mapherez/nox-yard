@@ -67,7 +67,7 @@ cosign verify \
   "$IMAGE"
 ```
 
-Use the exact signer recorded in the release notes if publication used another branch. Do not replace the identity with an unrestricted regular expression or disable certificate, claim or transparency-log verification. Verification must finish successfully before relying on the image. Docker pull/Compose and Yard's current auto-update do not enforce Cosign verification; integrating it into auto-update is a separate change.
+Use the exact signer recorded in the release notes if publication used another branch. Do not replace the identity with an unrestricted regular expression or disable certificate, claim or transparency-log verification. Verification must finish successfully before relying on the image. Docker pull/Compose do not enforce Cosign verification themselves. Yard's update installer now enforces the [publisher policy](Self-Update.md#signature-verification): the official repository's `release.yml` on `master`, GitHub Actions issuer, push trigger and matching signed version/source revision. A release signed from another branch can be verified manually but is not accepted by the built-in updater.
 
 With Docker Buildx installed, inspect the provenance attached to that same verified digest:
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/store"
+	"github.com/mapherez/nox-yard/internal/yardrelease"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
@@ -27,6 +29,7 @@ type fileDeployment struct {
 	Definition     string
 	Mutation       bool
 	DatabaseBackup string
+	VerifiedYard   *yardrelease.Candidate
 }
 
 func (m *Manager) FilePreview(ctx context.Context, name, operation string) (recreate.Preview, error) {
@@ -134,7 +137,21 @@ func (m *Manager) ServiceFileOperation(ctx context.Context, name, operation, ser
 			return store.Job{}, err
 		}
 	}
-	return m.enqueue(ctx, project, operation, workerPayload{Project: project, FileJob: &fileDeployment{Self: self, Service: service, Source: source, Runtime: runtime}, RuntimeFingerprint: adoptionRuntimeFingerprint(runtime)})
+	work := &fileDeployment{Self: self, Service: service, Source: source, Runtime: runtime}
+	if self && operation == "update" {
+		verificationErr := m.prepareSignedYardUpdate(ctx, work, scopedFilePreview(source, service))
+		message := ""
+		if verificationErr != nil {
+			message = verificationErr.Error()
+		}
+		if err := m.data.RecordSelfUpdateCheck(message); err != nil {
+			return store.Job{}, err
+		}
+		if verificationErr != nil {
+			return store.Job{}, fmt.Errorf("%w: %v", ErrInvalidSource, verificationErr)
+		}
+	}
+	return m.enqueue(ctx, project, operation, workerPayload{Project: project, FileJob: work, RuntimeFingerprint: adoptionRuntimeFingerprint(runtime)})
 }
 
 func validateSelfFileConfiguration(preview Preview, runtime []container.InspectResponse, directory string) error {
@@ -252,6 +269,13 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 	if err != nil || adoptionRuntimeFingerprint(runtime) != adoptionRuntimeFingerprint(work.Runtime) || !sameRunningState(runtime, work.Runtime) {
 		return fail("Existing containers changed before execution; review again.")
 	}
+	pullDefinition := string(work.Source.Resolved)
+	if work.Self && job.Operation == "update" {
+		pullDefinition, err = verifiedYardPull(work, preview)
+		if err != nil {
+			return fail(err.Error())
+		}
+	}
 	if job.Operation != "pull" {
 		payload.Deployment = &deploymentSnapshot{Runtime: selected}
 		if err := m.retainDeploymentImages(ctx, job, payload); err != nil {
@@ -262,21 +286,13 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 		if err := m.saveDeployment(job, payload, "pulling"); err != nil {
 			return err
 		}
-		if err := runResolvedCompose(ctx, job.ProjectName, work.Source.Directory, string(work.Source.Resolved), "pull"); err != nil {
+		if err := runResolvedCompose(ctx, job.ProjectName, work.Source.Directory, pullDefinition, "pull"); err != nil {
 			return fail("Image pull failed: " + err.Error())
 		}
 	}
-	defaults := map[string]imageDefaults{}
-	for service := range expectedServices(preview.model) {
-		reference := preview.model.Services[service].Image
-		if _, exists := defaults[reference]; exists {
-			continue
-		}
-		value, err := m.imageDefaults(ctx, reference)
-		if err != nil || value.ID == "" {
-			return fail("A required local image is unavailable. Run Pull before Recreate.")
-		}
-		defaults[reference] = value
+	defaults, err := m.fileImageDefaults(ctx, preview, work.VerifiedYard)
+	if err != nil {
+		return fail(err.Error())
 	}
 	images, targets := imageTargets(preview, defaults)
 	work.Targets = targets
@@ -305,6 +321,9 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 	}
 	// Explicit Recreate applies saved configuration even with identical images.
 	work.Definition, err = resolvedDefinition(preview, work.Source.Directory, targets)
+	if err == nil && work.VerifiedYard != nil {
+		work.Definition, err = definitionPlatforms(work.Definition, map[string]string{"nox-yard": "linux/" + work.VerifiedYard.Architecture})
+	}
 	if err != nil {
 		return fail("Resolved configuration could not be prepared.")
 	}
@@ -416,6 +435,87 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 		m.changes.Notify(inventory.Change{Inventory: true})
 	}
 	return nil
+}
+
+// Verify before journaling/launch: independent workers intentionally have no
+// network. The job binds this candidate to the assessed source/runtime snapshot.
+func (m *Manager) prepareSignedYardUpdate(ctx context.Context, work *fileDeployment, preview Preview) error {
+	service, ok := preview.model.Services["nox-yard"]
+	if !ok {
+		return fmt.Errorf("Yard update blocked: Yard service is missing")
+	}
+	var platform string
+	if raw := service.raw["platform"]; len(raw) > 0 {
+		_ = json.Unmarshal(raw, &platform)
+	}
+	if platform != "" && platform != "linux/"+runtime.GOARCH && !(runtime.GOARCH == "arm64" && platform == "linux/arm64/v8") {
+		return fmt.Errorf("Yard update blocked: configured platform differs from the running architecture")
+	}
+	verify := m.verifyYardRelease
+	if verify == nil {
+		verify = yardrelease.Trusted
+	}
+	candidate, err := verify(ctx, service.Image, runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+	work.VerifiedYard = &candidate
+	return nil
+}
+
+// Pin only the private pull definition. Host files and source labels retain the
+// selected channel/version; actual creation later uses the verified local ID.
+func verifiedYardPull(work *fileDeployment, preview Preview) (string, error) {
+	candidate := work.VerifiedYard
+	if candidate == nil || candidate.Source != preview.model.Services["nox-yard"].Image || candidate.Architecture != runtime.GOARCH || !yardrelease.ValidDigest(candidate.IndexDigest) || !yardrelease.ValidDigest(candidate.ManifestDigest) || !yardrelease.ValidDigest(candidate.ImageID) {
+		return "", fmt.Errorf("Yard update blocked: the job has no matching verified release")
+	}
+	var model map[string]any
+	if err := json.Unmarshal(preview.resolved, &model); err != nil {
+		return "", err
+	}
+	services, ok := model["services"].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("Yard update blocked: invalid resolved services")
+	}
+	yard, ok := services["nox-yard"].(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("Yard update blocked: invalid resolved Yard service")
+	}
+	yard["image"] = candidate.Reference()
+	yard["platform"] = "linux/" + runtime.GOARCH
+	delete(yard, "pull_policy")
+	definition, err := json.Marshal(model)
+	if err != nil {
+		return "", err
+	}
+	return string(definition), nil
+}
+
+func (m *Manager) fileImageDefaults(ctx context.Context, preview Preview, verified *yardrelease.Candidate) (map[string]imageDefaults, error) {
+	defaults := map[string]imageDefaults{}
+	for service := range expectedServices(preview.model) {
+		reference := preview.model.Services[service].Image
+		if _, exists := defaults[reference]; exists {
+			continue
+		}
+		inspectionReference := reference
+		if verified != nil && reference == preview.model.Services["nox-yard"].Image {
+			inspectionReference = verified.Reference()
+		}
+		value, err := m.imageDefaults(ctx, inspectionReference)
+		if err != nil || value.ID == "" {
+			return nil, fmt.Errorf("A required local image is unavailable. Run Pull before Recreate.")
+		}
+		if verified != nil && reference == preview.model.Services["nox-yard"].Image {
+			platform := "linux/" + verified.Architecture
+			if !verified.MatchesImageID(value.ID) || (value.Platform != platform && !(verified.Architecture == "arm64" && value.Platform == platform+"/v8")) {
+				return nil, fmt.Errorf("Yard update blocked: pulled image does not match the verified release or platform.")
+			}
+		}
+		defaults[reference] = value
+	}
+	return defaults, nil
 }
 
 func fileVerification(preview Preview, previous []container.InspectResponse) Preview {

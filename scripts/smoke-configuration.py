@@ -150,6 +150,22 @@ try:
     assert tool("yard_project_configuration_read", configuration_id) == hidden
     assert tool("yard_project_configuration_read", {**configuration_id, "reveal": True}) == configuration
     first = current()
+    # Reject an unapproved Yard update before attempting a registry pull or
+    # replacing anything. Explicit cache-only Recreate remains usable below.
+    unsigned = source.replace("image: " + json.dumps(args.image), "image: 127.0.0.1:1/unsigned-yard:fixture")
+    try:
+        (base / "compose.yaml").write_text(unsigned, newline="")
+        preview = tool("yard_recreate_preview", {**configuration_id, "operation": "update"})
+        blocked = rpc("tools/call", {"name": "yard_recreate_submit", "arguments": {
+            **configuration_id, "operation": "update", "confirm": True, "fingerprint": preview["fingerprint"],
+        }})
+        assert blocked.get("isError") and "official" in json.dumps(blocked).lower(), blocked
+        assert current()["Id"] == first["Id"] and current()["Image"] == first["Image"]
+        assert (base / "compose.yaml").read_text() == unsigned
+        assert api("/api/self-update")["status"] == "update_failed"
+    finally:
+        (base / "compose.yaml").write_text(source, newline="")
+    print("PASS: unapproved Yard update is blocked before pull/replacement, preserves files/runtime and exposes its failure", flush=True)
     saved = tool("yard_project_variable_set", {**configuration_id, "fingerprint": configuration["fingerprint"],
                  "service": "nox-yard", "name": "NOX_FILE_TEST", "value": "edited$private-value"})
     assert "edited$private-value" not in json.dumps(saved)

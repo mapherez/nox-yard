@@ -37,6 +37,7 @@ print("Confirmed Linux ARM64 executable")
 PY
 
 docker start "$container_id" >/dev/null
+docker exec "$container_id" /usr/local/bin/cosign version
 address=$(docker port "$container_id" 8080/tcp)
 attempt=0
 while [ "$attempt" -lt 45 ]; do

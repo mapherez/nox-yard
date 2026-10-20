@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // RunWorker executes in a separate container made from the exact previous image ID.
@@ -129,6 +131,7 @@ func RunWorker(data *store.Store, dataDir, jobID, oldID string) (result error) {
 	backupCreated = true
 	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Name: name, Config: config, HostConfig: host, NetworkingConfig: networking,
+		Platform: &ocispec.Platform{OS: "linux", Architecture: runtime.GOARCH},
 	})
 	if err != nil {
 		return fmt.Errorf("create replacement: %w", err)

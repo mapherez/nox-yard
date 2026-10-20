@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -113,6 +114,32 @@ func (s *Store) CreateSelfUpdateJobContext(ctx context.Context, job SelfUpdateJo
 		VALUES (?, 'updating', ?, ?, ?, ?)`,
 		job.ID, job.OldImageID, job.TargetImageID, job.TargetDigest, time.Now().Unix())
 	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// SetSelfUpdateTarget journals Docker's verified immutable local ID before the
+// worker starts. No schema change: classic and containerd IDs use the same fields.
+func (s *Store) SetSelfUpdateTarget(id, expected, actual string) error {
+	if actual == "" {
+		return ErrJobChanged
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`UPDATE self_update_jobs SET target_image_id=? WHERE id=? AND status='updating' AND target_image_id=?`, actual, id, expected)
+	if err := changed(result, err); err != nil {
+		return err
+	}
+	images, err := json.Marshal([]ImageIdentity{{ImageID: actual}})
+	if err != nil {
+		return err
+	}
+	result, err = tx.Exec(`UPDATE operation_jobs SET target_images_json=?,updated_at=? WHERE id=? AND domain='self-update' AND status='running' AND stage='pulling'`, string(images), time.Now().Unix(), id)
+	if err := changed(result, err); err != nil {
 		return err
 	}
 	return tx.Commit()
