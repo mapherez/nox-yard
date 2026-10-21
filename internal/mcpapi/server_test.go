@@ -184,9 +184,22 @@ func call(t *testing.T, session *mcp.ClientSession, name string, args any) *mcp.
 	if err != nil {
 		t.Fatal(err)
 	}
+	if result.IsError && (result.StructuredContent != nil || !json.Valid([]byte(text(result)))) {
+		t.Fatalf("tool error must contain JSON text without success structuredContent: %+v", result)
+	}
 	return result
 }
 func text(result *mcp.CallToolResult) string {
+	// nox-mcp v0.6 reports errors in content; structuredContent is for successes.
+	if result.IsError {
+		var parts []string
+		for _, content := range result.Content {
+			if part, ok := content.(*mcp.TextContent); ok {
+				parts = append(parts, part.Text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
 	b, _ := json.Marshal(result.StructuredContent)
 	return string(b)
 }
