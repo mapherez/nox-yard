@@ -138,7 +138,9 @@ try:
     assert tools and all(tool["annotations"]["readOnlyHint"] for tool in tools)
     assert not any(tool["name"] in ("yard_container_environment", "yard_container_logs") for tool in tools)
     result = rpc("tools/call", {"name": "yard_project_configuration_read", "arguments": {"id": "compose:" + name, "reveal": True}}, token)
-    assert result["isError"] and result["structuredContent"]["code"] == "FORBIDDEN", result
+    assert result.get("isError"), result
+    error = json.loads(next(block["text"] for block in result["content"] if block["type"] == "text"))
+    assert error["code"] == "FORBIDDEN", result
     assert request(origin, "/v1/projects", bearer=token)[0] == 200
     assert request(origin, "/v1/projects/compose:" + name + "/actions", {"action": "stop"}, bearer=token)[0] == 403
     previous = token

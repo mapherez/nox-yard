@@ -56,11 +56,14 @@ def rpc(method, params):
 
 def tool(name, arguments, error=None):
     result = rpc("tools/call", {"name": name, "arguments": arguments})
+    value = result.get("structuredContent")
+    if value is None:
+        value = json.loads(next(block["text"] for block in result["content"] if block["type"] == "text"))
     if error:
-        assert result.get("isError") and result["structuredContent"]["code"] == error, result
+        assert result.get("isError") and value["code"] == error, result
     else:
         assert not result.get("isError"), result
-    return result["structuredContent"]
+    return value
 
 def wait(condition, description, timeout=160):
     deadline = time.monotonic() + timeout

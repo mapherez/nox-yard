@@ -96,7 +96,9 @@ def rpc(url, method, params):
 
 def tool(url, name, arguments=None, error=None):
     result = rpc(url, "tools/call", {"name": name, "arguments": arguments or {}})
-    value = result["structuredContent"]
+    value = result.get("structuredContent")
+    if value is None:
+        value = json.loads(next(block["text"] for block in result["content"] if block["type"] == "text"))
     if error:
         assert result.get("isError") and value["code"] == error, result
     else:
