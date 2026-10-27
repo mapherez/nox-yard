@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getProjects, getMetrics, notifySessionExpired, type Project, type ContainerMetrics } from "./api";
 import { operationState, subscribeInventoryActions, type InventoryAction } from "./inventoryUpdates";
 
@@ -138,14 +138,16 @@ export function useProjects() {
     };
   }, []);
 
-  const pending = Object.values(actions);
-  const projects = inventory?.map(project => {
-    const projectAction = pending.find(action => action.target === project.id);
-    const containers = project.containers.map(container => {
-      const action = pending.find(item => item.target === `container:${container.id}`) || projectAction;
-      return action ? { ...container, operation: operationState(action.operation) || container.operation } : container;
-    });
-    return { ...project, containers, operation: (projectAction && operationState(projectAction.operation)) || project.operation || containers.find(container => container.operation)?.operation };
-  }) ?? null;
+  const projects = useMemo(() => {
+    const pending = Object.values(actions);
+    return inventory?.map(project => {
+      const projectAction = pending.find(action => action.target === project.id);
+      const containers = project.containers.map(container => {
+        const action = pending.find(item => item.target === `container:${container.id}`) || projectAction;
+        return action ? { ...container, operation: operationState(action.operation) || container.operation } : container;
+      });
+      return { ...project, containers, operation: (projectAction && operationState(projectAction.operation)) || project.operation || containers.find(container => container.operation)?.operation };
+    }) ?? null;
+  }, [inventory, actions]);
   return { projects, inventoryError, collectedAt, refreshing, refresh };
 }

@@ -275,7 +275,9 @@ function Dashboard({
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const { projects, inventoryError, collectedAt, refreshing, refresh } = useProjects();
-  const [selectedID, setSelectedID] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const selectedID = selectedProject?.id ?? null;
+  const selectProject = (id: string) => setSelectedProject(projects?.find(project => project.id === id) ?? null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [focusMCP, setFocusMCP] = useState(false);
   const [machineStatus, setMachineStatus] = useState<MachineStatus | null>(null);
@@ -359,7 +361,12 @@ function Dashboard({
     };
   }, [menuOpen, closeMenu]);
 
-  const selected = projects?.find((project) => project.id === selectedID);
+  const liveSelection = projects?.find((project) => project.id === selectedID);
+  // Inventory reconciliation must not discard the open editor or its drafts.
+  const selected = liveSelection ?? selectedProject ?? undefined;
+  useEffect(() => {
+    if (liveSelection) setSelectedProject(liveSelection);
+  }, [liveSelection]);
   const displayName = username.charAt(0).toUpperCase() + username.slice(1);
 
   async function handleSignOut() {
@@ -415,7 +422,7 @@ function Dashboard({
 
       <div ref={dashboardBodyRef} className={styles.dashboardBody}>
         <main id="content" tabIndex={-1} className={styles.content}>
-          <ProjectBrowser projects={projects} username={username} selectedID={selectedID} onSelect={setSelectedID} rowCells={project => <>
+          <ProjectBrowser projects={projects} username={username} selectedID={selectedID} onSelect={selectProject} rowCells={project => <>
             <td><span className={`${styles.statusBadge} ${statusClass(project.operation || project.state)}`}>{project.operation || project.state}</span></td>
             <td><span>{healthLabel(project.health)}</span></td>
             <td><span className={styles.cardKind}><i className={`ph-bold ${project.kind === "standalone" ? "ph-cube" : "ph-stack"}`} aria-hidden="true" />{project.kind === "standalone" ? "Container" : project.kind === "managed-compose" ? "Managed Compose" : "Compose"}</span></td>
@@ -470,7 +477,7 @@ function Dashboard({
           </ProjectBrowser>
         </main>
       </div>
-      <ProjectDrawer project={selected} csrfToken={csrfToken} onChanged={refresh} onClose={() => setSelectedID(null)} />
+      <ProjectDrawer project={selected} missing={Boolean(selected && !liveSelection)} csrfToken={csrfToken} onChanged={refresh} onClose={() => setSelectedProject(null)} />
       <NewProjectDrawer open={newProjectOpen} csrfToken={csrfToken} onChanged={refresh} onClose={() => { setNewProjectOpen(false); newProjectButtonRef.current?.focus(); }} />
       <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} machineStatus={machineStatus} machineError={machineError} onMachineRefresh={refreshMachine} focusMCP={focusMCP} onClose={() => { setSettingsOpen(false); if (overlayNavigation) menuButtonRef.current?.focus(); }} />
     </div>
@@ -479,7 +486,7 @@ function Dashboard({
 
 type RemovalTarget = { kind: "project" | "container"; id: string; name: string; managedName?: string };
 
-function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: Project; csrfToken: string; onChanged: () => void; onClose: () => void }) {
+function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { project?: Project; missing: boolean; csrfToken: string; onChanged: () => void; onClose: () => void }) {
   const operations = useOperationHistory(project?.id, onChanged);
 	const configuration=useProjectConfiguration(project?.id,csrfToken,project?.operation);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -493,6 +500,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
   const tabsID = useId();
   const dismiss = useCallback(() => dialogRef.current?.close(), []);
   const [selectedContainerID, setSelectedContainerID] = useState<string | null>(null);
+  const [retainedContainer, setRetainedContainer] = useState<{ projectID: string; container: Container } | null>(null);
   const [activeTab, setActiveTab] = useState<"details" | "logs" | "terminal">("details");
   const [busyTarget, setBusyTarget] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState("");
@@ -514,8 +522,13 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     else if (lastSelectionRef.current) containerButtonsRef.current[lastSelectionRef.current]?.focus();
   }, [selectedContainerID]);
 
-  const activeContainer = project?.kind === "standalone" ? project.containers[0]
+  const liveContainer = project?.kind === "standalone" ? project.containers[0]
     : project?.containers.find((container) => container.id === selectedContainerID);
+  const activeContainer = liveContainer ?? (retainedContainer?.projectID === project?.id &&
+    (project?.kind === "standalone" || retainedContainer?.container.id === selectedContainerID) ? retainedContainer?.container : undefined);
+  useEffect(() => {
+    if (project && liveContainer) setRetainedContainer({ projectID: project.id, container: liveContainer });
+  }, [project?.id, liveContainer]);
   const terminalUnavailable = Boolean(project && (project.containers.length === 0 || project.containers.every((container) => container.terminalAvailable === false)));
 
   useEffect(() => {
@@ -585,7 +598,7 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
     if (!dialog) return;
     if (project && !dialog.open) dialog.showModal();
     if (!project && dialog.open) dialog.close();
-  }, [project]);
+  }, [project?.id]);
 
   return <><dialog
     id="project-drawer"
@@ -601,6 +614,8 @@ function ProjectDrawer({ project, csrfToken, onChanged, onClose }: { project?: P
         <h2 id="project-drawer-title">{project.name}</h2>
         <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close project details"><i className="ph-bold ph-x" aria-hidden="true" /></button>
       </header>
+      {missing && <p className={styles.detailSummary} role="status">This project is missing from the latest inventory. Your unsaved edits are kept.</p>}
+      {!missing && activeContainer && !liveContainer && <p className={styles.detailSummary} role="status">This container is missing from the latest inventory. Your unsaved edits are kept.</p>}
       <div className={styles.projectTabs} role="tablist" aria-label={`${project.name} sections`} onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();

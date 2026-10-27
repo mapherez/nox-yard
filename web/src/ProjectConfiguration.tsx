@@ -8,27 +8,57 @@ export function useProjectConfiguration(target: string | undefined, csrfToken: s
   const [valuesLoaded, setValuesLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const loadedTarget = useRef<{ target: string | undefined; csrfToken: string } | null>(null);
+  const revealed = useRef(false);
+  const editors = useRef(new Set<string>());
+  const deferred = useRef(false);
+  const readVersion = useRef(0);
+  const [retry, setRetry] = useState(0);
+  const setEditing = useCallback((editor: string, active: boolean) => {
+    if (active) editors.current.add(editor); else editors.current.delete(editor);
+    if (!editors.current.size && deferred.current) {
+      deferred.current = false;
+      setRetry(value => value + 1);
+    }
+  }, []);
   const reload = useCallback(async (reveal = false) => {
     if (!target?.startsWith("compose:")) return null;
+    const version = ++readVersion.current;
     try { const next = await readProjectConfiguration(target, csrfToken, reveal);
-      if(currentTarget.current !== target) return null;
+      if(currentTarget.current !== target || version !== readVersion.current) return null;
+      revealed.current = reveal;
       setConfiguration(next); setValuesLoaded(reveal); setError(""); return next;
-    } catch(cause) { if(currentTarget.current === target) setError(cause instanceof Error ? cause.message : "Unable to read configuration."); throw cause; }
+    } catch(cause) { if(currentTarget.current === target && version === readVersion.current) setError(cause instanceof Error ? cause.message : "Unable to read configuration."); throw cause; }
   }, [target, csrfToken]);
   useEffect(() => {
     let active = true;
-    setConfiguration(null); setValuesLoaded(false); setError("");
-    if (target?.startsWith("compose:")) void readProjectConfiguration(target, csrfToken).then(value => { if (active) setConfiguration(value); }).catch(cause => { if (active) setError(cause instanceof Error ? cause.message : "Unable to read project configuration."); });
+    const changed = loadedTarget.current?.target !== target || loadedTarget.current?.csrfToken !== csrfToken;
+    loadedTarget.current = { target, csrfToken };
+    if (changed) {
+      editors.current.clear(); deferred.current = false; revealed.current = false;
+      setConfiguration(null); setValuesLoaded(false); setError("");
+    }
+    // Keep the editor's snapshot (including its conflict fingerprint) until
+    // every draft has been saved or cancelled. Status updates still flow.
+    if (editors.current.size) { deferred.current = true; return; }
+    const version = ++readVersion.current;
+    const reveal = revealed.current;
+    if (target?.startsWith("compose:")) void readProjectConfiguration(target, csrfToken, reveal).then(value => {
+      if (!active || version !== readVersion.current) return;
+      if (editors.current.size) { deferred.current = true; return; }
+      setConfiguration(value); setValuesLoaded(reveal); setError("");
+    }).catch(cause => { if (active && version === readVersion.current) setError(cause instanceof Error ? cause.message : "Unable to read project configuration."); });
     return () => { active = false; };
-  }, [target, csrfToken, revision]);
+  }, [target, csrfToken, revision, retry]);
   async function save(edit: Omit<ConfigurationEdit, "fingerprint">) {
     if (!target || !configuration) throw Error("Reload the project configuration.");
     setBusy(true); setError("");
-    try { const next = await saveProjectConfiguration(target, { ...edit, fingerprint: configuration.fingerprint }, csrfToken); if(currentTarget.current === target) {setConfiguration(next); setValuesLoaded(true);} return next; }
+    ++readVersion.current;
+    try { const next = await saveProjectConfiguration(target, { ...edit, fingerprint: configuration.fingerprint }, csrfToken); if(currentTarget.current === target) {revealed.current = true; setConfiguration(next); setValuesLoaded(true);} return next; }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save configuration."); throw cause; }
     finally { setBusy(false); }
   }
-  return { configuration, valuesLoaded, busy, error, reload, save };
+  return { configuration, valuesLoaded, busy, error, reload, save, setEditing };
 }
 export type ConfigurationControl = ReturnType<typeof useProjectConfiguration>;
 
@@ -38,6 +68,11 @@ export function ComposeConfiguration({ control }: { control: ConfigurationContro
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const { configuration } = control;
+  const hasDrafts = Object.keys(drafts).length > 0;
+  useEffect(() => {
+    control.setEditing("compose-files", hasDrafts);
+    return () => control.setEditing("compose-files", false);
+  }, [control.setEditing, hasDrafts]);
   async function reveal() { try { await control.reload(true); } catch { /* error is rendered by the caller */ } }
   async function save(path: string) {
     try { await control.save({ path, content: drafts[path] ?? "" }); setDrafts(current => { const next = { ...current }; delete next[path]; return next; }); setMessage("Saved. Use Recreate to apply the changes."); } catch { /* keep the draft */ }
@@ -63,6 +98,12 @@ export function EnvironmentValue({ name, value, revealed, service, containerID, 
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const trackEditing = control?.setEditing;
+  useEffect(() => {
+    const editor = `env:${service}:${name}`;
+    trackEditing?.(editor, editing);
+    return () => trackEditing?.(editor, false);
+  }, [trackEditing, service, name, editing]);
   const saved = control?.configuration?.variables.find(variable => variable.service === service && variable.name === name);
   async function edit() {
     if (!control) return;

@@ -2,19 +2,29 @@
 async (page) => {
   await page.unrouteAll({behavior:'wait'});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.addInitScript(() => {
+    window.configurationStreams=[];
+    window.EventSource=class extends EventTarget {
+      static OPEN=1;
+      constructor(url){super();this.url=url;this.readyState=1;window.configurationStreams.push(this)}
+      close(){this.readyState=2}
+    };
+  });
   const id='a'.repeat(64),yardID='b'.repeat(64);
   const metrics={cpuPercent:null,memoryBytes:null,uptimeSeconds:null,networkRxBytes:null,networkTxBytes:null};
   const container=(id,service)=>({...metrics,id,name:service+'-1',service,image:'fixture/app',state:'running',health:'healthy',terminalAvailable:true});
   const completed=(id,service)=>({...container(id,service),state:'exited',completed:true,health:'none'});
   const projects=[{...metrics,id:'compose:sample',name:'sample',kind:'managed-compose',state:'running',health:'healthy',containers:[container(id,'web'),completed('c'.repeat(64),'state-init'),completed('d'.repeat(64),'volume-init')]},{...metrics,id:'compose:nox-yard',name:'nox-yard',kind:'external-compose',state:'running',health:'healthy',containers:[container(yardID,'nox-yard')]}];
   let writes=0,failOnce=true,currentValue='running-value',pending=false,checks=0,servicePreviews=0,serviceSubmits=0,migrationRequests=0,configurationReads=0;
+  let inventory=projects,inventoryReads=0;
   let compose='services:\n  web:\n    image: fixture/app\n    env_file: [app.env]\n';
   const view=(reveal)=>({available:true,directory:'/srv/sample',fingerprint:String(writes).padStart(64,'0'),files:[{path:'compose.yaml',compose:true,content:reveal?compose:''},{path:'app.env',compose:false,content:reveal?'TOKEN='+currentValue+'\nOTHER=keep\n':''}],variables:[{name:'TOKEN',service:'web',value:reveal?currentValue:'',pending}]});
   await page.route('**/api/**',route=>{
     const request=route.request(),path=new URL(request.url()).pathname;
     if(path==='/api/bootstrap')return route.fulfill({json:{authenticated:true,needsSetup:false,username:'owner',csrfToken:'fixture'}});
     if(path==='/api/projects/events')return route.fulfill({contentType:'text/event-stream',body:'data: {"inventory":false,"metrics":false}\n\n'});
-    if(path==='/api/projects')return route.fulfill({json:{projects,collectedAt:'2026-10-15T20:00:00Z'}});
+    if(path==='/api/projects'){inventoryReads++;return route.fulfill({json:{projects:inventory,collectedAt:'2026-10-15T20:00:00Z'}})}
+    if(path==='/api/metrics')return route.fulfill({json:{[id]:{...metrics,cpuPercent:42,collectedAt:'2026-10-15T20:00:05Z'}}});
     if(path==='/api/jobs')return route.fulfill({json:[]});
     if(path==='/api/recreate/preview') {
       const body=request.postDataJSON();if(body.id!=='compose:sample'||body.service!=='web'||body.operation!=='recreate')throw Error('managed container recreation widened to project');
@@ -40,6 +50,7 @@ async (page) => {
     if(path==='/api/managed/settings')return route.fulfill({json:{projectsBase:'/srv/projects'}});
     return route.fulfill({json:{}});
   });
+  await page.clock.install();
   await page.emulateMedia({reducedMotion:'reduce'});await page.setViewportSize({width:1440,height:1000});await page.goto('http://127.0.0.1:5173');
   await page.getByRole('button',{name:/Managed Compose running sample/}).click();
   const drawer=page.getByRole('dialog',{name:'sample',exact:true});
@@ -59,19 +70,68 @@ async (page) => {
   await drawer.getByRole('button',{name:'Edit TOKEN',exact:true}).click();
   if(await field.inputValue()!=='running-value')throw Error('cancel changed saved value');
   await field.fill('changed-value');if(writes!==0)throw Error('typing saved implicitly');
+  await accordion.locator('summary').click();
+  const draftYaml=drawer.getByLabel('compose.yaml',{exact:true});
+  await draftYaml.fill(compose+'# unsaved draft\n');
+  await draftYaml.focus();
+  const editorState=await draftYaml.evaluate(el=>{
+    el.setSelectionRange(4,12);el.scrollTop=10;
+    const panel=el.closest('[role="tabpanel"]');panel.scrollTop=200;
+    return {selectionStart:el.selectionStart,selectionEnd:el.selectionEnd,scrollTop:el.scrollTop,panelScrollTop:panel.scrollTop};
+  });
+  const editorNode=await draftYaml.elementHandle();
+  const readsBeforeRefresh=configurationReads;
+  async function refreshInventory(next){
+    inventory=next;
+    const response=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/projects');
+    await page.evaluate(()=>window.configurationStreams.find(stream=>stream.url==='/api/projects/events').dispatchEvent(new MessageEvent('change',{data:JSON.stringify({inventory:true})})));
+    await response;
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  }
+  async function checkDrafts(){
+    if(!await drawer.isVisible()||await field.inputValue()!=='changed-value'||await draftYaml.inputValue()!==compose+'# unsaved draft\n')throw Error('Inventory refresh lost an open editor or its drafts');
+    if(!await editorNode.evaluate((el,expected)=>el.isConnected&&el===document.activeElement&&el.selectionStart===expected.selectionStart&&el.selectionEnd===expected.selectionEnd&&el.scrollTop===expected.scrollTop&&el.closest('[role="tabpanel"]').scrollTop===expected.panelScrollTop,editorState))throw Error('Refresh moved focus, cursor, scroll or remounted the Compose editor');
+    if(configurationReads!==readsBeforeRefresh||writes!==0)throw Error('Background refresh reloaded or saved a dirty configuration');
+  }
+  await refreshInventory(projects.map(project=>({...project,cpuPercent:21,containers:project.containers.map(container=>({...container,cpuPercent:21}))})));
+  await drawer.getByText('21.0%',{exact:true}).waitFor();
+  await checkDrafts();
+  await page.evaluate(()=>window.configurationStreams.find(stream=>stream.url==='/api/projects/events').dispatchEvent(new MessageEvent('change',{data:JSON.stringify({metrics:true})})));
+  await drawer.getByText('42.0%',{exact:true}).waitFor();
+  await checkDrafts();
+  await refreshInventory([]);
+  await drawer.getByText('This project is missing from the latest inventory. Your unsaved edits are kept.',{exact:true}).waitFor();
+  await checkDrafts();
+  await refreshInventory(projects.map(project=>({...project,containers:[]})));
+  await drawer.getByText('This container is missing from the latest inventory. Your unsaved edits are kept.',{exact:true}).waitFor();
+  await checkDrafts();
+  await refreshInventory(projects.map(project=>({...project,operation:'restarting',containers:project.containers.map(container=>({...container,operation:'restarting'}))})));
+  await drawer.getByText('restarting',{exact:true}).first().waitFor();
+  await checkDrafts();
+  await refreshInventory(projects);
+  await checkDrafts();
+  // Fallback reconciliation must also leave the active editors untouched.
+  const inventoryBeforePolling=inventoryReads;
+  for(let i=0;i<8;i++){await page.clock.fastForward(15_000);await page.waitForTimeout(50)}
+  if(inventoryReads<=inventoryBeforePolling)throw Error('Reconciliation did not run while editing');
+  await checkDrafts();
+  await page.clock.resume();
+  // Keep the existing stale-fingerprint/retry checks with both drafts active.
   await drawer.getByRole('button',{name:'Save TOKEN',exact:true}).click();
-  await drawer.getByRole('alert').filter({hasText:'Files changed.'}).waitFor();
+  await drawer.getByRole('alert').filter({hasText:'Files changed.'}).first().waitFor();
   if(await field.inputValue()!=='changed-value')throw Error('failed save lost draft');
   await drawer.getByRole('button',{name:'Save TOKEN',exact:true}).click();
   await drawer.getByText('Saved · Recreate required',{exact:true}).waitFor();
   if(writes!==1)throw Error('inline save did not persist exactly once');
-  await accordion.locator('summary').click();
   const yaml=drawer.getByLabel('compose.yaml',{exact:true});
   try { await yaml.waitFor({timeout:5000}); } catch { throw Error('Compose editor did not open: '+await accordion.evaluate(el=>el.outerHTML)); }
-  if(await yaml.inputValue()!==compose)throw Error('current Compose text not loaded');
+  if(await yaml.inputValue()!==compose+'# unsaved draft\n')throw Error('Saving an env variable overwrote the Compose draft');
   await yaml.fill(compose+'# edited in place\n');
+  const reconciled=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('/configuration/read'));
   await yaml.locator('xpath=ancestor::form').getByRole('button',{name:'Save',exact:true}).click();
   await drawer.getByText('Saved. Use Recreate to apply the changes.',{exact:true}).waitFor();
+  await reconciled;
+  if(configurationReads<=readsBeforeRefresh||await yaml.inputValue()!==compose)throw Error('Deferred configuration refresh did not resume after saving all drafts');
   if(writes!==2)throw Error('Compose save missing');
   await drawer.getByLabel('More actions',{exact:true}).click();
   await drawer.getByRole('button',{name:'Recreate',exact:true}).click();
@@ -99,10 +159,9 @@ async (page) => {
   await settings.getByText('Current build',{exact:true}).waitFor();
   if(await settings.getByRole('radio').count()||await settings.getByRole('checkbox').count())throw Error('old interval/automatic controls remain in Settings');
   await settings.getByRole('button',{name:'Check now',exact:true}).click();if(checks!==1)throw Error('Check now did not use manual path');
-  await page.clock.install();
   const reads=configurationReads;
   await page.clock.fastForward(30_000);
   if(migrationRequests||configurationReads!==reads)throw Error('Retired migration or configuration polling is still running');
   if(errors.length)throw Error(errors.join('\n'));
-  console.log('PASS: zero migration requests/background configuration polling, inline env edit/save/cancel semantics, stale draft, collapsed Compose editor, uniform Yard actions, daily schedule, simplified Settings and responsive layout');
+  return 'PASS: live inventory/metrics and polling preserve drafts, focus, cursor and scroll across missing projects and operation changes; conflict retry, env/Compose saves and existing configuration controls';
 }
