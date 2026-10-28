@@ -11,13 +11,15 @@ export function useProjectConfiguration(target: string | undefined, csrfToken: s
   const loadedTarget = useRef<{ target: string | undefined; csrfToken: string } | null>(null);
   const revealed = useRef(false);
   const editors = useRef(new Set<string>());
-  const [editing, setEditingState] = useState(false);
+  const dirtyEditors = useRef(new Set<string>());
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const deferred = useRef(false);
   const readVersion = useRef(0);
   const [retry, setRetry] = useState(0);
-  const setEditing = useCallback((editor: string, active: boolean) => {
+  const setEditing = useCallback((editor: string, active: boolean, dirty = false) => {
     if (active) editors.current.add(editor); else editors.current.delete(editor);
-    setEditingState(editors.current.size > 0);
+    if (active && dirty) dirtyEditors.current.add(editor); else dirtyEditors.current.delete(editor);
+    setHasUnsavedChanges(dirtyEditors.current.size > 0);
     if (!editors.current.size && deferred.current) {
       deferred.current = false;
       setRetry(value => value + 1);
@@ -38,7 +40,7 @@ export function useProjectConfiguration(target: string | undefined, csrfToken: s
     loadedTarget.current = { target, csrfToken };
     if (changed) {
       editors.current.clear(); deferred.current = false; revealed.current = false;
-      setEditingState(false);
+      dirtyEditors.current.clear(); setHasUnsavedChanges(false);
       setConfiguration(null); setValuesLoaded(false); setError("");
     }
     // Keep the editor's snapshot (including its conflict fingerprint) until
@@ -61,7 +63,7 @@ export function useProjectConfiguration(target: string | undefined, csrfToken: s
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save configuration."); throw cause; }
     finally { setBusy(false); }
   }
-  return { configuration, valuesLoaded, busy, error, reload, save, setEditing, editing };
+  return { configuration, valuesLoaded, busy, error, reload, save, setEditing, hasUnsavedChanges };
 }
 export type ConfigurationControl = ReturnType<typeof useProjectConfiguration>;
 
@@ -71,9 +73,9 @@ export function ComposeConfiguration({ control }: { control: ConfigurationContro
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const { configuration } = control;
-  const hasDrafts = Object.keys(drafts).length > 0;
+  const hasDrafts = Object.entries(drafts).some(([path, content]) => content !== configuration?.files.find(file => file.path === path)?.content);
   useEffect(() => {
-    control.setEditing("compose-files", hasDrafts);
+    control.setEditing("compose-files", hasDrafts, hasDrafts);
     return () => control.setEditing("compose-files", false);
   }, [control.setEditing, hasDrafts]);
   async function reveal() { try { await control.reload(true); } catch { /* error is rendered by the caller */ } }
@@ -89,7 +91,13 @@ export function ComposeConfiguration({ control }: { control: ConfigurationContro
     {configuration.error && <p role="alert">{configuration.error}</p>}
     {control.valuesLoaded ? configuration.files.map(file => <form key={file.path} onSubmit={event => { event.preventDefault(); void save(file.path); }}>
       <label htmlFor={`${editorID}-${file.path}`}>{file.path}</label>
-      <textarea id={`${editorID}-${file.path}`} name="content" value={drafts[file.path] ?? file.content} rows={file.compose ? 16 : 7} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={event => { setDrafts(current => ({ ...current, [file.path]: event.target.value })); setMessage(""); }} />
+      <textarea id={`${editorID}-${file.path}`} name="content" value={drafts[file.path] ?? file.content} rows={file.compose ? 16 : 7} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={event => {
+        const next = { ...drafts };
+        if (event.target.value === file.content) delete next[file.path]; else next[file.path] = event.target.value;
+        const dirty = Object.entries(next).some(([path, content]) => content !== configuration.files.find(item => item.path === path)?.content);
+        control.setEditing("compose-files", dirty, dirty);
+        setDrafts(next); setMessage("");
+      }} />
       <button type="submit" disabled={control.busy || drafts[file.path] === undefined || drafts[file.path] === file.content}>Save</button>
     </form>) : <p>Loading file contents…</p>}
     <p role="status">{message}</p>{control.error && <p role="alert">{control.error} <button type="button" disabled={control.busy} onClick={() => { void control.reload(true).catch(() => {}); }}>Reload files</button></p>}
@@ -99,14 +107,15 @@ export function ComposeConfiguration({ control }: { control: ConfigurationContro
 export function EnvironmentValue({ name, value, revealed, service, containerID, csrfToken, control }: { name: string; value?: string; revealed: boolean; service: string; containerID: string; csrfToken: string; control?: ConfigurationControl }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [initialDraft, setInitialDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const trackEditing = control?.setEditing;
   useEffect(() => {
     const editor = `env:${service}:${name}`;
-    trackEditing?.(editor, editing);
-    return () => trackEditing?.(editor, false);
-  }, [trackEditing, service, name, editing]);
+    trackEditing?.(editor, editing, editing && draft !== initialDraft);
+  }, [trackEditing, service, name, editing, draft, initialDraft]);
+  useEffect(() => () => { trackEditing?.(`env:${service}:${name}`, false); }, [trackEditing, service, name]);
   const saved = control?.configuration?.variables.find(variable => variable.service === service && variable.name === name);
   async function edit() {
     if (!control) return;
@@ -116,13 +125,13 @@ export function EnvironmentValue({ name, value, revealed, service, containerID, 
       const stored = configuration?.variables.find(variable => variable.service === service && variable.name === name);
       let current = stored?.value ?? value;
       if (current === undefined) current = (await revealContainerEnvironment(containerID, csrfToken)).environment.find(variable => variable.name === name)?.value;
-      setDraft(current ?? ""); setEditing(true);
+      setDraft(current ?? ""); setInitialDraft(current ?? ""); setEditing(true);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to edit variable."); }
     finally { setLoading(false); }
   }
   async function save() { if (!control) return; setError(""); try { await control.save({ service, variable: name, content: draft }); setEditing(false); setDraft(""); } catch(cause) { setError(cause instanceof Error ? cause.message : "Unable to save variable."); } }
   return <><div className={styles.value}>
-    {editing ? <form onSubmit={event => { event.preventDefault(); void save(); }}><input aria-label={`Value for ${name}`} type={revealed ? "text" : "password"} value={draft} autoFocus autoComplete="off" onChange={event => setDraft(event.target.value)} /><button type="submit" aria-label={`Save ${name}`} title="Save" disabled={control?.busy}><i className="ph-bold ph-check" aria-hidden="true" /></button><button type="button" aria-label={`Cancel editing ${name}`} title="Cancel" onClick={() => { setEditing(false); setDraft(""); }}><i className="ph-bold ph-x" aria-hidden="true" /></button></form>
+    {editing ? <form onSubmit={event => { event.preventDefault(); void save(); }}><input aria-label={`Value for ${name}`} type={revealed ? "text" : "password"} value={draft} autoFocus autoComplete="off" onChange={event => { trackEditing?.(`env:${service}:${name}`, true, event.target.value !== initialDraft); setDraft(event.target.value); }} /><button type="submit" aria-label={`Save ${name}`} title="Save" disabled={control?.busy}><i className="ph-bold ph-check" aria-hidden="true" /></button><button type="button" aria-label={`Cancel editing ${name}`} title="Cancel" onClick={() => { setEditing(false); setDraft(""); }}><i className="ph-bold ph-x" aria-hidden="true" /></button></form>
       : <><code>{revealed ? (control?.valuesLoaded && saved ? saved.value : value) || "(empty)" : "••••••"}</code>{control?.configuration?.available && <button type="button" aria-label={`Edit ${name}`} title="Edit" disabled={loading || control.busy} onClick={() => { void edit(); }}><i className="ph-bold ph-pencil-simple" aria-hidden="true" /></button>}</>}
   </div>{saved?.pending && <small className={styles.pending}>Saved · Recreate required</small>}{error && <span role="alert">{error}</span>}</>;
 }

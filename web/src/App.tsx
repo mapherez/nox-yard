@@ -44,6 +44,7 @@ import { useOperationHistory } from "./useOperationHistory";
 import { OperationHistory } from "./OperationHistory";
 import { ProjectSchedule } from "./ProjectSchedule";
 import { RecreateConfirmation, type RecreateTarget } from "./RecreateConfirmation";
+import { ConfirmationDialog } from "./ConfirmationDialog";
 import { ProjectBrowser } from "./ProjectBrowser";
 
 type View =
@@ -492,6 +493,7 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
 	const configuration=useProjectConfiguration(project?.id,csrfToken,project?.operation);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const lastFocusedRef = useRef<HTMLElement | null>(null);
+  const backdropPointer = useRef(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const detailsTabRef = useRef<HTMLButtonElement>(null);
   const logsTabRef = useRef<HTMLButtonElement>(null);
@@ -500,7 +502,11 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
   const containerButtonsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const lastSelectionRef = useRef<string | null>(null);
   const tabsID = useId();
-  const dismiss = onClose;
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const dismiss = useCallback(() => {
+    if (configuration.hasUnsavedChanges) setDiscardOpen(true);
+    else onClose();
+  }, [configuration.hasUnsavedChanges, onClose]);
   const [selectedContainerID, setSelectedContainerID] = useState<string | null>(null);
   const [retainedContainer, setRetainedContainer] = useState<{ projectID: string; container: Container } | null>(null);
   const [activeTab, setActiveTab] = useState<"details" | "logs" | "terminal">("details");
@@ -509,7 +515,7 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
   const [actionError, setActionError] = useState("");
   const [removalTarget, setRemovalTarget] = useState<RemovalTarget | null>(null);
   const [recreateTarget, setRecreateTarget] = useState<RecreateTarget | null>(null);
-  useDrawerSwipe(dialogRef, "right", Boolean(project) && !configuration.editing, dismiss);
+  useDrawerSwipe(dialogRef, "right", Boolean(project) && !discardOpen, dismiss);
 
   useEffect(() => {
     setActionMessage("");
@@ -517,6 +523,7 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
     setSelectedContainerID(null);
     setActiveTab("details");
     lastSelectionRef.current = null;
+    setDiscardOpen(false);
   }, [project?.id]);
 
   useEffect(() => {
@@ -615,11 +622,17 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
       event.currentTarget.style.animation = "none";
       event.currentTarget.showModal();
       if (focused?.isConnected) focused.focus({ preventScroll: true });
+      if (configuration.hasUnsavedChanges) setDiscardOpen(true);
     }}
-    onCancel={event => { event.preventDefault(); if (!configuration.editing) dismiss(); }}
-    onClick={event => { if (!configuration.editing) dismissDrawerBackdrop(event, dismiss); }}
+    onCancel={event => { event.preventDefault(); dismiss(); }}
+    onPointerDown={event => {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      backdropPointer.current = event.target === event.currentTarget &&
+        (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom);
+    }}
+    onClick={event => { if (backdropPointer.current) dismissDrawerBackdrop(event, dismiss); backdropPointer.current = false; }}
     onFocusCapture={event => { if (event.target instanceof HTMLElement && event.target !== event.currentTarget) lastFocusedRef.current = event.target; }}
-    {...{ closedby: configuration.editing ? "none" : "closerequest" }}
+    {...{ closedby: "closerequest" }}
   >
     {project && <div className={styles.settingsBody}>
       <header className={styles.settingsHeader}>
@@ -628,7 +641,6 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
       </header>
       {missing && <p className={styles.detailSummary} role="status">This project is missing from the latest inventory. Your unsaved edits are kept.</p>}
       {!missing && activeContainer && !liveContainer && <p className={styles.detailSummary} role="status">This container is missing from the latest inventory. Your unsaved edits are kept.</p>}
-      {configuration.editing && <p className={styles.detailSummary} role="status">Editing configuration. Use the close button to leave this drawer.</p>}
       <div className={styles.projectTabs} role="tablist" aria-label={`${project.name} sections`} onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
@@ -711,6 +723,12 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
       </div>
     </div>}
   </dialog>
+    <ConfirmationDialog open={discardOpen && Boolean(project)} title="Unsaved changes" onClose={() => setDiscardOpen(false)} returnFocusRef={lastFocusedRef} actions={<>
+      <button type="button" className={styles.inspectButton} autoFocus onClick={() => setDiscardOpen(false)}>No</button>
+      <button type="button" className={styles.inspectButton} onClick={() => { setDiscardOpen(false); onClose(); }}>Yes</button>
+    </>}>
+      <p>There are unsaved changes. Do you want to proceed?</p>
+    </ConfirmationDialog>
     <RemoveConfirmation target={removalTarget} csrfToken={csrfToken} onClose={() => setRemovalTarget(null)} onChanged={onChanged} />
     <RecreateConfirmation target={recreateTarget} csrfToken={csrfToken} onClose={() => setRecreateTarget(null)} onAccepted={() => { operations.refresh(); onChanged(); }} />
   </>;

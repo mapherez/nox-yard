@@ -54,6 +54,20 @@ async (page) => {
   await page.emulateMedia({reducedMotion:'reduce'});await page.setViewportSize({width:1440,height:1000});await page.goto('http://127.0.0.1:5173');
   await page.getByRole('button',{name:/Managed Compose running sample/}).click();
   const drawer=page.getByRole('dialog',{name:'sample',exact:true});
+  const unsaved=page.getByRole('dialog',{name:'Unsaved changes',exact:true});
+  let warningChecks=0;
+  async function keepEditing(){
+    warningChecks++;
+    try { await unsaved.getByText('There are unsaved changes. Do you want to proceed?',{exact:true}).waitFor({timeout:5000}); }
+    catch { throw Error('Missing unsaved-changes confirmation at check '+warningChecks+': '+await page.locator('dialog[open]').allTextContents()); }
+    if(!await unsaved.getByRole('button',{name:'No',exact:true}).evaluate(el=>el===document.activeElement))throw Error('Unsaved-changes confirmation must focus No');
+    await unsaved.getByRole('button',{name:'No',exact:true}).click();
+    await unsaved.waitFor({state:'hidden'});
+  }
+  async function expectClosed(reason){
+    try { await drawer.waitFor({state:'hidden',timeout:5000}); }
+    catch { throw Error('Drawer did not close ('+reason+'): '+await page.locator('dialog[open]').allTextContents()); }
+  }
   await drawer.getByRole('button',{name:/state-init state-init-1 completed/}).waitFor();
   await drawer.getByRole('button',{name:/volume-init volume-init-1 completed/}).waitFor();
   await drawer.getByRole('button',{name:/web web-1 running/}).click();
@@ -72,6 +86,7 @@ async (page) => {
   await field.fill('changed-value');if(writes!==0)throw Error('typing saved implicitly');
   await drawer.evaluate(el=>el.close());
   await page.waitForFunction(()=>document.querySelector('#project-drawer')?.open);
+  await keepEditing();
   if(await field.inputValue()!=='changed-value')throw Error('Unexpected close discarded the env-only draft');
   await accordion.locator('summary').click();
   const draftYaml=drawer.getByLabel('compose.yaml',{exact:true});
@@ -106,6 +121,7 @@ async (page) => {
   await page.mouse.move(drawerBox.x-30,selectionBox.y+30,{steps:8});
   await page.mouse.up();
   if(!await drawer.isVisible()||await draftYaml.inputValue()!==compose+'# unsaved draft\n')throw Error('Dragging a text selection beyond the drawer discarded Compose');
+  if(await unsaved.isVisible())throw Error('Dragging a selection from inside the editor was mistaken for a backdrop click');
   await draftYaml.focus();
   const editorState=await draftYaml.evaluate(el=>{
     el.setSelectionRange(4,12);el.scrollTop=10;
@@ -123,29 +139,35 @@ async (page) => {
   }
   async function checkDrafts(){
     if(!await drawer.isVisible()||await field.inputValue()!=='changed-value'||await draftYaml.inputValue()!==compose+'# unsaved draft\n')throw Error('Inventory refresh lost an open editor or its drafts');
-    if(!await editorNode.evaluate((el,expected)=>el.isConnected&&el===document.activeElement&&el.selectionStart===expected.selectionStart&&el.selectionEnd===expected.selectionEnd&&el.scrollTop===expected.scrollTop&&el.closest('[role="tabpanel"]').scrollTop===expected.panelScrollTop,editorState))throw Error('Refresh moved focus, cursor, scroll or remounted the Compose editor');
+    if(!await editorNode.evaluate((el,expected)=>el.isConnected&&el===document.activeElement&&el.selectionStart===expected.selectionStart&&el.selectionEnd===expected.selectionEnd&&el.scrollTop===expected.scrollTop&&el.closest('[role="tabpanel"]').scrollTop===expected.panelScrollTop,editorState))throw Error('Editor changed after warning check '+warningChecks+': '+JSON.stringify(await editorNode.evaluate(el=>({connected:el.isConnected,focused:el===document.activeElement,selectionStart:el.selectionStart,selectionEnd:el.selectionEnd,scrollTop:el.scrollTop,panelScrollTop:el.closest('[role="tabpanel"]')?.scrollTop})))+' expected '+JSON.stringify(editorState));
     if(configurationReads!==readsBeforeRefresh||writes!==0)throw Error('Background refresh reloaded or saved a dirty configuration');
+    if(await unsaved.isVisible())throw Error('Background refresh opened a discard confirmation');
   }
   // Exercise the browser's dismissal paths, not just data refreshes.
   await page.mouse.click(20,300);
   if(!await drawer.isVisible())throw Error('Backdrop dismissed the drawer with unsaved configuration');
+  await keepEditing();
   await draftYaml.focus();
   await page.keyboard.press('Escape');
   if(!await drawer.isVisible())throw Error('Escape discarded the active configuration editor');
+  await keepEditing();
   await draftYaml.focus();
   await draftYaml.evaluate(el=>el.setSelectionRange(4,12));
   await checkDrafts();
   await drawer.evaluate(el=>el.close());
   await page.waitForFunction(()=>document.querySelector('#project-drawer')?.open);
+  await keepEditing();
   await checkDrafts();
   // Simulate the cancel event for browsers that ignore closedby="none".
   if(await drawer.evaluate(el=>el.dispatchEvent(new Event('cancel',{cancelable:true}))))throw Error('Cancel event was not prevented while editing');
+  await keepEditing();
   await checkDrafts();
   const touch=await page.context().newCDPSession(page);
   const bounds=await drawer.boundingBox();
   await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:bounds.x+80,y:bounds.y+40,id:1}]});
   await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:bounds.x+280,y:bounds.y+40,id:1}]});
   await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await keepEditing();
   await checkDrafts();
   await refreshInventory(projects.map(project=>({...project,cpuPercent:21,containers:project.containers.map(container=>({...container,cpuPercent:21}))})));
   await drawer.getByText('21.0%',{exact:true}).waitFor();
@@ -220,13 +242,52 @@ async (page) => {
   await page.getByRole('button',{name:/Managed Compose running sample/}).click();
   await drawer.getByRole('button',{name:/web web-1 running/}).click();
   await drawer.getByRole('button',{name:'Edit TOKEN',exact:true}).click();
-  await field.fill('explicitly-discarded');
+  // Opening an unchanged editor must not produce a discard warning.
   await drawer.getByRole('button',{name:'Close project details',exact:true}).click();
-  await drawer.waitFor({state:'hidden'});
+  await expectClosed('unchanged env');
+  if(await unsaved.isVisible())throw Error('Unchanged env editor produced a false unsaved-changes warning');
+  await page.getByRole('button',{name:/Managed Compose running sample/}).click();
+  await drawer.getByRole('button',{name:/web web-1 running/}).click();
+  await drawer.getByRole('button',{name:'Edit TOKEN',exact:true}).click();
+  await field.fill('explicitly-discarded');
+  if(await drawer.getByText('Editing configuration. Use the close button to leave this drawer.',{exact:true}).count())throw Error('Old editing banner remains above the tabs');
+  await drawer.getByRole('button',{name:'Close project details',exact:true}).click();
+  await keepEditing();
+  if(await field.inputValue()!=='explicitly-discarded')throw Error('No discarded the inline env draft');
+  await drawer.getByRole('button',{name:'Close project details',exact:true}).click();
+  for(const width of [1440,390,320]){
+    await page.setViewportSize({width,height:1000});
+    if(await unsaved.evaluate(el=>el.scrollWidth>el.clientWidth+1))throw Error('Unsaved-changes modal overflows '+width);
+    if(width===1440||width===320)await page.screenshot({path:'output/playwright/unsaved-changes-'+width+'.png'});
+  }
+  await unsaved.getByRole('button',{name:'Yes',exact:true}).click();
+  await expectClosed('env discard');
+  await page.setViewportSize({width:1440,height:1000});
   await page.getByRole('button',{name:/Managed Compose running sample/}).click();
   if(await field.count())throw Error('Explicitly closed draft leaked into the next editor');
+  await accordion.locator('summary').click();
+  await yaml.fill(compose+'# compose-only draft\n');
   await page.mouse.click(20,300);
-  await drawer.waitFor({state:'hidden'});
+  await keepEditing();
+  if(await yaml.inputValue()!==compose+'# compose-only draft\n')throw Error('No discarded the Compose-only draft');
+  // Collapsing an accordion must not hide an unsaved draft from the guard.
+  await accordion.locator('summary').click();
+  await drawer.getByRole('button',{name:'Close project details',exact:true}).click();
+  await unsaved.getByRole('button',{name:'Yes',exact:true}).click();
+  await expectClosed('Compose discard');
+  await page.getByRole('button',{name:/Managed Compose running sample/}).click();
+  await accordion.locator('summary').click();
+  const originalEnvFile=await envFile.inputValue();
+  await envFile.fill('TOKEN=unsaved-file\n');
+  await page.mouse.click(20,300);
+  await keepEditing();
+  if(await envFile.inputValue()!=='TOKEN=unsaved-file\n')throw Error('No discarded the env-file draft');
+  await envFile.fill(originalEnvFile);
+  if(await envFile.inputValue()!==originalEnvFile)throw Error('Revert did not reach the env editor');
+  // Reverting all changes clears the guard even while the accordion is open.
+  await page.mouse.click(20,300);
+  await expectClosed('reverted env file');
+  if(await unsaved.isVisible()||writes!==2)throw Error('Reverted drafts prompted or discard confirmation wrote configuration');
   if(errors.length)throw Error(errors.join('\n'));
-  return 'PASS: unexpected close, backdrop, Escape, cancel and touch cannot discard active env/Compose edits; live refresh preserves focus/cursor/scroll; explicit close and idle backdrop work; conflict retry and saves preserved';
+  return 'PASS: shared unsaved-changes confirmation protects env, Compose and env-file drafts through backdrop, Escape, touch, native close and close button; No preserves, Yes discards without saving; unchanged/reverted fields close directly; clipboard and live refresh preserved';
 }
