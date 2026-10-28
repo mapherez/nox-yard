@@ -11,11 +11,13 @@ export function useProjectConfiguration(target: string | undefined, csrfToken: s
   const loadedTarget = useRef<{ target: string | undefined; csrfToken: string } | null>(null);
   const revealed = useRef(false);
   const editors = useRef(new Set<string>());
+  const [editing, setEditingState] = useState(false);
   const deferred = useRef(false);
   const readVersion = useRef(0);
   const [retry, setRetry] = useState(0);
   const setEditing = useCallback((editor: string, active: boolean) => {
     if (active) editors.current.add(editor); else editors.current.delete(editor);
+    setEditingState(editors.current.size > 0);
     if (!editors.current.size && deferred.current) {
       deferred.current = false;
       setRetry(value => value + 1);
@@ -36,6 +38,7 @@ export function useProjectConfiguration(target: string | undefined, csrfToken: s
     loadedTarget.current = { target, csrfToken };
     if (changed) {
       editors.current.clear(); deferred.current = false; revealed.current = false;
+      setEditingState(false);
       setConfiguration(null); setValuesLoaded(false); setError("");
     }
     // Keep the editor's snapshot (including its conflict fingerprint) until
@@ -58,7 +61,7 @@ export function useProjectConfiguration(target: string | undefined, csrfToken: s
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save configuration."); throw cause; }
     finally { setBusy(false); }
   }
-  return { configuration, valuesLoaded, busy, error, reload, save, setEditing };
+  return { configuration, valuesLoaded, busy, error, reload, save, setEditing, editing };
 }
 export type ConfigurationControl = ReturnType<typeof useProjectConfiguration>;
 

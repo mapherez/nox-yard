@@ -70,6 +70,9 @@ async (page) => {
   await drawer.getByRole('button',{name:'Edit TOKEN',exact:true}).click();
   if(await field.inputValue()!=='running-value')throw Error('cancel changed saved value');
   await field.fill('changed-value');if(writes!==0)throw Error('typing saved implicitly');
+  await drawer.evaluate(el=>el.close());
+  await page.waitForFunction(()=>document.querySelector('#project-drawer')?.open);
+  if(await field.inputValue()!=='changed-value')throw Error('Unexpected close discarded the env-only draft');
   await accordion.locator('summary').click();
   const draftYaml=drawer.getByLabel('compose.yaml',{exact:true});
   await draftYaml.fill(compose+'# unsaved draft\n');
@@ -93,6 +96,27 @@ async (page) => {
     if(!await editorNode.evaluate((el,expected)=>el.isConnected&&el===document.activeElement&&el.selectionStart===expected.selectionStart&&el.selectionEnd===expected.selectionEnd&&el.scrollTop===expected.scrollTop&&el.closest('[role="tabpanel"]').scrollTop===expected.panelScrollTop,editorState))throw Error('Refresh moved focus, cursor, scroll or remounted the Compose editor');
     if(configurationReads!==readsBeforeRefresh||writes!==0)throw Error('Background refresh reloaded or saved a dirty configuration');
   }
+  // Exercise the browser's dismissal paths, not just data refreshes.
+  await page.mouse.click(20,300);
+  if(!await drawer.isVisible())throw Error('Backdrop dismissed the drawer with unsaved configuration');
+  await draftYaml.focus();
+  await page.keyboard.press('Escape');
+  if(!await drawer.isVisible())throw Error('Escape discarded the active configuration editor');
+  await draftYaml.focus();
+  await draftYaml.evaluate(el=>el.setSelectionRange(4,12));
+  await checkDrafts();
+  await drawer.evaluate(el=>el.close());
+  await page.waitForFunction(()=>document.querySelector('#project-drawer')?.open);
+  await checkDrafts();
+  // Simulate the cancel event for browsers that ignore closedby="none".
+  if(await drawer.evaluate(el=>el.dispatchEvent(new Event('cancel',{cancelable:true}))))throw Error('Cancel event was not prevented while editing');
+  await checkDrafts();
+  const touch=await page.context().newCDPSession(page);
+  const bounds=await drawer.boundingBox();
+  await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:bounds.x+80,y:bounds.y+40,id:1}]});
+  await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:bounds.x+280,y:bounds.y+40,id:1}]});
+  await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await checkDrafts();
   await refreshInventory(projects.map(project=>({...project,cpuPercent:21,containers:project.containers.map(container=>({...container,cpuPercent:21}))})));
   await drawer.getByText('21.0%',{exact:true}).waitFor();
   await checkDrafts();
@@ -162,6 +186,17 @@ async (page) => {
   const reads=configurationReads;
   await page.clock.fastForward(30_000);
   if(migrationRequests||configurationReads!==reads)throw Error('Retired migration or configuration polling is still running');
+  await settings.getByRole('button',{name:'Close settings',exact:true}).click();
+  await page.getByRole('button',{name:/Managed Compose running sample/}).click();
+  await drawer.getByRole('button',{name:/web web-1 running/}).click();
+  await drawer.getByRole('button',{name:'Edit TOKEN',exact:true}).click();
+  await field.fill('explicitly-discarded');
+  await drawer.getByRole('button',{name:'Close project details',exact:true}).click();
+  await drawer.waitFor({state:'hidden'});
+  await page.getByRole('button',{name:/Managed Compose running sample/}).click();
+  if(await field.count())throw Error('Explicitly closed draft leaked into the next editor');
+  await page.mouse.click(20,300);
+  await drawer.waitFor({state:'hidden'});
   if(errors.length)throw Error(errors.join('\n'));
-  return 'PASS: live inventory/metrics and polling preserve drafts, focus, cursor and scroll across missing projects and operation changes; conflict retry, env/Compose saves and existing configuration controls';
+  return 'PASS: unexpected close, backdrop, Escape, cancel and touch cannot discard active env/Compose edits; live refresh preserves focus/cursor/scroll; explicit close and idle backdrop work; conflict retry and saves preserved';
 }

@@ -276,6 +276,7 @@ function Dashboard({
   const [pending, setPending] = useState(false);
   const { projects, inventoryError, collectedAt, refreshing, refresh } = useProjects();
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const closeProject = useCallback(() => setSelectedProject(null), []);
   const selectedID = selectedProject?.id ?? null;
   const selectProject = (id: string) => setSelectedProject(projects?.find(project => project.id === id) ?? null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -477,7 +478,7 @@ function Dashboard({
           </ProjectBrowser>
         </main>
       </div>
-      <ProjectDrawer project={selected} missing={Boolean(selected && !liveSelection)} csrfToken={csrfToken} onChanged={refresh} onClose={() => setSelectedProject(null)} />
+      <ProjectDrawer project={selected} missing={Boolean(selected && !liveSelection)} csrfToken={csrfToken} onChanged={refresh} onClose={closeProject} />
       <NewProjectDrawer open={newProjectOpen} csrfToken={csrfToken} onChanged={refresh} onClose={() => { setNewProjectOpen(false); newProjectButtonRef.current?.focus(); }} />
       <SettingsDrawer open={settingsOpen} csrfToken={csrfToken} machineStatus={machineStatus} machineError={machineError} onMachineRefresh={refreshMachine} focusMCP={focusMCP} onClose={() => { setSettingsOpen(false); if (overlayNavigation) menuButtonRef.current?.focus(); }} />
     </div>
@@ -490,6 +491,7 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
   const operations = useOperationHistory(project?.id, onChanged);
 	const configuration=useProjectConfiguration(project?.id,csrfToken,project?.operation);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const detailsTabRef = useRef<HTMLButtonElement>(null);
   const logsTabRef = useRef<HTMLButtonElement>(null);
@@ -498,7 +500,7 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
   const containerButtonsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const lastSelectionRef = useRef<string | null>(null);
   const tabsID = useId();
-  const dismiss = useCallback(() => dialogRef.current?.close(), []);
+  const dismiss = onClose;
   const [selectedContainerID, setSelectedContainerID] = useState<string | null>(null);
   const [retainedContainer, setRetainedContainer] = useState<{ projectID: string; container: Container } | null>(null);
   const [activeTab, setActiveTab] = useState<"details" | "logs" | "terminal">("details");
@@ -507,7 +509,7 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
   const [actionError, setActionError] = useState("");
   const [removalTarget, setRemovalTarget] = useState<RemovalTarget | null>(null);
   const [recreateTarget, setRecreateTarget] = useState<RecreateTarget | null>(null);
-  useDrawerSwipe(dialogRef, "right", Boolean(project), dismiss);
+  useDrawerSwipe(dialogRef, "right", Boolean(project) && !configuration.editing, dismiss);
 
   useEffect(() => {
     setActionMessage("");
@@ -596,7 +598,7 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (project && !dialog.open) dialog.showModal();
+    if (project && !dialog.open) { dialog.style.animation = ""; dialog.showModal(); }
     if (!project && dialog.open) dialog.close();
   }, [project?.id]);
 
@@ -605,17 +607,28 @@ function ProjectDrawer({ project, missing, csrfToken, onChanged, onClose }: { pr
     ref={dialogRef}
     className={`${styles.settingsDrawer} ${styles.projectDrawer}`}
     aria-labelledby="project-drawer-title"
-    onClose={onClose}
-    onClick={dismissDrawerBackdrop}
-    {...{ closedby: "any" }}
+    onClose={event => {
+      if (event.target !== event.currentTarget || !project || event.currentTarget.open) return;
+      // Selection owns the drawer lifetime. A native/programmatic close is
+      // not permission to discard the editor; only explicit dismissal is.
+      const focused = lastFocusedRef.current;
+      event.currentTarget.style.animation = "none";
+      event.currentTarget.showModal();
+      if (focused?.isConnected) focused.focus({ preventScroll: true });
+    }}
+    onCancel={event => { event.preventDefault(); if (!configuration.editing) dismiss(); }}
+    onClick={event => { if (!configuration.editing) dismissDrawerBackdrop(event, dismiss); }}
+    onFocusCapture={event => { if (event.target instanceof HTMLElement && event.target !== event.currentTarget) lastFocusedRef.current = event.target; }}
+    {...{ closedby: configuration.editing ? "none" : "closerequest" }}
   >
     {project && <div className={styles.settingsBody}>
       <header className={styles.settingsHeader}>
         <h2 id="project-drawer-title">{project.name}</h2>
-        <button type="button" className={styles.closeButton} autoFocus onClick={() => dialogRef.current?.close()} aria-label="Close project details"><i className="ph-bold ph-x" aria-hidden="true" /></button>
+        <button type="button" className={styles.closeButton} autoFocus onClick={dismiss} aria-label="Close project details"><i className="ph-bold ph-x" aria-hidden="true" /></button>
       </header>
       {missing && <p className={styles.detailSummary} role="status">This project is missing from the latest inventory. Your unsaved edits are kept.</p>}
       {!missing && activeContainer && !liveContainer && <p className={styles.detailSummary} role="status">This container is missing from the latest inventory. Your unsaved edits are kept.</p>}
+      {configuration.editing && <p className={styles.detailSummary} role="status">Editing configuration. Use the close button to leave this drawer.</p>}
       <div className={styles.projectTabs} role="tablist" aria-label={`${project.name} sections`} onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
@@ -1160,12 +1173,12 @@ function SettingsDrawer({ open, csrfToken, onClose, machineStatus, machineError,
   </dialog>;
 }
 
-function dismissDrawerBackdrop(event: MouseEvent<HTMLDialogElement>) {
+function dismissDrawerBackdrop(event: MouseEvent<HTMLDialogElement>, dismiss = () => event.currentTarget.close()) {
   if (event.target !== event.currentTarget) return;
   const bounds = event.currentTarget.getBoundingClientRect();
   if (event.clientX < bounds.left || event.clientX > bounds.right ||
       event.clientY < bounds.top || event.clientY > bounds.bottom) {
-    event.currentTarget.close();
+    dismiss();
   }
 }
 
