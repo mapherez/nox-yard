@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -648,19 +650,28 @@ func (s *Server) staticHandler() http.Handler {
 			writeError(w, http.StatusNotFound, "Not found.")
 			return
 		}
+		w.Header().Set("Cache-Control", "no-cache")
 		indexPath := filepath.Join(s.webDir, "index.html")
-		if _, err := os.Stat(indexPath); err != nil {
+		index, err := os.ReadFile(indexPath)
+		if err != nil {
 			http.Error(w, "Web application is not built.", http.StatusServiceUnavailable)
 			return
 		}
-		if r.URL.Path != "/" {
+		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
 			path := filepath.Join(s.webDir, filepath.FromSlash(strings.TrimPrefix(r.URL.Path, "/")))
 			if info, err := os.Stat(path); err == nil && !info.IsDir() {
 				files.ServeHTTP(w, r)
 				return
 			}
 		}
-		http.ServeFile(w, r, indexPath)
+		// A running tab compares this version and the hashed entry assets with
+		// fresh HTML. Never reuse an old entry document after a deployment.
+		version := `<meta name="yard-version" content="` + html.EscapeString(s.controlVersion()) + `">`
+		index = bytes.Replace(index, []byte("</head>"), []byte(version+"</head>"), 1)
+		fingerprint := sha256.Sum256(index)
+		w.Header().Set("ETag", `"`+base64.RawURLEncoding.EncodeToString(fingerprint[:])+`"`)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(index))
 	})
 }
 

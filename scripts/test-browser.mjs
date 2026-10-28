@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const session = "regression-" + randomUUID();
 const temp = path.join(root, ".tmp", session);
-const tests = ["smoke-history.cjs", "smoke-recreate.cjs", "smoke-schedules.cjs", "smoke-sessions.cjs", "smoke-configuration.cjs", "smoke-dashboard.cjs", "smoke-drawers.cjs", "smoke-machine.cjs"];
+const tests = ["smoke-history.cjs", "smoke-recreate.cjs", "smoke-schedules.cjs", "smoke-sessions.cjs", "smoke-configuration.cjs", "smoke-dashboard.cjs", "smoke-drawers.cjs", "smoke-machine.cjs", "smoke-interface-updates.cjs"];
 const selectedTests = process.argv.slice(2);
 if (selectedTests.some(name => !tests.includes(name))) throw new Error("Unknown browser fixture");
 const port = await new Promise((resolve, reject) => {

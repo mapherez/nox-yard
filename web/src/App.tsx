@@ -46,6 +46,7 @@ import { ProjectSchedule } from "./ProjectSchedule";
 import { RecreateConfirmation, type RecreateTarget } from "./RecreateConfirmation";
 import { ConfirmationDialog } from "./ConfirmationDialog";
 import { ProjectBrowser } from "./ProjectBrowser";
+import { useInterfaceUpdates } from "./useInterfaceUpdates";
 
 type View =
   | { kind: "loading" }
@@ -64,6 +65,7 @@ function viewFromBootstrap(result: Bootstrap): View {
 
 export default function App() {
   const [view, setView] = useState<View>({ kind: "loading" });
+  useInterfaceUpdates();
 
   useEffect(() => {
     if (view.kind !== "dashboard") return;

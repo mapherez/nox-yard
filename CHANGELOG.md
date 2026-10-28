@@ -4,6 +4,33 @@ User-facing changes in Yard. Entries summarize tagged source changes; [GitHub Re
 
 ## Unreleased
 
+## 1.3.11
+
+This entry summarizes the changes since 1.3.4.
+
+### Editing without interruptions
+
+- Live inventory and metrics updates preserve open project drawers, unsaved configuration, focus, cursor position, and scroll, including when a project or container temporarily disappears from the inventory.
+- Closing a drawer with unsaved Compose, environment-file, or inline environment-variable changes now asks for confirmation. **No** keeps the edits; **Yes** discards them and closes the drawer without saving.
+- Improved copy/paste and text-selection handling. Dragging a selection from inside an editor to outside the drawer no longer counts as an outside click.
+- Background operation changes no longer reset configuration editors. Existing conflict checks remain in place when saving.
+
+### Automatic interface updates
+
+- Open tabs detect a new Yard version or changed JavaScript/CSS and reload the interface automatically, on reconnect or within 15 seconds while the tab is visible.
+- Reloads wait while a drawer is open or a form is being edited, then resume automatically after leaving it. Temporary server outages do not interrupt the working interface.
+- Updated HTML and asset cache handling so browsers load the current interface after a deployment.
+
+Tabs opened on older versions without automatic interface updates need one manual refresh to activate this behavior.
+
+### MCP compatibility
+
+- Updated the MCP runtime to `nox-mcp` v0.6.1 and expanded checks for tool-error responses.
+
+[Release](https://github.com/mapherez/nox-yard/releases/tag/v1.3.11) · [Changes](https://github.com/mapherez/nox-yard/compare/v1.3.4...v1.3.11)
+
+---
+
 ## 1.3.4
 
 ### Clearer Settings
@@ -24,6 +51,8 @@ User-facing changes in Yard. Entries summarize tagged source changes; [GitHub Re
 
 [Release](https://github.com/mapherez/nox-yard/releases/tag/v1.3.4) · [Changes](https://github.com/mapherez/nox-yard/compare/v1.3.3...v1.3.4)
 
+---
+
 ## 1.3.3
 
 ### Safer Yard updates
@@ -34,6 +63,8 @@ User-facing changes in Yard. Entries summarize tagged source changes; [GitHub Re
 This protection is provided by the new updater: installing this version does not retroactively add verification to older Yard installations.
 
 [Release](https://github.com/mapherez/nox-yard/releases/tag/v1.3.3) · [Changes](https://github.com/mapherez/nox-yard/compare/v1.3.2...v1.3.3)
+
+---
 
 ## 1.3.2
 
@@ -52,6 +83,8 @@ This protection is provided by the new updater: installing this version does not
 - Added the CC BY-NC-SA 4.0 license and attribution terms.
 
 [Release](https://github.com/mapherez/nox-yard/releases/tag/v1.3.2) · [Changes](https://github.com/mapherez/nox-yard/compare/v1.3.1...v1.3.2)
+
+---
 
 ## 1.3.1
 

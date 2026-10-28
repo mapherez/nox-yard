@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getProjects, getMetrics, notifySessionExpired, type Project, type ContainerMetrics } from "./api";
 import { operationState, subscribeInventoryActions, type InventoryAction } from "./inventoryUpdates";
+import { notifyServerConnected } from "./useInterfaceUpdates";
 
 export function mergeMetrics(projects: Project[], samples: Record<string, ContainerMetrics>): Project[] {
   return projects.map(project => {
@@ -92,6 +93,7 @@ export function useProjects() {
       source = null;
       if (!active || document.visibilityState === "hidden") return;
       source = new EventSource("/api/projects/events");
+      source.addEventListener("open", notifyServerConnected);
       source.addEventListener("change", event => {
         try {
           const change = JSON.parse((event as MessageEvent<string>).data) as { inventory?: boolean; metrics?: boolean };

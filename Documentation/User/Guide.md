@@ -55,6 +55,8 @@ If upgrading an old installation that still keeps project configuration only in 
 
 In **Settings**, **Check now** checks for and installs an available update immediately, even when automatic updates are disabled. For daily automatic checks, enable the schedule in Yard's own project Details. Automatic self-updates are off by default.
 
+Open browser tabs detect a new Yard version and reload the interface automatically. If a drawer is open or a form is being edited, the reload waits until you leave it, preserving work in progress. Tabs opened on older versions without this feature need one manual refresh to activate automatic interface updates.
+
 The built-in updater verifies the official image signature before installation. The default Compose file tracks the stable `latest` channel. To manage versions manually, use a published version tag or verified digest; see [image selection and verification](../Developer/Releases.md#choose-an-update-policy-in-compose). A pinned Compose image is respected by the updater.
 
 ### Backups and removal
