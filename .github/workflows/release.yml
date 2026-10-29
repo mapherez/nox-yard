@@ -4,12 +4,19 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: Release tag validated by the successful CI run
+        description: Release tag whose source matches a successful CI approval
+        required: true
+        type: string
+      approved_sha:
+        required: true
+        type: string
+      approved_run:
         required: true
         type: string
 
 permissions:
   contents: write
+  actions: read
   packages: write
   id-token: write
 
@@ -18,7 +25,10 @@ jobs:
     name: Publish release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
     runs-on: ubuntu-latest
-    # The calling CI workflow holds the repository-wide pipeline concurrency lane.
+    # Publication is serialized without letting a normal source push cancel it.
+    concurrency:
+      group: nox-yard-publication
+      cancel-in-progress: false
     steps:
       - name: Check out the exact CI commit
         uses: actions/checkout@v6
@@ -38,6 +48,20 @@ jobs:
             const tag = requestedRelease({ revision: process.env.GITHUB_SHA, ref: process.env.GITHUB_REF, event: process.env.GITHUB_EVENT_NAME });
             if (!tag || tag !== process.env.RELEASE_TAG) throw new Error("Release input does not match the CI commit request.");
           '
+      - name: Recheck the approved source before publication
+        uses: actions/github-script@v8
+        env:
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+          APPROVED_RUN: ${{ inputs.approved_run }}
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const { assertVersionOnly, findApproval } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/ci-policy.mjs`).href);
+            assertVersionOnly(context.sha);
+            const approval = await findApproval({ github, ...context.repo, branch: context.ref.slice('refs/heads/'.length), revision: context.sha, runId: context.runId, approvalRunId: process.env.APPROVED_RUN, timeoutMs: 0 });
+            if (approval.revision !== process.env.APPROVED_SHA || String(approval.runId) !== process.env.APPROVED_RUN) {
+              throw new Error('The selected CI approval changed. Publication stopped before the build.');
+            }
       - name: Generate release metadata
         id: metadata
         env:
@@ -62,8 +86,38 @@ jobs:
         with:
           platforms: arm64
           cache-image: false
-      - name: Set up Docker Buildx
+      - name: Find an image receipt from an earlier attempt of this run
         if: steps.guard.outputs.publish == 'true'
+        id: receipt
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, { ...context.repo, run_id: context.runId, per_page: 100 });
+            const matches = artifacts.filter((artifact) => artifact.name === `release-image-${context.sha}` && !artifact.expired);
+            if (matches.length > 1) throw new Error('Ambiguous release image receipt.');
+            core.setOutput('id', matches.length ? String(matches[0].id) : '');
+      - name: Restore the exact image receipt for a publication retry
+        if: steps.guard.outputs.publish == 'true' && steps.receipt.outputs.id != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.receipt.outputs.id }}
+          path: .tmp/release-receipt
+          merge-multiple: true
+      - name: Validate restored receipt before deciding to build
+        if: steps.guard.outputs.publish == 'true' && steps.receipt.outputs.id != ''
+        id: restored
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          node --input-type=module -e '
+            import { readFileSync, appendFileSync } from "node:fs";
+            import { verifyPublicationReceipt } from "./scripts/release-request.mjs";
+            const digest = verifyPublicationReceipt(JSON.parse(readFileSync(".tmp/release-receipt/image.json", "utf8")),
+              { tag: process.env.RELEASE_TAG, revision: process.env.GITHUB_SHA, runId: process.env.GITHUB_RUN_ID });
+            appendFileSync(process.env.GITHUB_OUTPUT, `digest=${digest}\n`);
+          '
+      - name: Set up Docker Buildx
+        if: steps.guard.outputs.publish == 'true' && steps.receipt.outputs.id == ''
         uses: docker/setup-buildx-action@v4
       - name: Install Cosign
         if: steps.guard.outputs.publish == 'true'
@@ -76,7 +130,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish release image
-        if: steps.guard.outputs.publish == 'true'
+        if: steps.guard.outputs.publish == 'true' && steps.receipt.outputs.id == ''
         id: build
         uses: docker/build-push-action@v7
         with:
@@ -92,10 +146,63 @@ jobs:
           build-args: |
             BUILD_SHA=${{ github.sha }}
             BUILD_VERSION=${{ inputs.tag }}
+      - name: Record the immutable image for publication recovery
+        if: steps.guard.outputs.publish == 'true' && steps.receipt.outputs.id == ''
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p .tmp/release-receipt
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            import { publicationReceipt } from "./scripts/release-request.mjs";
+            const receipt = publicationReceipt({ tag: process.env.RELEASE_TAG, revision: process.env.GITHUB_SHA,
+              runId: process.env.GITHUB_RUN_ID, digest: process.env.IMAGE_DIGEST });
+            writeFileSync(".tmp/release-receipt/image.json", JSON.stringify(receipt) + "\n");
+          '
+      - name: Preserve image receipt before smoke tests and signing
+        if: steps.guard.outputs.publish == 'true' && steps.receipt.outputs.id == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-image-${{ github.sha }}
+          include-hidden-files: true
+          path: .tmp/release-receipt/image.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Select the freshly built or restored digest
+        if: steps.guard.outputs.publish == 'true'
+        id: image
+        env:
+          BUILT_DIGEST: ${{ steps.build.outputs.digest }}
+          RESTORED_DIGEST: ${{ steps.restored.outputs.digest }}
+        run: |
+          digest="${RESTORED_DIGEST:-$BUILT_DIGEST}"
+          printf '%s' "$digest" | grep -Eq '^sha256:[a-f0-9]{64}$'
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - name: Smoke test the final release images without rebuilding
+        if: steps.guard.outputs.publish == 'true'
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          image="ghcr.io/mapherez/nox-yard@$IMAGE_DIGEST"
+          for arch in amd64 arm64; do
+            docker pull --platform "linux/$arch" "$image"
+            sh scripts/smoke-arm64.sh "$image" "$arch"
+            docker image inspect --platform "linux/$arch" "$image" --format '{{json .Config.Labels}}' > "$RUNNER_TEMP/release-labels.json"
+            node --input-type=module -e '
+              import { readFileSync } from "node:fs";
+              const labels = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/release-labels.json`, "utf8"));
+              if (labels["org.opencontainers.image.version"] !== process.env.RELEASE_TAG ||
+                  labels["org.opencontainers.image.revision"] !== process.env.GITHUB_SHA) {
+                throw new Error("Release image version/revision does not match this request.");
+              }
+            '
+          done
       - name: Sign the published image digest
         if: steps.guard.outputs.publish == 'true'
         env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           RELEASE_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
@@ -107,7 +214,7 @@ jobs:
       - name: Verify the release signature and workflow identity
         if: steps.guard.outputs.publish == 'true'
         env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           RELEASE_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
@@ -127,7 +234,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_PRERELEASE: ${{ steps.metadata.outputs.prerelease }}
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         with:
           script: |
             const { pathToFileURL } = require('node:url');

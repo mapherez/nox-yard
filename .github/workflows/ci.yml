@@ -4,22 +4,81 @@ on:
   push:
     branches:
       - '**'
+    # Keep this allowlist aligned with triggersCI in scripts/ci-policy.mjs.
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'web/src/**'
+      - 'web/public/**'
+      - 'web/index.html'
+      - 'web/package.json'
+      - 'web/package-lock.json'
+      - 'web/.npmrc'
+      - 'web/vite.config.*'
+      - 'web/tsconfig*.json'
+      - '.nvmrc'
+      - 'Dockerfile'
+      - 'package.json'
+      - 'scripts/**'
+      - '.github/workflows/**'
+      - '.gitattributes'
+      - 'third_party/cosign/LICENSE'
+      - '!**/*.md'
+      - '!**/*.mdx'
+      - '!**/*.rst'
+      - '!**/README*'
+      - '!**/CHANGELOG*'
+      - '!**/.gitkeep'
+  # Explicit validation for otherwise ignored inputs, or expired CI evidence.
+  # A manual run validates only; it never publishes a release.
+  workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
-# One repository-wide lane covers source checks, Docker and the called publisher.
-# A newer push replaces the previous pipeline, even when it is on another branch.
+# A version-only release must not cancel the source CI whose approval it needs.
+# Normal pushes replace older CI on the same branch; publishers are serialized
+# separately in release.yml and cannot be cancelled by ordinary source pushes.
 concurrency:
-  group: nox-yard-pipeline
+  group: nox-yard-ci-${{ github.event_name == 'push' && contains(github.event.head_commit.message, 'NoX-Yard-Release:') && github.sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Plan CI or reuse approval
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      release_tag: ${{ steps.plan.outputs.tag }}
+      approved_sha: ${{ steps.plan.outputs.approved_sha }}
+      approved_run: ${{ steps.plan.outputs.approved_run }}
+    steps:
+      - name: Check out source and release tags
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Select work before installing dependencies or building images
+        id: plan
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const { planCI } = await import(pathToFileURL(`${process.env.GITHUB_WORKSPACE}/scripts/ci-policy.mjs`).href);
+            await planCI({ github, context, core });
+
   validate:
     name: Source validation
+    needs: plan
+    if: needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
-    outputs:
-      release_tag: ${{ steps.request.outputs.tag }}
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -36,9 +95,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Identify script release request
-        id: request
-        run: node scripts/release-request.mjs
       - name: Install frontend dependencies
         run: npm ci --prefix web
       - name: Install Chrome for frontend regressions
@@ -46,10 +102,15 @@ jobs:
       - name: Run shared source checks
         run: sh scripts/ci-local.sh
 
-  docker:
-    name: Docker builds and ARM64 smoke test
-    needs: validate
+  image:
+    name: Image (${{ matrix.arch }})
+    needs: plan
+    if: needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -57,68 +118,176 @@ jobs:
           fetch-depth: 0
       - name: Resolve application build version
         id: metadata
-        env:
-          REQUESTED_TAG: ${{ needs.validate.outputs.release_tag }}
         run: |
-          version="$REQUESTED_TAG"
-          if [ -z "$version" ]; then
-            version=$(sh scripts/build-version.sh "$GITHUB_SHA")
-          fi
+          version=$(sh scripts/build-version.sh "$GITHUB_SHA")
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
       - name: Set up QEMU
+        if: matrix.arch == 'arm64'
         uses: docker/setup-qemu-action@v4
         with:
           platforms: arm64
           cache-image: false
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-      - name: Build linux/amd64 image
+      - name: Build architecture image once
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           load: true
           push: false
-          tags: nox-yard:ci-amd64
-          cache-from: type=gha,scope=ci-amd64
-          cache-to: type=gha,mode=max,scope=ci-amd64
+          tags: nox-yard:ci-${{ matrix.arch }}
+          cache-from: type=gha,scope=ci-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=ci-${{ matrix.arch }}
           build-args: |
             BUILD_SHA=${{ github.sha }}
             BUILD_VERSION=${{ steps.metadata.outputs.version }}
       - name: Check bundled image signature verifier
+        if: matrix.arch == 'amd64'
         run: docker run --rm --network none --entrypoint /usr/local/bin/cosign nox-yard:ci-amd64 version
-      - name: Run isolated current-image runtime gates
-        run: python3 scripts/acceptance.py --image nox-yard:ci-amd64 --skip-upgrade
-      - name: Preserve runtime evidence
+      - name: Check ARM64 executable and runtime health
+        if: matrix.arch == 'arm64'
+        run: sh scripts/smoke-arm64.sh nox-yard:ci-arm64
+      - name: Record immutable image identity
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker image inspect "nox-yard:ci-$ARCH" --format '{{json .}}' > "$RUNNER_TEMP/image-$ARCH.json"
+      - name: Preserve image identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-identity-${{ matrix.arch }}
+          path: ${{ runner.temp }}/image-${{ matrix.arch }}.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Export the tested AMD64 image for runtime groups
+        if: matrix.arch == 'amd64'
+        run: docker save nox-yard:ci-amd64 | gzip -1 > "$RUNNER_TEMP/ci-amd64.tar.gz"
+      - name: Share AMD64 image without rebuilding
+        if: matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-amd64
+          path: ${{ runner.temp }}/ci-amd64.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  runtime:
+    name: Runtime (${{ matrix.group }})
+    needs: [plan, image]
+    if: needs.plan.outputs.mode == 'full'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ['1', '2', '3']
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Download the shared image
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-amd64
+          path: ${{ runner.temp }}/ci-image
+      - name: Load image
+        run: docker load --input "$RUNNER_TEMP/ci-image/ci-amd64.tar.gz"
+      - name: Restore fixture Go caches
+        id: cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/runtime-go-cache
+          key: ${{ runner.os }}-runtime-go-v1-${{ matrix.group }}-${{ hashFiles('go.mod', 'go.sum', 'cmd/**/*.go', 'internal/**/*.go') }}
+          restore-keys: |
+            ${{ runner.os }}-runtime-go-v1-${{ matrix.group }}-
+      - name: Load fixture caches
+        run: sh scripts/ci-runtime-cache.sh restore "$RUNNER_TEMP/runtime-go-cache" nox-yard:ci-amd64
+      - name: Run this group from the shared suite inventory
+        env:
+          GROUP: ${{ matrix.group }}
+        run: python3 scripts/acceptance.py --image nox-yard:ci-amd64 --skip-upgrade --group "$GROUP" --report ".tmp/runtime-$GROUP.json"
+      - name: Save fixture caches for subsequent pushes
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sh scripts/ci-runtime-cache.sh save "$RUNNER_TEMP/runtime-go-cache" nox-yard:ci-amd64
+      - name: Preserve runtime evidence and resource manifests
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: runtime-acceptance
-          path: .tmp/acceptance-results.json
-      - name: Build linux/arm64 image
-        uses: docker/build-push-action@v7
+          name: runtime-evidence-${{ matrix.group }}
+          include-hidden-files: true
+          path: |
+            .tmp/runtime-${{ matrix.group }}.json
+            .tmp/*-resources.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove fixture caches from the disposable runner
+        if: always()
+        run: docker volume rm nox-yard-c2-go-cache nox-yard-c2-build-cache
+
+  approved:
+    name: CI approved (policy v1)
+    needs: [plan, validate, image, runtime]
+    if: ${{ !cancelled() && needs.plan.outputs.mode == 'full' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every source, architecture and runtime gate
+        env:
+          VALIDATE: ${{ needs.validate.result }}
+          IMAGE: ${{ needs.image.result }}
+          RUNTIME: ${{ needs.runtime.result }}
+        run: test "$VALIDATE/$IMAGE/$RUNTIME" = success/success/success
+      - name: Check out the approved source
+        uses: actions/checkout@v6
         with:
-          context: .
-          platforms: linux/arm64
-          load: true
-          push: false
-          tags: nox-yard:ci-arm64
-          cache-from: type=gha,scope=ci-arm64
-          cache-to: type=gha,mode=max,scope=ci-arm64
-          build-args: |
-            BUILD_SHA=${{ github.sha }}
-            BUILD_VERSION=${{ steps.metadata.outputs.version }}
-      - name: Check ARM64 executable and runtime health
-        run: sh scripts/smoke-arm64.sh nox-yard:ci-arm64
+          fetch-depth: 0
+      - name: Download architecture identities
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-identity-*
+          path: .tmp/ci-evidence
+          merge-multiple: true
+      - name: Download runtime evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: runtime-evidence-*
+          path: .tmp/ci-evidence
+          merge-multiple: true
+      - name: Verify all suites used the same immutable AMD64 image
+        run: python3 scripts/ci-evidence.py .tmp/ci-evidence > .tmp/ci-evidence/verified.json
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Record reusable approval
+        run: |
+          node --input-type=module -e '
+            import { writeFileSync, readFileSync } from "node:fs";
+            import { inputFingerprint } from "./scripts/ci-policy.mjs";
+            const proof = { policy: 1, revision: process.env.GITHUB_SHA, runId: process.env.GITHUB_RUN_ID,
+              attempt: process.env.GITHUB_RUN_ATTEMPT, fingerprint: inputFingerprint(process.env.GITHUB_SHA),
+              evidence: JSON.parse(readFileSync(".tmp/ci-evidence/verified.json", "utf8")) };
+            writeFileSync(".tmp/ci-approval.json", JSON.stringify(proof, null, 2) + "\n");
+          '
+      - name: Preserve approval proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-approval
+          include-hidden-files: true
+          path: .tmp/ci-approval.json
+          if-no-files-found: error
+          retention-days: 90
 
   release:
-    name: Release after successful CI
-    needs: [validate, docker]
-    if: needs.validate.outputs.release_tag != ''
+    name: Release with approved source
+    needs: plan
+    if: needs.plan.outputs.mode == 'release'
     permissions:
       contents: write
+      actions: read
       packages: write
       id-token: write
     uses: ./.github/workflows/release.yml
     with:
-      tag: ${{ needs.validate.outputs.release_tag }}
+      tag: ${{ needs.plan.outputs.release_tag }}
+      approved_sha: ${{ needs.plan.outputs.approved_sha }}
+      approved_run: ${{ needs.plan.outputs.approved_run }}

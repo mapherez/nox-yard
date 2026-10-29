@@ -14,7 +14,7 @@ import platform
 import subprocess
 import sys
 import time
-from runtime_suites import SUITES
+from runtime_suites import SUITES, CI_GROUPS, ci_suites
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--image", required=True)
@@ -23,7 +23,11 @@ parser.add_argument("--skip-upgrade", action="store_true", help="Run the current
 parser.add_argument("--report", default=".tmp/acceptance-results.json")
 parser.add_argument("--keep-going", action="store_true", help="Record all selected suite results before returning failure")
 parser.add_argument("--suite", action="append", choices=[suite[1] for suite in SUITES], help="Run only explicitly selected suites")
+parser.add_argument("--group", choices=list(CI_GROUPS), help="Run one CI group from the shared runtime inventory")
 args = parser.parse_args()
+if args.group and (args.suite or not args.skip_upgrade):
+    parser.error("--group requires --skip-upgrade and cannot be combined with --suite")
+selected_suites = ci_suites(args.group) if args.group else args.suite
 root = pathlib.Path(__file__).resolve().parents[1]
 report = pathlib.Path(args.report).resolve()
 report.parent.mkdir(parents=True, exist_ok=True)
@@ -48,14 +52,15 @@ evidence = {"scope": "isolated-runtime-gates", "manualHostAcceptancePending": Tr
         "model": model.read_text().strip("\x00\n") if model.exists() else None},
     "engine": {"version": engine["ServerVersion"], "os": engine["OSType"], "architecture": engine["Architecture"]},
     "images": images, "checks": [], "complete": False}
-checks = [(title,script,["--legacy-image",args.legacy_image] if legacy else []) for title,script,legacy in SUITES if not (legacy and args.skip_upgrade) and (not args.suite or script in args.suite)]
+checks = [(title,script,["--legacy-image",args.legacy_image] if legacy else []) for title,script,legacy in SUITES if not (legacy and args.skip_upgrade) and (not selected_suites or script in selected_suites)]
+evidence["group"] = args.group
 evidence["legacyUpgradeIncluded"] = any(script=="smoke-upgrade.py" for _,script,_ in checks)
 evidence["selectedSuites"] = [script for _,script,_ in checks]
 
 try:
     # Docker Desktop remaps bind ownership. Exercise the actual root producer /
     # non-root reader boundary on Linux before spending time on runtime suites.
-    if sys.platform == "linux":
+    if sys.platform == "linux" and (not args.group or args.group == "1"):
         started = time.monotonic()
         environment = dict(os.environ, NOX_CLEANUP_TEST_IMAGE=args.image,
                            NOX_CLEANUP_TEST_ROOT=str(report.parent))

@@ -5,6 +5,24 @@ import { assertLatestStable, checkReleaseVersion, isMain, parseVersion } from '.
 export const releaseTrailer = (tag) => `NoX-Yard-Release: ${tag}`;
 export const publicationMarker = (revision) => `<!-- nox-yard-release:${revision} -->`;
 
+// Stored only as an artifact of this exact workflow run. A retry can finish
+// smoke/signing/publication for the same immutable index without rebuilding it.
+export function publicationReceipt({ tag, revision, runId, digest }) {
+  if (parseVersion(tag).tag !== tag || !/^[a-f0-9]{40}$/.test(revision) ||
+      !/^[1-9][0-9]*$/.test(String(runId)) || !/^sha256:[a-f0-9]{64}$/.test(digest)) {
+    throw new Error('Invalid release image receipt.');
+  }
+  return { tag, revision, runId: String(runId), digest };
+}
+
+export function verifyPublicationReceipt(value, expected) {
+  const receipt = publicationReceipt(value);
+  if (receipt.tag !== expected.tag || receipt.revision !== expected.revision || receipt.runId !== String(expected.runId)) {
+    throw new Error('Release image receipt does not belong to this request/run.');
+  }
+  return receipt.digest;
+}
+
 // A version bump or a manually pushed tag is not a request to publish. The
 // release script creates a marked commit and its matching annotated tag.
 export function requestedRelease({ cwd = process.cwd(), revision, ref, event = 'push', run = commandRunner(cwd) }) {
@@ -49,6 +67,6 @@ if (isMain(import.meta.url)) {
   try {
     const tag = requestedRelease({ revision: process.env.GITHUB_SHA, ref: process.env.GITHUB_REF, event: process.env.GITHUB_EVENT_NAME });
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\n`);
-    console.log(tag ? `Release requested: ${tag}; publication requires all CI jobs to pass.` : 'Normal push: CI only.');
+    console.log(tag ? `Release requested: ${tag}; publication requires a matching successful CI approval.` : 'Normal push: CI only.');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -82,7 +82,7 @@ export function release(argv, {
     (original.toString('utf8').endsWith('\n') ? newline : ''));
   try {
     writeFileSync(versionPath, updated);
-    log(`Preparing release request ${tag}; GitHub CI must pass before publication...`);
+    log(`Preparing release request ${tag}; GitHub will verify an existing CI approval before publication...`);
     const unexpected = status().filter(({ code, path }) => path !== 'package.json' || code !== ' M');
     if (unexpected.length) {
       throw new Error(`Unexpected concurrent changes: ${unexpected.map(({ code, path }) => `${code} ${path}`).join(', ')}`);
@@ -120,7 +120,7 @@ export function release(argv, {
       : `git tag -a ${quote(tag)} -m ${quote(`Release ${tag}`)} ${quote(commit)}\n${pushCommand}`;
     throw new Error(`${error.message}\nRelease commit ${commit}${tagCreated ? ` and annotated tag ${tag}` : ' (without a release tag)'} remain local. No automatic reset was performed.\nInspect the local state, then recover in a POSIX shell (Git Bash on Windows):\n${recovery}`);
   }
-  log(`Pushed ${tag}. GitHub Actions will run CI first; only successful CI can publish the Docker image and GitHub Release.`);
+  log(`Pushed ${tag}. GitHub Actions will reuse successful CI for identical inputs, then build and publish the release. Missing approval stops the release before tests/builds; it never starts full CI automatically.`);
   return { version, tag, branch, commit };
 }
 

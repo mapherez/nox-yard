@@ -7,8 +7,8 @@ repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
 cd "$repo_root"
 
 run_check 'go test ./...' go test ./...
-run_check 'Runtime fixture cleanup regressions' python3 -m unittest discover -s scripts -p test_smoke_support.py
-run_check 'Release tooling tests' node --test scripts/release.test.mjs
+run_check 'CI and runtime fixture regressions' python3 -m unittest discover -s scripts -p 'test_*.py'
+run_check 'CI and release tooling tests' node --test scripts/release.test.mjs scripts/ci-policy.test.mjs
 
 if [ ! -d web/node_modules ]; then
   printf '[FAIL] Frontend dependencies are missing. Run "npm ci --prefix web" first.\n' >&2

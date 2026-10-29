@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,7 @@ import test from 'node:test';
 import { commandRunner, release } from './release.mjs';
 import { assertLatestStable, checkReleaseVersion, parseVersion } from './release-version.mjs';
 import { image, releaseMetadata, source, writeMetadataOutputs } from './release-metadata.mjs';
-import { publicationMarker, requestedRelease, shouldPublish } from './release-request.mjs';
+import { publicationMarker, publicationReceipt, requestedRelease, shouldPublish, verifyPublicationReceipt } from './release-request.mjs';
 import { releaseBody, releaseSummary } from './release-notes.mjs';
 
 test('release notes select only the exact version, including prereleases and CRLF', () => {
@@ -43,8 +43,22 @@ const scripts = dirname(fileURLToPath(import.meta.url));
 const sha = 'a'.repeat(40);
 const created = '2026-10-06T12:00:00.000Z';
 
+test('publication retry reuses only the receipt of this exact release commit and run', () => {
+  const expected = { tag: 'v1.3.4', revision: sha, runId: 123 };
+  const receipt = publicationReceipt({ ...expected, digest: `sha256:${'b'.repeat(64)}` });
+  assert.equal(verifyPublicationReceipt(JSON.parse(JSON.stringify(receipt)), expected), receipt.digest);
+  for (const override of [{ tag: 'v1.3.5' }, { revision: 'c'.repeat(40) }, { runId: 124 }]) {
+    assert.throws(() => verifyPublicationReceipt(receipt, { ...expected, ...override }), /does not belong/);
+  }
+  for (const override of [{ tag: 'bad' }, { digest: 'not-a-digest' }, { digest: `sha256:${'g'.repeat(64)}` },
+    { revision: 'short' }, { runId: 0 }]) {
+    assert.throws(() => verifyPublicationReceipt({ ...receipt, ...override }, expected));
+  }
+});
+
 function fixture(t, original = '0.0.0\n') {
-  const directory = mkdtempSync(join(tmpdir(), 'nox-yard-release-'));
+  // Node resolves module URLs through macOS's /var -> /private/var symlink.
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'nox-yard-release-')));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const root = join(directory, 'yard');
   const remote = join(directory, 'origin.git');
