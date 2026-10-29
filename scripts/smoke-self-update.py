@@ -5,6 +5,7 @@ Only the fixture binary's restore-tag constant is remapped to a private local
 image tag. Registry lookup/pull is outside this worker-protocol acceptance.
 The shipped binary has no configuration override or production test hook.
 """
+from smoke_support import write_text, trace_docker
 import argparse
 import json
 import pathlib
@@ -23,22 +24,28 @@ base=root/'.tmp'/name
 base.mkdir(parents=True,mode=0o700)
 (base/'state').mkdir()
 images=[]
+state=name+'-state'
 reference=name+':latest'
 
+@trace_docker(name, base)
 def docker(*parts,stream=False):
  result=subprocess.run(['docker',*parts],text=True,capture_output=not stream)
  if result.returncode: raise RuntimeError('Self-update fixture Docker command failed: '+' '.join(parts[:2])+'\n'+(result.stderr or ''))
  return (result.stdout or '').strip()
 
 try:
+ docker('volume','create','--label','nox-yard.acceptance='+name,state)
+ # The updater intentionally requires a bind. Bind the disposable Linux
+ # volume directory so SQLite locks stay native inside Docker Desktop's VM.
+ state_path=json.loads(docker('volume','inspect',state))[0]['Mountpoint']
  source=base/'source';source.mkdir()
  for f in ('go.mod','go.sum'):shutil.copy2(root/f,source/f)
  for d in ('cmd','internal'):shutil.copytree(root/d,source/d)
  registry=source/'internal/selfupdate/registry.go'
  text=registry.read_text(encoding='utf-8');old='const imageReference = "ghcr.io/mapherez/nox-yard:latest"'
  assert text.count(old)==1
- registry.write_text(text.replace(old,'const imageReference = '+json.dumps(reference)),encoding='utf-8',newline='')
- (source/'bad').write_text("""#!/bin/sh
+ write_text(registry, text.replace(old,'const imageReference = '+json.dumps(reference)), encoding='utf-8', newline='')
+ write_text(source/'bad', """#!/bin/sh
 exec python3 - <<'PYTHON'
 import sqlite3,pathlib
 db=sqlite3.connect('/data/nox-yard.sqlite')
@@ -49,12 +56,12 @@ db.close()
 pathlib.Path('/data/.fixture-bad-ran').write_text('migration committed')
 raise SystemExit(1)
 PYTHON
-""",encoding='utf-8',newline='')
+""", encoding='utf-8', newline='')
  dockerfile=("FROM golang:1.26-alpine AS builder\nWORKDIR /src\nCOPY go.mod go.sum ./\nRUN go mod download\nCOPY cmd ./cmd\nCOPY internal ./internal\nRUN CGO_ENABLED=0 go build -o /out/nox-yard ./cmd/nox-yard\n"+
   "FROM "+args.image+" AS fixture\nCOPY --from=builder /out/nox-yard /usr/local/bin/nox-yard\nLABEL nox-yard.acceptance="+name+"\n"+
   "FROM fixture AS good\nLABEL fixture.variant=good\n"+
   "FROM fixture AS bad\nRUN apk add --no-cache python3\nCOPY bad /usr/local/bin/nox-yard\nRUN chmod +x /usr/local/bin/nox-yard\nLABEL fixture.variant=bad\n")
- (source/'Dockerfile').write_text(dockerfile,encoding='utf-8',newline='')
+ write_text(source/'Dockerfile', dockerfile, encoding='utf-8', newline='')
  for target in ('fixture','good','bad','builder'):
   tag=name+':'+target;images.append(tag)
   docker('build','--target',target,'-t',tag,str(source))
@@ -63,7 +70,7 @@ PYTHON
  if host_base[1:2]==':':host_base='/run/desktop/mnt/host/'+host_base[0].lower()+'/'+host_base[3:]
  yard=docker('create','--name',name+'-yard','--label','nox-yard.acceptance='+name,
   '--label','com.docker.compose.project='+name,'--label','com.docker.compose.service=nox-yard',
-  '--mount','type=bind,source='+host_base+'/state,target=/data',
+  '--mount','type=bind,source='+state_path+',target=/data',
   '--mount','type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock',
   '--health-cmd','wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1',
   '--health-interval','1s','--health-timeout','1s','--health-retries','1',name+':fixture')
@@ -73,7 +80,7 @@ PYTHON
   assert time.monotonic()<deadline,'Fixture did not become healthy'
   time.sleep(.2)
  docker('run','--rm','--label','nox-yard.acceptance='+name,
-  '--mount','type=bind,source='+str(base/'state')+',target=/data',
+  '--mount','type=bind,source='+state_path+',target=/data',
   '--mount','type=bind,source='+str(base)+',target=/fixture',
   '--mount','type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock',
   '--mount','type=volume,source=nox-yard-c2-go-cache,target=/go/pkg',
@@ -89,6 +96,7 @@ finally:
    if re.fullmatch(r'[0-9a-f]{64}|nox-yard-update-[0-9a-f]{24}',value):subprocess.run(['docker','rm','-f',value],capture_output=True)
  ids=docker('ps','-aq','--filter','label=nox-yard.acceptance='+name).splitlines()
  if ids:docker('rm','-f',*ids)
+ subprocess.run(['docker','volume','rm',state],capture_output=True)
  for image in reversed(images):subprocess.run(['docker','image','rm',image],capture_output=True)
  assert base.resolve().is_relative_to((root/'.tmp').resolve()) and base.name==name
  shutil.rmtree(base)

@@ -1,8 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { containerLogsURL, notifySessionExpired, getLogExportStatus, exportCurrentLogs, type LogExportStatus, type Project } from "./api";
+import { loadDockerLogHistory,type DockerLogPage,type DockerLogEvent,containerLogsURL, notifySessionExpired, getLogExportStatus, exportCurrentLogs, type LogExportStatus, type Project } from "./api";
 import styles from "./App.module.css";
 import logStyles from "./LogsPanel.module.css";
-type LogLine = { stream: "stdout" | "stderr"; text: string };
+type LogLine = DockerLogEvent;
+const MAX_VISIBLE_LOG_BYTES=8*1024*1024;
+const logSizes=new WeakMap<LogLine,number>();
+function logSize(line:LogLine){let bytes=logSizes.get(line);if(bytes===undefined){bytes=Math.max(line.text.length*2,new TextEncoder().encode(line.text).byteLength)+128;logSizes.set(line,bytes);}return bytes;}
+function boundedLogWindow(lines:LogLine[]):LogLine[]{let bytes=0,start=lines.length;while(start>0){const size=logSize(lines[start-1]);if(bytes+size>MAX_VISIBLE_LOG_BYTES)break;bytes+=size;start--;}return lines.slice(start);}
+function logText(lines:LogLine[]){return lines.map(line=>line.text+(line.lineEnd===false?"":"\n")).join("");}
 type LogStatus = "connecting" | "live" | "reconnecting" | "ended" | "paused" | "error";
 
 export function LogsPanel({ project, preferredContainerID, onSelectContainer, csrfToken }: {
@@ -15,6 +20,16 @@ export function LogsPanel({ project, preferredContainerID, onSelectContainer, cs
   const [lines, setLines] = useState<LogLine[]>([]);
   const [status, setStatus] = useState<LogStatus>("connecting");
   const [error, setError] = useState("");
+  const [historyMode,setHistoryMode]=useState(false);
+  const [historyPage,setHistoryPage]=useState<DockerLogPage|null>(null);
+  const [historyBusy,setHistoryBusy]=useState(false);
+  const [historyRange,setHistoryRange]=useState("all");
+  const [historySince,setHistorySince]=useState("");
+  const [historyUntil,setHistoryUntil]=useState("");
+  const [historyCursors,setHistoryCursors]=useState<string[]>([]);
+  const historyRequest=useRef<AbortController|null>(null);
+  const historyVersion=useRef(0);
+  const historyBounds=useRef<{since?:string;until?:string}>({});
   const [retryKey, setRetryKey] = useState(0);
   const [visible, setVisible] = useState(document.visibilityState === "visible");
   const [followOutput, setFollowOutput] = useState(true);
@@ -95,7 +110,7 @@ export function LogsPanel({ project, preferredContainerID, onSelectContainer, cs
   }, []);
 
   useEffect(() => {
-    if (!container || !visible) {
+    if (!container || !visible || historyMode) {
       setStatus("paused");
       return;
     }
@@ -112,8 +127,8 @@ export function LogsPanel({ project, preferredContainerID, onSelectContainer, cs
       try {
         const line: unknown = JSON.parse((event as MessageEvent).data);
         if (!line || typeof line !== "object" || !("text" in line) || typeof line.text !== "string" ||
-            !("stream" in line) || (line.stream !== "stdout" && line.stream !== "stderr")) return;
-        setLines((current) => [...current, line as LogLine].slice(-500));
+            !("stream" in line) || (line.stream !== "stdout" && line.stream !== "stderr" && line.stream !== "combined")) return;
+        setLines((current) => boundedLogWindow([...current, line as LogLine]));
       } catch { /* Ignore a malformed event and keep the stream open. */ }
     });
     source.addEventListener("end", () => {
@@ -136,7 +151,7 @@ export function LogsPanel({ project, preferredContainerID, onSelectContainer, cs
       }
     };
     return () => source.close();
-  }, [container?.id, retryKey, visible]);
+  }, [container?.id, retryKey, visible,historyMode]);
 
   useEffect(() => {
     if (followOutput && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -147,6 +162,19 @@ export function LogsPanel({ project, preferredContainerID, onSelectContainer, cs
     ended: "Stream ended", paused: "Paused while this tab is hidden", error: "Disconnected",
   };
 
+  useEffect(()=>{historyRequest.current?.abort();historyVersion.current++;setHistoryMode(false);setHistoryBusy(false);setHistoryPage(null);setHistoryCursors([]);historyBounds.current={};return()=>{historyRequest.current?.abort();historyVersion.current++;};},[container?.id]);
+  async function readHistory(cursor="",stack:string[]=[],reset=false){
+   if(!container)return;historyRequest.current?.abort();const abort=new AbortController();historyRequest.current=abort;const version=++historyVersion.current;
+   setHistoryMode(true);setHistoryBusy(true);setError("");setFollowOutput(false);
+   try{
+    const now=new Date();let {since,until}=historyBounds.current;
+    if(reset){since=undefined;until=now.toISOString();if(historyRange==="1h"||historyRange==="24h")since=new Date(now.getTime()-(historyRange==="1h"?1:24)*3600000).toISOString();else if(historyRange==="custom"){if(historySince)since=new Date(historySince).toISOString();if(historyUntil)until=new Date(historyUntil).toISOString();}}
+    historyBounds.current={since,until};
+    const page=await loadDockerLogHistory(container.id,{since,until,cursor},abort.signal);
+    if(version!==historyVersion.current)return;setLines(boundedLogWindow(page.lines));setHistoryPage(page);setHistoryCursors(stack);
+   }catch(cause){if(version===historyVersion.current&&!abort.signal.aborted)setError(cause instanceof Error?cause.message:"Cannot read Docker history.");}
+   finally{if(version===historyVersion.current)setHistoryBusy(false);}
+  }
   if (!container) return <p className={styles.detailSummary}>No containers are available for logs.</p>;
 
   return <section className={logStyles.panel} aria-label="Container logs">
@@ -160,7 +188,11 @@ export function LogsPanel({ project, preferredContainerID, onSelectContainer, cs
         : <strong className={styles.logsContainerName}>{container.service || container.name}</strong>}
       <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect logs" title="Reconnect logs" onClick={() => setRetryKey((key) => key + 1)}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
     </div>
-    <p className={styles.logStatus} role="status">{statusLabels[status]}</p>
+    <div className={logStyles.historyControls} aria-label="Docker log history"><label>History<select value={historyRange} disabled={historyBusy} onChange={event=>setHistoryRange(event.target.value)}><option value="all">All available</option><option value="1h">Last hour</option><option value="24h">Last 24 hours</option><option value="custom">Time interval</option></select></label>{historyRange==="custom"&&<><label>From<input type="datetime-local" value={historySince} onChange={event=>setHistorySince(event.target.value)} /></label><label>Until<input type="datetime-local" value={historyUntil} onChange={event=>setHistoryUntil(event.target.value)} /></label></>}<button type="button" className={styles.inspectButton} disabled={historyBusy} onClick={()=>{void readHistory("",[],true);}}>{historyBusy?"Loading…":"Load history"}</button>{historyMode&&<button type="button" className={styles.inspectButton} onClick={()=>{historyRequest.current?.abort();historyVersion.current++;setHistoryMode(false);setHistoryBusy(false);setHistoryPage(null);}}>Live logs</button>}</div>
+    <p className={styles.logStatus} role="status">{historyMode?"Docker retained history · oldest records first":statusLabels[status]}</p>
+    <p className={logStyles.exportHint}>Read directly from Docker. No history is stored by Yard. The live view uses a bounded memory window; rotation or container removal can discard older logs.</p>
+    {historyMode&&<div className={logStyles.historyControls}><button type="button" className={styles.inspectButton} disabled={historyBusy||!historyCursors.length} onClick={()=>{const stack=historyCursors.slice(0,-1);void readHistory(stack.at(-1)||"",stack);}}>Previous page</button><button type="button" className={styles.inspectButton} disabled={historyBusy||!historyPage?.next} onClick={()=>{if(historyPage?.next)void readHistory(historyPage.next,[...historyCursors,historyPage.next]);}}>Next page</button>{historyPage&&!historyPage.next&&<span>End of available history</span>}</div>}
+    {lines.some(line=>line.continuation||line.lineEnd===false)&&<p className={logStyles.exportHint}>Long lines use transport fragments. They are joined without added line breaks; this page may begin or end within a line.</p>}
     {error && <p className={styles.inventoryError} role="alert">{error}</p>}
     <div className={logStyles.search} role="search" aria-label="Log search">
       <i className="ph-bold ph-magnifying-glass" aria-hidden="true" />
@@ -176,11 +208,11 @@ export function LogsPanel({ project, preferredContainerID, onSelectContainer, cs
     <pre ref={outputRef} className={`${styles.logOutput} ${logStyles.output}`} aria-label={`${container.service || container.name} log output`} data-drawer-swipe-ignore onScroll={(event) => {
       const output = event.currentTarget;
       if (!query) setFollowOutput(output.scrollHeight - output.scrollTop - output.clientHeight < 32);
-    }}>{lines.length ? matches.rendered.map((line, index) => <span key={index} className={line.stream === "stderr" ? styles.logErrorLine : undefined}>{line.parts.map((part, index) => part.match === undefined ? part.text : <mark key={index} data-log-match={part.match} data-active={part.match === activeMatch}>{part.text}</mark>)}{"\n"}</span>) : status === "ended" ? "No recent logs.\n" : "Waiting for log output…\n"}</pre>
+    }}>{lines.length ? matches.rendered.map((line, index) => <span key={index} className={line.stream === "stderr" ? styles.logErrorLine : undefined}>{line.parts.map((part, index) => part.match === undefined ? part.text : <mark key={index} data-log-match={part.match} data-active={part.match === activeMatch}>{part.text}</mark>)}{line.lineEnd===false?"":"\n"}</span>) : (status === "ended"||historyMode) ? "No recent logs.\n" : "Waiting for log output…\n"}</pre>
     <label className={styles.followOutput}><input type="checkbox" checked={followOutput} onChange={(event) => setFollowOutput(event.target.checked)} /> Follow output</label>
     <footer className={logStyles.exportFooter}>
       <span>Last export: {exportStatus?.exportedAt ? new Date(exportStatus.exportedAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : exportStatus ? "Never" : "Unavailable"}</span>
-      <button ref={exportButton} type="button" className={styles.inspectButton} disabled={!lines.length || !exportStatus?.available} onClick={() => { setExportError(""); setSnapshot({ id: container.id, name: container.service || container.name, content: lines.map(line => line.text).join("\n") + "\n", count: lines.length }); }}><i className="ph-bold ph-export" aria-hidden="true" />Export log</button>
+      <button ref={exportButton} type="button" className={styles.inspectButton} disabled={!lines.length || !exportStatus?.available} onClick={() => { setExportError(""); setSnapshot({ id: container.id, name: container.service || container.name, content: logText(lines), count: lines.length }); }}><i className="ph-bold ph-export" aria-hidden="true" />Export log</button>
     </footer>
     {exportStatus?.reason && <p className={logStyles.exportHint}>{exportStatus.reason}</p>}
     {exportError && !snapshot && <p className={logStyles.exportError} role="alert">{exportError} <button type="button" className={styles.inspectButton} onClick={() => setStatusRetry(value => value + 1)}>Retry export status</button></p>}

@@ -192,7 +192,7 @@ func (s *Server) controlAction(w http.ResponseWriter, r *http.Request, container
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	result, err := s.runAction(ctx, r.PathValue("id"), container, action)
-	dto := controlActionResult{Action: string(action), Succeeded: result.Succeeded, Skipped: result.Skipped, Failed: result.Failed, Queued: result.Queued, Failures: failuresDTO(result.Failures)}
+	dto := controlActionResult{Warnings: result.Warnings, Action: string(action), Succeeded: result.Succeeded, Skipped: result.Skipped, Failed: result.Failed, Queued: result.Queued, Failures: failuresDTO(result.Failures)}
 	writeControlResult(w, ctx, err, dto, result.Failed, result.Succeeded, result.Skipped, result.Queued, result.Failures)
 }
 

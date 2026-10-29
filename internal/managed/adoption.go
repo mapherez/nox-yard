@@ -259,11 +259,14 @@ func compareAdoption(name, directory string, model composeModel, items []contain
 		}
 		labels, desiredLabels := map[string]string{}, map[string]string{}
 		for key, value := range item.Config.Labels {
-			if !strings.HasPrefix(key, "com.docker.compose.") {
+			if !strings.HasPrefix(key, "com.docker.compose.") && key != "nox-yard.operation" {
 				labels[key] = value
 			}
 		}
 		for key, value := range base.Config.Labels {
+			if key == "nox-yard.operation" {
+				continue
+			}
 			desiredLabels[key] = value
 		}
 		for key, value := range service.Labels {
@@ -397,12 +400,16 @@ func verifyAdoptionBinds(directory string, model composeModel, items []container
 		}
 		service := model.Services[item.Config.Labels["com.docker.compose.service"]]
 		for _, desired := range service.Volumes {
-			if desired.Type != "bind" || path.IsAbs(desired.Source) {
+			if desired.Type != "bind" {
 				continue
+			}
+			source := desired.Source
+			if !path.IsAbs(source) {
+				source = path.Join(directory, source)
 			}
 			matched := false
 			for _, actual := range item.Mounts {
-				if actual.Type == "bind" && actual.Destination == desired.Target && path.Clean(actual.Source) == path.Join(directory, desired.Source) {
+				if actual.Type == "bind" && actual.Destination == desired.Target && path.Clean(actual.Source) == path.Clean(source) {
 					matched = true
 				}
 			}
@@ -412,4 +419,35 @@ func verifyAdoptionBinds(directory string, model composeModel, items []container
 		}
 	}
 	return nil
+}
+
+// comparableRuntimeBinds accepts alternate daemon/host spellings only after a
+// read-only helper proves they refer to the same filesystem object. Recovery
+// retains the original inspections; normalization is for source comparison only.
+func comparableRuntimeBinds(ctx context.Context, directory string, model composeModel, runtime []container.InspectResponse) []container.InspectResponse {
+	result := slices.Clone(runtime)
+	for i, item := range result {
+		if item.Config == nil {
+			continue
+		}
+		result[i].Mounts = slices.Clone(item.Mounts)
+		for j, actual := range item.Mounts {
+			if actual.Type != "bind" {
+				continue
+			}
+			for _, desired := range model.Services[item.Config.Labels["com.docker.compose.service"]].Volumes {
+				if desired.Type != "bind" || desired.Target != actual.Destination {
+					continue
+				}
+				source := desired.Source
+				if !path.IsAbs(source) {
+					source = path.Join(directory, source)
+				}
+				if source != actual.Source && sameHostSource(ctx, source, actual.Source) {
+					result[i].Mounts[j].Source = source
+				}
+			}
+		}
+	}
+	return result
 }

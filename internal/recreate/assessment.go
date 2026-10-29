@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mapherez/nox-yard/internal/composeorder"
 	"reflect"
 	"sort"
 	"strings"
@@ -396,29 +397,13 @@ func dependencyOrder(entries []*entry) ([]int, error) {
 			}
 		}
 	}
-	order, visiting, visited := []int{}, map[int]bool{}, map[int]bool{}
-	var visit func(int) error
-	visit = func(i int) error {
-		if visiting[i] {
-			return fmt.Errorf("%w: cyclic Compose dependencies", ErrUnsupported)
-		}
-		if visited[i] {
-			return nil
-		}
-		visiting[i] = true
-		for _, dep := range dependencies[i] {
-			if err := visit(dep); err != nil {
-				return err
-			}
-		}
-		visiting[i], visited[i] = false, true
-		order = append(order, i)
-		return nil
+	labels := make([]map[string]string, len(entries))
+	for i, target := range entries {
+		labels[i] = target.Old.Config.Labels
 	}
-	for i := range entries {
-		if err := visit(i); err != nil {
-			return nil, err
-		}
+	order, err := composeorder.Labels(labels)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrUnsupported, err)
 	}
 	return order, nil
 }

@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
@@ -26,13 +27,15 @@ import (
 var ErrConflict = errors.New("managed project conflict")
 
 type Request struct {
-	Name        string            `json:"name"`
-	Source      SourceInput       `json:"source"`
-	Variables   map[string]string `json:"variables"`
-	EnvFiles    map[string]string `json:"envFiles"`
-	Mode        string            `json:"mode"`
-	Fingerprint string            `json:"fingerprint,omitempty"`
-	ProjectDir  string            `json:"projectDir,omitempty"`
+	InterpolationFiles *[]string         `json:"interpolationFiles,omitempty"`
+	Name               string            `json:"name"`
+	Profiles           []string          `json:"profiles,omitempty"`
+	Source             SourceInput       `json:"source"`
+	Variables          map[string]string `json:"variables"`
+	EnvFiles           map[string]string `json:"envFiles"`
+	Mode               string            `json:"mode"`
+	Fingerprint        string            `json:"fingerprint,omitempty"`
+	ProjectDir         string            `json:"projectDir,omitempty"`
 }
 
 type ProjectPreview struct {
@@ -172,11 +175,17 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 			return ProjectPreview{}, Source{}, err
 		}
 	}
-	preview, err := Validate(ctx, input.Name, source, input.Variables, input.EnvFiles, projectDir)
+	preview, err := validateWithContext(ctx, input.Name, source, input.Variables, input.EnvFiles, projectDir, ComposeContext{Profiles: profileSelection(input.Profiles), EnvFiles: input.InterpolationFiles})
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
 	}
 	result := ProjectPreview{Preview: preview, ProjectDir: projectDir, SourceKind: source.Kind, SourceURL: source.URL, Duplicates: []string{}, Changes: []string{}, Mode: input.Mode, ExternalMatch: external, AdoptionDir: adoptDir, runtimeFingerprint: runtimeSignature}
+	if input.Profiles != nil {
+		if input.EnvFiles == nil {
+			input.EnvFiles = map[string]string{}
+		}
+		input.EnvFiles[".env"] = materializedEnvironment(map[string]string{"COMPOSE_PROFILES": strings.Join(input.Profiles, ",")}, input.EnvFiles)[".env"]
+	}
 	result.variables, result.envFiles = input.Variables, input.EnvFiles
 	if input.Mode == "sync" && isManaged {
 		encodedEnv, _ := json.Marshal(input.EnvFiles)
@@ -215,7 +224,8 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 		if comparisonDir == "" {
 			comparisonDir = projectDir
 		}
-		changes, err := compareAdoption(input.Name, comparisonDir, preview.model, runtime, defaults)
+		comparable := comparableRuntimeBinds(ctx, comparisonDir, preview.model, runtime)
+		changes, err := compareAdoption(input.Name, comparisonDir, preview.model, comparable, defaults)
 		if err != nil {
 			return ProjectPreview{}, Source{}, err
 		}
@@ -223,7 +233,7 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 		encoded, _ := json.Marshal(defaults)
 		imageSignature = fingerprint(encoded)
 		if input.Mode == "adopt" {
-			if err := verifyAdoptionBinds(projectDir, preview.model, runtime); err != nil {
+			if err := verifyAdoptionBinds(projectDir, preview.model, comparable); err != nil {
 				return ProjectPreview{}, Source{}, err
 			}
 			result.filesFingerprint, err = m.adoptionFiles(ctx, projectDir, source.YAML, input.EnvFiles, "", false)
@@ -372,7 +382,7 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 	envFilesJSON, _ := json.Marshal(preview.envFiles)
 	projectRecord := store.ManagedProject{Name: input.Name, SourceKind: source.Kind, SourceURL: source.URL, Filename: source.Filename,
 		YAML: source.YAML, VariablesJSON: string(variablesJSON), EnvFilesJSON: string(envFilesJSON), ProjectDir: preview.ProjectDir}
-	return m.enqueue(ctx, projectRecord, input.Mode, workerPayload{Project: projectRecord, RuntimeFingerprint: preview.runtimeFingerprint, FilesFingerprint: preview.filesFingerprint})
+	return m.enqueue(ctx, projectRecord, input.Mode, workerPayload{Project: projectRecord, Context: ComposeContext{Profiles: profileSelection(input.Profiles), EnvFiles: input.InterpolationFiles}, RuntimeFingerprint: preview.runtimeFingerprint, FilesFingerprint: preview.filesFingerprint})
 }
 
 func composeCommand(ctx context.Context, name, content string, variables, envFiles map[string]string, hostProjectDir string, args ...string) error {
@@ -399,12 +409,12 @@ func (m *Manager) Job(id string) (store.ManagedJob, bool, error) {
 }
 
 func (m *Manager) Operation(name, operation string, removeVolumes bool) (store.ManagedJob, error) {
-	return m.operation(name, operation, removeVolumes, "")
+	return m.operation(name, operation, removeVolumes, false, "")
 }
 func (m *Manager) OperationWithPreview(name, operation string, removeVolumes bool, removalFingerprint string) (store.ManagedJob, error) {
-	return m.operation(name, operation, removeVolumes, removalFingerprint)
+	return m.operation(name, operation, removeVolumes, false, removalFingerprint)
 }
-func (m *Manager) operation(name, operation string, removeVolumes bool, removalFingerprint string) (store.ManagedJob, error) {
+func (m *Manager) operation(name, operation string, removeVolumes, removeImages bool, removalFingerprint string) (store.ManagedJob, error) {
 	if name == "nox-yard" {
 		return store.ManagedJob{}, fmt.Errorf("%w: Yard cannot manage itself", ErrConflict)
 	}
@@ -445,7 +455,8 @@ func (m *Manager) operation(name, operation string, removeVolumes bool, removalF
 		}
 		defer engine.Close()
 		engine.SetStore(m.data)
-		preview, err := engine.PreviewRemoval(ctx, "compose:"+name, removeVolumes)
+		engine.SetRemovalSource(m.RemovalSource)
+		preview, err := engine.PreviewRemovalChoices(ctx, "compose:"+name, removeVolumes, removeImages)
 		if err != nil {
 			return store.Job{}, err
 		}
@@ -457,7 +468,7 @@ func (m *Manager) operation(name, operation string, removeVolumes bool, removalF
 		// worker check instead of Compose down --volumes.
 		removalFingerprint = preview.Fingerprint
 	}
-	return m.enqueue(ctx, project, operation, workerPayload{Project: project, RemoveVolumes: removeVolumes, RemovalFingerprint: removalFingerprint})
+	return m.enqueue(ctx, project, operation, workerPayload{Project: project, RemoveVolumes: removeVolumes, RemoveImages: removeImages, RemovalFingerprint: removalFingerprint})
 }
 
 func (m *Manager) runtimeReplacement(ctx context.Context, name, operation string, automatic bool) (store.Job, error) {
@@ -484,4 +495,15 @@ func fingerprint(data []byte) string {
 	// A fingerprint is a confirmation token, not a secret.
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
+}
+
+func (m *Manager) OperationWithChoices(name, operation string, removeVolumes, removeImages bool, fingerprint string) (store.ManagedJob, error) {
+	return m.operation(name, operation, removeVolumes, removeImages, fingerprint)
+}
+
+func profileSelection(value []string) *[]string {
+	if value == nil {
+		return nil
+	}
+	return &value
 }

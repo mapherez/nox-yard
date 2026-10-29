@@ -40,6 +40,7 @@ var cliPaths = map[string]string{
 	"yard_container_inspect":            "container inspect",
 	"yard_container_environment":        "container env",
 	"yard_container_logs":               "container logs",
+	"yard_container_log_history":        "container log history",
 	"yard_container_action":             "container action",
 	"yard_project_action":               "project action",
 	"yard_container_pull":               "container pull",
@@ -48,6 +49,8 @@ var cliPaths = map[string]string{
 	"yard_project_schedule_set":         "project schedule set",
 	"yard_project_configuration_read":   "project configuration read",
 	"yard_project_configuration_save":   "project configuration save",
+	"yard_project_override_preview":     "project override preview",
+	"yard_project_override_apply":       "project override apply",
 	"yard_project_variable_set":         "project variable set",
 	"yard_container_remove_preview":     "container remove preview",
 	"yard_project_remove_preview":       "project remove preview",
@@ -108,7 +111,7 @@ func register[I, O any](b *builder, name, title, description string, f flags, ex
 				return nil, &noxmcp.Error{Code: "FORBIDDEN", Message: "Write access is required."}
 			}
 			reveal, _ := args["reveal"].(bool)
-			if !policy.Secrets && (name == "yard_container_environment" || name == "yard_container_logs" || (name == "yard_project_configuration_read" && reveal)) {
+			if !policy.Secrets && (name == "yard_container_environment" || name == "yard_container_logs" || name == "yard_container_log_history" || name == "yard_project_override_preview" || name == "yard_project_override_apply" || (name == "yard_project_configuration_read" && reveal)) {
 				return nil, &noxmcp.Error{Code: "FORBIDDEN", Message: "Sensitive data access is required."}
 			}
 			data, err := json.Marshal(args)
@@ -126,7 +129,12 @@ func register[I, O any](b *builder, name, title, description string, f flags, ex
 					return nil, public
 				}
 				_, p := application.ClassifyError(err, false)
-				return nil, toolError(p, nil)
+				e := toolError(p, nil)
+				var diagnostic *managed.ComposeDiagnostic
+				if errors.As(err, &diagnostic) {
+					e.Details = map[string]any{"diagnostic": diagnostic}
+				}
+				return nil, e
 			}
 			return object(value)
 		}})
@@ -162,11 +170,17 @@ type configurationReadInput struct {
 	ID     string `json:"id"`
 	Reveal bool   `json:"reveal,omitempty"`
 }
+type overrideInput struct {
+	ID string `json:"id"`
+	managed.OverrideRequest
+}
 type configurationSaveInput struct {
-	ID          string `json:"id"`
-	Fingerprint string `json:"fingerprint"`
-	Path        string `json:"path"`
-	Content     string `json:"content"`
+	InterpolationFiles *[]string `json:"interpolationFiles,omitempty"`
+	Profiles           *[]string `json:"profiles,omitempty"`
+	ID                 string    `json:"id"`
+	Fingerprint        string    `json:"fingerprint"`
+	Path               string    `json:"path"`
+	Content            string    `json:"content"`
 }
 type variableSetInput struct {
 	ID          string `json:"id"`
@@ -197,16 +211,19 @@ type removalInput struct {
 	Confirm       bool   `json:"confirm"`
 	Fingerprint   string `json:"fingerprint"`
 	RemoveVolumes bool   `json:"removeVolumes,omitempty"`
+	RemoveImages  bool   `json:"removeImages,omitempty"`
 }
 
 type removalPreviewInput struct {
 	ID            string `json:"id"`
 	RemoveVolumes bool   `json:"removeVolumes,omitempty"`
+	RemoveImages  bool   `json:"removeImages,omitempty"`
 }
 type composeOperation struct {
 	Name          string `json:"name"`
 	Operation     string `json:"operation"`
 	RemoveVolumes bool   `json:"removeVolumes"`
+	RemoveImages  bool   `json:"removeImages,omitempty"`
 	Fingerprint   string `json:"fingerprint,omitempty"`
 }
 type settingsInput struct {
@@ -218,6 +235,10 @@ type updateSettings struct {
 }
 type metricsOutput struct {
 	Metrics map[string]inventory.Metrics `json:"metrics"`
+}
+type logHistoryInput struct {
+	ID string `json:"id"`
+	inventory.LogHistoryQuery
 }
 type logsOutput struct {
 	Lines []inventory.LogLine `json:"lines"`
@@ -234,6 +255,7 @@ type failure struct {
 	Message string `json:"message"`
 }
 type actionOutput struct {
+	Warnings  []string         `json:"warnings,omitempty"`
 	Action    lifecycle.Action `json:"action"`
 	Succeeded int              `json:"succeeded"`
 	Skipped   int              `json:"skipped"`
@@ -258,6 +280,13 @@ func failures(items []lifecycle.Failure) []failure {
 }
 func New(app *application.Service, version string, policies ...machineauth.Policy) (*noxmcp.Runtime, error) {
 	b := &builder{}
+	register(b, "yard_project_override_preview", "Preview Compose override", "Read a source once and review the combined effective Compose configuration. Requires sensitive reads. No files or containers change. Use the returned frozen source and fingerprints when applying.", read, func(ctx context.Context, in overrideInput) (managed.OverridePreview, error) {
+		return app.PreviewProjectOverride(ctx, in.ID, in.OverrideRequest)
+	})
+	register(b, "yard_project_override_apply", "Save Compose override", "Save the reviewed override or remove it from selection. Requires writes and sensitive reads. Files remain separate; no containers change. Apply through Recreate afterwards.", write, func(ctx context.Context, in overrideInput) (managed.FileConfigurationView, error) {
+		view, err := app.ApplyProjectOverride(ctx, in.ID, in.OverrideRequest)
+		return application.RedactProjectConfiguration(view), err
+	})
 	register(b, "yard_project_configuration_read", "Read project configuration", "Read current Compose, .env and env_file metadata from host files, including fingerprint and pending variable changes. Requires a compose: project ID, including Yard. File contents and variable values are hidden unless reveal is explicitly true; treat revealed output as sensitive. Does not change files or containers.", read, func(ctx context.Context, in configurationReadInput) (managed.FileConfigurationView, error) {
 		if err := configurationTarget(in.ID); err != nil {
 			return managed.FileConfigurationView{}, err
@@ -268,10 +297,10 @@ func New(app *application.Service, version string, policies ...machineauth.Polic
 		if err := configurationTarget(in.ID); err != nil {
 			return managed.FileConfigurationView{}, err
 		}
-		if in.Path == "" || in.Fingerprint == "" {
+		if (in.Path == "" && in.Profiles == nil && in.InterpolationFiles == nil) || in.Fingerprint == "" {
 			return managed.FileConfigurationView{}, managed.ErrInvalidSource
 		}
-		view, err := app.SaveProjectConfiguration(ctx, in.ID, managed.ConfigurationEdit{Fingerprint: in.Fingerprint, Path: in.Path, Content: in.Content})
+		view, err := app.SaveProjectConfiguration(ctx, in.ID, managed.ConfigurationEdit{Fingerprint: in.Fingerprint, Path: in.Path, Content: in.Content, Profiles: in.Profiles, InterpolationFiles: in.InterpolationFiles})
 		return application.RedactProjectConfiguration(view), err
 	})
 	register(b, "yard_project_variable_set", "Set project environment variable", "Validate and save one existing service variable in its current Compose or env file definition, preserving other values. Requires compose: project ID, service, name, value (empty is allowed) and the current configuration fingerprint. Does not change containers. Returns metadata and pending flags with values hidden. Apply using the reviewed Recreate flow; Restart does not apply configuration changes.", write, func(ctx context.Context, in variableSetInput) (managed.FileConfigurationView, error) {
@@ -326,6 +355,12 @@ func New(app *application.Service, version string, policies ...machineauth.Polic
 			return app.Inspect(ctx, in.ID, reveal)
 		})
 	}
+	register(b, "yard_container_log_history", "Container Docker log history", "Read a bounded page of retained Docker history, with RFC3339 since/until and opaque next cursor. Requires sensitive reads. Does not save logs or change retention. Continue using the returned next cursor; repeated timestamps are not deduplicated.", read, func(ctx context.Context, in logHistoryInput) (inventory.LogPage, error) {
+		if err := target(in.ID, true); err != nil {
+			return inventory.LogPage{}, err
+		}
+		return app.LogHistory(ctx, in.ID, in.LogHistoryQuery)
+	})
 	register(b, "yard_container_logs", "Container log snapshot", "Read the last 20 decoded container log records, without following the log stream.", read, func(ctx context.Context, in targetInput) (logsOutput, error) {
 		if err := target(in.ID, true); err != nil {
 			return logsOutput{}, err
@@ -343,7 +378,7 @@ func New(app *application.Service, version string, policies ...machineauth.Polic
 				return actionOutput{}, err
 			}
 			result, err := app.Action(ctx, in.ID, container, in.Action)
-			out := actionOutput{result.Action, result.Succeeded, result.Skipped, result.Failed, result.Queued, failures(result.Failures)}
+			out := actionOutput{Warnings: result.Warnings, Action: result.Action, Succeeded: result.Succeeded, Skipped: result.Skipped, Failed: result.Failed, Queued: result.Queued, Failures: failures(result.Failures)}
 			_, p := application.OperationProblem(ctx, err, result.Failed, result.Succeeded, result.Skipped, result.Queued, result.Failures)
 			if p != nil {
 				return out, toolError(*p, out)
@@ -366,13 +401,13 @@ func New(app *application.Service, version string, policies ...machineauth.Polic
 			if err := target(in.ID, container); err != nil {
 				return lifecycle.RemovalPlan{}, err
 			}
-			return app.PreviewRemoveWithOptions(ctx, in.ID, container, in.RemoveVolumes)
+			return app.PreviewRemoveWithOptions(ctx, in.ID, container, in.RemoveVolumes, in.RemoveImages)
 		})
 		register(b, "yard_"+kind+"_remove", "Remove "+kind, "Remove resources using a confirmed current removal preview and fingerprint. Existing protection and changed-plan checks apply; shared resources and bind data retain their existing treatment.", write, func(ctx context.Context, in removalInput) (lifecycle.RemovalReport, error) {
 			if err := target(in.ID, container); err != nil {
 				return lifecycle.RemovalReport{}, err
 			}
-			out, err := app.RemoveWithOptions(ctx, in.ID, container, in.Confirm, in.Fingerprint, in.RemoveVolumes)
+			out, err := app.RemoveWithOptions(ctx, in.ID, container, in.Confirm, in.Fingerprint, in.RemoveVolumes, in.RemoveImages)
 			if err != nil {
 				_, p := application.ClassifyError(err, true)
 				return out, toolError(p, out)
@@ -391,7 +426,7 @@ func New(app *application.Service, version string, policies ...machineauth.Polic
 	register(b, "yard_compose_preview", "Preview Compose project", "Validate the existing new, copy, sync or adopt request and return its preview/fingerprint. No deployment is submitted.", read, app.ComposePreview)
 	register(b, "yard_compose_submit", "Submit Compose project", "Submit a previously reviewed Compose request with its current fingerprint. May create, synchronize or adopt a project. Returns a job; query yard_compose_job for completion.", write, app.ComposeSubmit)
 	register(b, "yard_compose_operation", "Run Compose operation", "Submit start, stop, restart, pull, recreate, legacy update or remove for a stored managed project. Recreate uses current host configuration and local images without pull/build. Removal defaults to retaining volumes; removeVolumes true only permits exclusive identifiable resources. Supply a current yard_project_remove_preview fingerprint for reviewed removal. Older requests without it are assessed at submission and rechecked by the worker. Returns a job, not completed work.", write, func(ctx context.Context, in composeOperation) (store.ManagedJob, error) {
-		return app.ComposeOperationWithPreview(ctx, in.Name, in.Operation, in.RemoveVolumes, in.Fingerprint)
+		return app.ComposeOperationWithChoices(ctx, in.Name, in.Operation, in.RemoveVolumes, in.RemoveImages, in.Fingerprint)
 	})
 	register(b, "yard_compose_job", "Compose job status", "Read the persisted state of an accepted Compose job.", read, func(ctx context.Context, in targetInput) (store.ManagedJob, error) {
 		job, found, err := app.ComposeJob(ctx, in.ID)
@@ -447,7 +482,7 @@ func New(app *application.Service, version string, policies ...machineauth.Polic
 			if !policy.Write && !tool.ReadOnly {
 				continue
 			}
-			if !policy.Secrets && (tool.Name == "yard_container_environment" || tool.Name == "yard_container_logs") {
+			if !policy.Secrets && (tool.Name == "yard_container_environment" || tool.Name == "yard_container_logs" || tool.Name == "yard_container_log_history" || tool.Name == "yard_project_override_preview" || tool.Name == "yard_project_override_apply") {
 				continue
 			}
 			allowed = append(allowed, tool)

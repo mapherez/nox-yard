@@ -91,6 +91,7 @@ func (s *Server) removeOperation(w http.ResponseWriter, r *http.Request, isConta
 		Confirm       bool   `json:"confirm"`
 		Fingerprint   string `json:"fingerprint"`
 		RemoveVolumes bool   `json:"removeVolumes"`
+		RemoveImages  bool   `json:"removeImages"`
 	}
 	if !preview {
 		if !decodeJSON(w, r, &input) {
@@ -107,9 +108,9 @@ func (s *Server) removeOperation(w http.ResponseWriter, r *http.Request, isConta
 	var result any
 	var err error
 	if preview {
-		result, err = s.application.PreviewRemoveWithOptions(ctx, id, isContainer, r.URL.Query().Get("removeVolumes") == "true")
+		result, err = s.application.PreviewRemoveWithOptions(ctx, id, isContainer, r.URL.Query().Get("removeVolumes") == "true", r.URL.Query().Get("removeImages") == "true")
 	} else {
-		result, err = s.application.RemoveWithOptions(ctx, id, isContainer, input.Confirm, input.Fingerprint, input.RemoveVolumes)
+		result, err = s.application.RemoveWithOptions(ctx, id, isContainer, input.Confirm, input.Fingerprint, input.RemoveVolumes, input.RemoveImages)
 	}
 	switch {
 	case errors.Is(err, lifecycle.ErrNotFound):

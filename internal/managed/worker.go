@@ -13,12 +13,14 @@ import (
 )
 
 type workerPayload struct {
+	Context             ComposeContext
 	NativeAction        string
 	FileJob             *fileDeployment
 	Project             store.ManagedProject
 	RuntimeFingerprint  string
 	FilesFingerprint    string
 	RemoveVolumes       bool
+	RemoveImages        bool
 	RemovalFingerprint  string
 	RemovalCleanupError string
 	Deployment          *deploymentSnapshot
@@ -157,7 +159,10 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 			}
 			return m.data.FinishJob(job.ID, job.Owner, "succeeded", "cached", "", "")
 		}
-		result, err := engine.Project(ctx, "compose:"+payload.Project.Name, lifecycle.Action(payload.NativeAction))
+		result, err := m.LifecycleFiles(ctx, payload.Project.Name, lifecycle.Action(payload.NativeAction))
+		if errors.Is(err, ErrFilesMissing) {
+			result, err = engine.Project(ctx, "compose:"+payload.Project.Name, lifecycle.Action(payload.NativeAction))
+		}
 		if err != nil || result.Failed > 0 {
 			return fail("Container lifecycle operation failed; configuration files were not applied.")
 		}
@@ -265,7 +270,8 @@ func (m *Manager) execute(ctx context.Context, job store.Job) error {
 		}
 		defer engine.Close()
 		engine.SetStore(m.data)
-		report, err := engine.RemoveWithOptions(ctx, "compose:"+project.Name, payload.RemovalFingerprint, payload.RemoveVolumes)
+		engine.SetRemovalSource(m.RemovalSource)
+		report, err := engine.RemoveWithChoices(ctx, "compose:"+project.Name, payload.RemovalFingerprint, payload.RemoveVolumes, payload.RemoveImages)
 		if err != nil {
 			if ctx.Err() != nil {
 				return m.data.FinishJob(job.ID, job.Owner, "failed", "recovery_required", "Removal completion is uncertain. Inspect retained resources before acknowledging recovery.", "")

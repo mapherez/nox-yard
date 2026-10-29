@@ -13,6 +13,7 @@ import (
 
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/jobs"
+	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/mapherez/nox-yard/internal/yardrelease"
@@ -60,6 +61,11 @@ func (m *Manager) ServiceFilePreview(ctx context.Context, name, operation, servi
 			return recreate.Preview{}, err
 		}
 	}
+	if operation != "pull" {
+		if err := assessFileRecovery(selected, operation == "update"); err != nil {
+			return recreate.Preview{}, err
+		}
+	}
 	view := recreate.Preview{Items: []recreate.Item{}, Order: []string{}}
 	for _, item := range selected {
 		if item.Config == nil || item.State == nil || item.HostConfig == nil || item.State.Paused || item.State.Restarting {
@@ -92,6 +98,17 @@ func (m *Manager) FileOperation(ctx context.Context, name, operation, confirmedF
 }
 
 func (m *Manager) ServiceFileOperation(ctx context.Context, name, operation, service, confirmedFingerprint string) (store.Job, error) {
+	active, err := m.data.Jobs(ctx, "compose:"+name, true)
+	if err != nil {
+		return store.Job{}, err
+	}
+	owned, _ := jobs.FromContext(ctx)
+	for _, job := range active {
+		if job.ID != owned.ID {
+			return store.Job{}, store.ErrOperationConflict
+		}
+	}
+
 	if service != "" && operation != "recreate" {
 		return store.Job{}, ErrInvalidSource
 	}
@@ -116,8 +133,7 @@ func (m *Manager) ServiceFileOperation(ctx context.Context, name, operation, ser
 	if fileOperationFingerprint(source, runtime, operation, service) != preview.Fingerprint {
 		return store.Job{}, fmt.Errorf("%w: project changed during confirmation; review again", ErrConflict)
 	}
-	location, _ := json.Marshal(source.ComposeFiles)
-	if err := m.data.SetFileConfiguration(store.FileConfiguration{Name: name, Directory: source.Directory, ComposeFiles: string(location), State: "ready"}); err != nil {
+	if err := m.data.SetFileConfiguration(configurationLocation(source)); err != nil {
 		return store.Job{}, err
 	}
 	project := store.ManagedProject{Name: name, ProjectDir: source.Directory, YAML: string(source.Resolved), VariablesJSON: "{}", EnvFilesJSON: "{}"}
@@ -173,13 +189,19 @@ func validateSelfFileConfiguration(preview Preview, runtime []container.InspectR
 					continue
 				}
 				for _, next := range service.Volumes {
-					if next.Target == destination && next.Type == "bind" && next.Source == old.Source && !next.ReadOnly {
+					if next.Target != destination || next.ReadOnly {
+						continue
+					}
+					if next.Type == "bind" && string(old.Type) == "bind" && sameHostSource(context.Background(), old.Source, next.Source) {
+						preserved = true
+					}
+					if destination == "/data" && next.Type == "volume" && string(old.Type) == "volume" && preview.model.Volumes[next.Source].Name == old.Name && old.Name != "" {
 						preserved = true
 					}
 				}
 			}
 			if !preserved {
-				return fmt.Errorf("%w: Yard's persistent data and Docker socket mounts must be preserved for independent recovery", ErrInvalidSource)
+				return fmt.Errorf("%w: Yard's %s mount must preserve its existing type, source and write access for independent recovery", ErrInvalidSource, destination)
 			}
 		}
 	}
@@ -190,13 +212,14 @@ func filePreview(source FileSnapshot) Preview {
 	var model composeModel
 	decoded, _ := decodedComposeModel(source.Resolved)
 	_ = json.Unmarshal(decoded, &model)
+	model.ActiveServices = source.ActiveServices
 	return Preview{Name: source.Name, model: model, resolved: source.Resolved}
 }
 
 func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payload workerPayload) error {
 	work := payload.FileJob
 	preview := scopedFilePreview(work.Source, work.Service)
-	selected := serviceRuntime(work.Runtime, work.Service)
+	selected := selectedFileRuntime(work.Source, work.Runtime, work.Service)
 	fail := func(message string) error {
 		outcome, rollback := "failed", "not_needed"
 		inspection, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -242,7 +265,10 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 				}
 			}
 			if restoreErr == nil {
-				restoreErr = recreate.RestoreServiceRuntime(recovery, job.ProjectName, work.Service, work.Runtime)
+				restoreErr = recreate.RestoreOperationRuntime(recovery, job.ProjectName, work.Service, work.Runtime, work.Source.ActiveServices, job.ID)
+			}
+			if restoreErr == nil {
+				restoreErr = m.markObservedSource(recovery, job.ProjectName)
 			}
 			if restoreErr != nil {
 				outcome, rollback = "recovery_required", "failed"
@@ -269,7 +295,10 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 	if err != nil || adoptionRuntimeFingerprint(runtime) != adoptionRuntimeFingerprint(work.Runtime) || !sameRunningState(runtime, work.Runtime) {
 		return fail("Existing containers changed before execution; review again.")
 	}
-	pullDefinition := string(work.Source.Resolved)
+	pullDefinition, err := resolvedDefinition(preview, work.Source.Directory, nil)
+	if err != nil {
+		return fail("Resolved configuration could not be prepared.")
+	}
 	if work.Self && job.Operation == "update" {
 		pullDefinition, err = verifiedYardPull(work, preview)
 		if err != nil {
@@ -321,6 +350,9 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 	}
 	// Explicit Recreate applies saved configuration even with identical images.
 	work.Definition, err = resolvedDefinition(preview, work.Source.Directory, targets)
+	if err == nil {
+		work.Definition, err = definitionOperation(work.Definition, job.ID)
+	}
 	if err == nil && work.VerifiedYard != nil {
 		work.Definition, err = definitionPlatforms(work.Definition, map[string]string{"nox-yard": "linux/" + work.VerifiedYard.Architecture})
 	}
@@ -349,6 +381,13 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 		} else if reason != "" {
 			return m.data.FinishJob(job.ID, job.Owner, "succeeded", "skipped", reason, "")
 		}
+	}
+	fresh, err := m.runtime(ctx, job.ProjectName)
+	if err != nil || adoptionRuntimeFingerprint(fresh) != adoptionRuntimeFingerprint(work.Runtime) || !sameRunningState(fresh, work.Runtime) {
+		return fail("Existing containers changed during preparation; review again.")
+	}
+	if err := assessFileRecovery(selectedFileRuntime(work.Source, fresh, work.Service), false); err != nil {
+		return fail(err.Error())
 	}
 	work.Mutation = true
 	if err := m.saveDeployment(job, payload, "replacing"); err != nil {
@@ -423,6 +462,9 @@ func (m *Manager) executeFileDeployment(ctx context.Context, job store.Job, payl
 	}
 	if err := m.verifyFileDeployment(ctx, job.ProjectName, verification.model, targets, work); err != nil {
 		return fail("Recreated images did not match the prepared local images.")
+	}
+	if err := m.markObservedSource(ctx, job.ProjectName); err != nil {
+		return fail("Configuration source metadata could not be committed.")
 	}
 	if err := m.data.FinishJob(job.ID, job.Owner, "succeeded", "verified", "", ""); err != nil {
 		return err
@@ -546,7 +588,7 @@ func fileAutomaticRuntime(name string, preview Preview, runtime []container.Insp
 		}
 	}
 	if !self {
-		return automaticRuntime(preview, runtime)
+		return automaticRuntime(preview, selectedFileRuntime(FileSnapshot{ActiveServices: preview.model.ActiveServices}, runtime, ""))
 	}
 	return len(runtime) == 1 && runtime[0].State != nil && runtime[0].State.Running && !runtime[0].State.Restarting && !runtime[0].State.Paused && runtime[0].State.Health != nil && runtime[0].State.Health.Status == "healthy"
 }
@@ -569,4 +611,23 @@ func (m *Manager) ScheduledFileUpdate(ctx context.Context, name string) (store.J
 		return store.Job{}, err
 	}
 	return m.FileOperation(ctx, name, "update", "")
+}
+
+// An update can discover identical images and finish without replacement even
+// when health is degraded. All configured recovery capabilities are checked in
+// preview; health is required again immediately before any actual mutation.
+func assessFileRecovery(selected []container.InspectResponse, deferHealth bool) error {
+	recoverable := []container.InspectResponse{}
+	for _, item := range selected {
+		if item.Config == nil || lifecycle.Protected(item.ID, item.Config.Labels) {
+			continue
+		}
+		if deferHealth && item.State != nil {
+			state := *item.State
+			state.Health = nil
+			item.State = &state
+		}
+		recoverable = append(recoverable, item)
+	}
+	return recreate.AssessRuntimeRecovery(recoverable)
 }

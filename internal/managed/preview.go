@@ -5,15 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/mapherez/nox-yard/internal/imageidentity"
 	"gopkg.in/yaml.v3"
@@ -51,13 +47,15 @@ type Preview struct {
 // Resolved Compose configuration is internal: environment and command values
 // must not become part of the public preview or its error messages.
 type composeModel struct {
-	Services map[string]modelService  `json:"services"`
-	Volumes  map[string]modelResource `json:"volumes"`
-	Networks map[string]modelResource `json:"networks"`
+	Services       map[string]modelService  `json:"services"`
+	Volumes        map[string]modelResource `json:"volumes"`
+	Networks       map[string]modelResource `json:"networks"`
+	ActiveServices []string                 `json:"-"`
 }
 
 type modelResource struct {
-	Name string `json:"name"`
+	External bool   `json:"external"`
+	Name     string `json:"name"`
 }
 type modelPort struct {
 	Published string `json:"published"`
@@ -139,74 +137,41 @@ func (s *modelService) UnmarshalJSON(data []byte) error {
 // Variables lists Compose interpolation names without sending their values back
 // to the browser. Compose itself remains authoritative during validation.
 func Variables(content string) []Variable {
-	values := map[string]Variable{}
-	for _, match := range interpolationPattern.FindAllStringSubmatchIndex(content, -1) {
-		if match[0] > 0 && content[match[0]-1] == '$' {
-			continue
-		}
-		name := content[match[2]:match[3]]
-		modifier := content[match[4]:match[5]]
-		variable := Variable{Name: name, Required: !strings.HasPrefix(modifier, "-") && !strings.HasPrefix(modifier, ":-") && !strings.HasPrefix(modifier, "+") && !strings.HasPrefix(modifier, ":+")}
-		if strings.HasPrefix(modifier, ":-") {
-			variable.Default = strings.TrimPrefix(modifier, ":-")
-		} else if strings.HasPrefix(modifier, "-") {
-			variable.Default = strings.TrimPrefix(modifier, "-")
-		}
-		if previous, ok := values[name]; ok && previous.Required {
-			variable.Required = true
-		}
-		values[name] = variable
-	}
-	result := make([]Variable, 0, len(values))
-	for _, variable := range values {
-		result = append(result, variable)
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-	return result
+	values, _ := nativeVariables(context.Background(), content)
+	return values
 }
 
-func Validate(ctx context.Context, name string, source Source, variables map[string]string, envFiles map[string]string, hostProjectDir string) (Preview, error) {
+func Validate(ctx context.Context, name string, source Source, variables map[string]string, envFiles map[string]string, hostProjectDir string, profiles ...[]string) (Preview, error) {
+	configuration := ComposeContext{}
+	if len(profiles) > 0 {
+		configuration.Profiles = &profiles[0]
+	}
+	return validateWithContext(ctx, name, source, variables, envFiles, hostProjectDir, configuration)
+}
+func validateWithContext(ctx context.Context, name string, source Source, variables, envFiles map[string]string, hostProjectDir string, configuration ComposeContext) (Preview, error) {
 	if !projectNamePattern.MatchString(name) {
 		return Preview{}, fmt.Errorf("%w: project name must use lowercase letters, numbers, hyphens, or underscores", ErrInvalidSource)
 	}
 	if err := validateSourceStructure(source.YAML); err != nil {
 		return Preview{}, err
 	}
-	for _, variable := range Variables(source.YAML) {
-		if variable.Required {
-			_, supplied := variables[variable.Name]
-			if !supplied && !envFileDefines(envFiles[".env"], variable.Name) {
-				return Preview{}, fmt.Errorf("%w: provide %s before validation", ErrInvalidSource, variable.Name)
-			}
-		}
-	}
 	for key := range variables {
 		if !variableNamePattern.MatchString(key) || strings.HasPrefix(key, "COMPOSE_") || strings.HasPrefix(key, "DOCKER_") || key == "PATH" || key == "HOME" || key == "USER" || key == "TMPDIR" {
 			return Preview{}, fmt.Errorf("%w: invalid interpolation variable name", ErrInvalidSource)
 		}
 	}
-	composePath, cleanup, err := prepareCompose(source.YAML, envFiles)
-	if err != nil {
+	files := materializedEnvironment(variables, envFiles)
+	files["compose.yml"] = source.YAML
+	snapshot := FileSnapshot{Name: name, Directory: hostProjectDir, ComposeFiles: []string{"compose.yml"}, Files: files}
+	snapshot.Context = configuration
+	if err := snapshotDependencies(ctx, &snapshot, false); err != nil {
 		return Preview{}, err
 	}
-	defer cleanup()
-	commandCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	command := exec.CommandContext(commandCtx, "docker", "compose", "--ansi", "never", "-p", name, "-f", composePath, "config", "--format", "json", "--no-path-resolution")
-	command.Dir = filepath.Dir(composePath)
-	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
-	for key, value := range variables {
-		command.Env = append(command.Env, key+"="+value)
+	if err := resolveSnapshot(ctx, &snapshot); err != nil {
+		return Preview{}, err
 	}
-	output, err := command.Output()
-	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			// Stderr can contain inline YAML secrets as well as supplied env values.
-			return Preview{}, fmt.Errorf("%w: Compose validation failed; check the YAML and environment file syntax", ErrInvalidSource)
-		}
-		return Preview{}, fmt.Errorf("Compose validation is unavailable: %w", err)
-	}
+	output := snapshot.Resolved
+
 	var model composeModel
 	decoded, err := decodedComposeModel(output)
 	if err != nil {
@@ -220,12 +185,16 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 	}
 	preview := Preview{Name: name, Services: []Service{}, Volumes: []string{}, Networks: []string{}, EnvFiles: []string{}}
 	preview.model = model
+	preview.model.ActiveServices = snapshot.ActiveServices
 	preview.resolved = append(json.RawMessage(nil), output...)
 	info, _ := InspectSource(source.YAML)
 	for _, file := range info.EnvFiles {
 		preview.EnvFiles = append(preview.EnvFiles, file.Path)
 	}
 	for name, service := range model.Services {
+		if !slices.Contains(snapshot.ActiveServices, name) {
+			continue
+		}
 		if _, reserved := service.Labels[imageidentity.ReferenceLabel]; reserved {
 			return Preview{}, fmt.Errorf("%w: service %s uses a reserved Yard image-reference label", ErrInvalidSource, name)
 		}
@@ -275,7 +244,8 @@ func Validate(ctx context.Context, name string, source Source, variables map[str
 		Variables      map[string]string
 		EnvFiles       map[string]string
 		HostProjectDir string
-	}{name, source.YAML, variables, envFiles, hostProjectDir})
+		Context        ComposeContext
+	}{name, source.YAML, variables, envFiles, hostProjectDir, configuration})
 	fingerprint := sha256.Sum256(canonical)
 	preview.Fingerprint = hex.EncodeToString(fingerprint[:])
 	return preview, nil
@@ -312,31 +282,19 @@ func validateSourceStructure(content string) error {
 	if err := yaml.Unmarshal([]byte(content), &model); err != nil {
 		return fmt.Errorf("%w: invalid YAML; check the Compose syntax", ErrInvalidSource)
 	}
-	if model == nil || model["services"] == nil {
+	if model == nil || (model["services"] == nil && model["include"] == nil) {
 		return fmt.Errorf("%w: Compose file has no services", ErrInvalidSource)
 	}
-	for _, key := range []string{"include", "configs", "secrets"} {
-		if model[key] != nil {
-			return fmt.Errorf("%w: %s requires local dependencies", ErrInvalidSource, key)
-		}
-	}
-	if volumes, ok := model["volumes"].(map[string]any); ok {
-		for name, raw := range volumes {
-			if definition, ok := raw.(map[string]any); ok && definition["driver_opts"] != nil {
-				return fmt.Errorf("%w: volume %s uses unsupported driver options", ErrInvalidSource, name)
-			}
-		}
-	}
 	services, ok := model["services"].(map[string]any)
-	if !ok {
+	if !ok && model["include"] == nil {
 		return fmt.Errorf("%w: invalid services", ErrInvalidSource)
 	}
 	for name, raw := range services {
 		service, ok := raw.(map[string]any)
-		if !ok || service["image"] == nil || service["build"] != nil {
+		if !ok || (service["image"] == nil && service["extends"] == nil) {
 			return fmt.Errorf("%w: service %s must use a prebuilt image", ErrInvalidSource, name)
 		}
-		for _, key := range []string{"extends", "configs", "secrets", "develop", "label_file", "credential_spec"} {
+		for _, key := range []string{"credential_spec"} {
 			if service[key] != nil {
 				return fmt.Errorf("%w: service %s uses unsupported %s", ErrInvalidSource, name, key)
 			}

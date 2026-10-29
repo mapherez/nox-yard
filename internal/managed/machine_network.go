@@ -266,8 +266,7 @@ func (m *Manager) ApplyMachineNetwork(ctx context.Context, revision int64) (stor
 		_ = m.data.FinishJob(job.ID, job.Owner, "failed", "failed", "Settings changed before application.", "")
 		return job, store.ErrJobChanged
 	}
-	location, _ := json.Marshal(before.ComposeFiles)
-	if err := m.data.SetFileConfiguration(store.FileConfiguration{Name: name, Directory: before.Directory, ComposeFiles: string(location), State: "ready"}); err != nil {
+	if err := m.data.SetFileConfiguration(configurationLocation(before)); err != nil {
 		_ = m.data.FinishJob(job.ID, job.Owner, "failed", "failed", "Cannot persist Compose file locations.", "")
 		return job, err
 	}
@@ -326,7 +325,10 @@ func RunNetworkWorker(data *store.Store, id, owner string) (result error) {
 				outcome, rollback = "recovery_required", "not_performed"
 			} else {
 				fileErr := saveConfigurationFiles(recovery, plan.After, plan.Before)
-				runtimeErr := recreate.RestoreServiceRuntime(recovery, job.ProjectName, "nox-yard", plan.Runtime)
+				runtimeErr := recreate.RestoreOperationRuntime(recovery, job.ProjectName, "nox-yard", plan.Runtime, []string{"nox-yard"}, job.ID)
+				if runtimeErr == nil {
+					runtimeErr = m.markObservedSource(recovery, job.ProjectName)
+				}
 				if fileErr != nil || runtimeErr != nil {
 					outcome, rollback = "recovery_required", "failed"
 					message += " Inspect retained job data and host files before recovery."
@@ -377,6 +379,10 @@ func RunNetworkWorker(data *store.Store, id, owner string) (result error) {
 	if err != nil {
 		return err
 	}
+	definition, err = definitionOperation(definition, job.ID)
+	if err != nil {
+		return err
+	}
 	if err := data.JobProgress(id, owner, "replacing", nil, nil); err != nil {
 		return err
 	}
@@ -401,6 +407,9 @@ func RunNetworkWorker(data *store.Store, id, owner string) (result error) {
 	}
 	if !verified {
 		return fmt.Errorf("published ports or /healthz verification failed")
+	}
+	if err := m.markObservedSource(ctx, job.ProjectName); err != nil {
+		return err
 	}
 	if err := data.FinishJob(id, owner, "succeeded", "applied", "", ""); err != nil {
 		return err

@@ -17,3 +17,8 @@
 .exportError { color: var(--color-danger); }
 .confirm { inline-size: min(30rem, calc(100dvw - 2rem)); }
 .destination { overflow-wrap: anywhere; font-family: var(--font-code); font-size: .75rem; }
+
+.historyControls {display:flex;flex-wrap:wrap;align-items:end;gap:var(--space-3);min-inline-size:0;}
+.historyControls label {display:grid;gap:var(--space-1);font-size:.8rem;color:var(--color-text-secondary);}
+.historyControls :is(select,input) {min-block-size:2.5rem;max-inline-size:100%;padding:var(--space-2);border:1px solid var(--color-border-strong);border-radius:var(--radius-sm);background:var(--color-surface-1);color:var(--color-text-primary);font:inherit;}
+.historyControls span {font-size:.8rem;color:var(--color-text-muted);}

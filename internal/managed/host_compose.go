@@ -10,6 +10,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 )
 
 func helperImage(ctx context.Context) (string, error) {
@@ -38,6 +39,26 @@ func helperCommandArgs(args ...string) []string {
 		result = append(result, "--label", "nox-yard.job="+id)
 	}
 	return append(result, args...)
+}
+
+// Engines may report the canonical VM path after recreation (Docker Desktop,
+// for example). Accept aliases only when the daemon mounts the very same inode;
+// textual prefixes or a list of special-case paths cannot establish identity.
+func sameHostSource(ctx context.Context, previous, next string) bool {
+	if previous == next {
+		return true
+	}
+	if !path.IsAbs(previous) || !path.IsAbs(next) || strings.ContainsAny(previous+next, ",\x00\n\r") {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	image, err := helperImage(ctx)
+	if err != nil {
+		return false
+	}
+	args := helperCommandArgs("--network", "none", "--mount", "type=bind,source="+previous+",target=/previous,readonly", "--mount", "type=bind,source="+next+",target=/next,readonly", "--entrypoint", "sh", image, "-c", `[ "$(stat -c '%d:%i:%F' /previous)" = "$(stat -c '%d:%i:%F' /next)" ]`)
+	return exec.CommandContext(ctx, "docker", args...).Run() == nil
 }
 
 func checkHostBase(ctx context.Context, base string) error {

@@ -9,12 +9,14 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/imageidentity"
 	"github.com/mapherez/nox-yard/internal/jobs"
+	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/store"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
@@ -23,13 +25,15 @@ import (
 // This record is private (never serialized by job/history adapters). Keep full
 // inspect data and resolved definitions for diagnosis after uncertain exit.
 type deploymentSnapshot struct {
-	Previous       *store.ManagedProject
-	Runtime        []container.InspectResponse
-	Definition     string
-	Candidate      string
-	RetainedImages []string
-	Mutation       bool
-	FileCommit     bool
+	OperationID       string
+	CandidateServices []string
+	Previous          *store.ManagedProject
+	Runtime           []container.InspectResponse
+	Definition        string
+	Candidate         string
+	RetainedImages    []string
+	Mutation          bool
+	FileCommit        bool
 }
 
 func projectEnvironment(project store.ManagedProject) (map[string]string, map[string]string, error) {
@@ -50,7 +54,14 @@ func resolvedDefinition(preview Preview, directory string, images map[string]str
 		return "", fmt.Errorf("missing services")
 	}
 	for name, value := range services {
+
 		service := value.(map[string]any)
+		// Selection has already been resolved by Compose. The private document
+		// contains only selected services, including explicitly targeted profiles.
+		if preview.model.ActiveServices != nil && slices.Contains(preview.model.ActiveServices, name) {
+			delete(service, "profiles")
+		}
+		delete(service, "build")
 		if image := images[name]; image != "" {
 			labels, _ := service["labels"].(map[string]any)
 			if labels == nil {
@@ -171,6 +182,9 @@ func imageTargets(preview Preview, defaults map[string]imageDefaults) ([]store.I
 func unchangedImages(model composeModel, runtime []container.InspectResponse, targets map[string]string) bool {
 	counts := map[string]int{}
 	for _, item := range runtime {
+		if item.Config != nil && model.ActiveServices != nil && !slices.Contains(model.ActiveServices, item.Config.Labels["com.docker.compose.service"]) {
+			continue
+		}
 		if item.Config == nil || targets[item.Config.Labels["com.docker.compose.service"]] != item.Image {
 			return false
 		}
@@ -192,7 +206,16 @@ func (m *Manager) snapshotDeployment(ctx context.Context, project store.ManagedP
 	if err != nil {
 		return nil, err
 	}
-	preview, err := Validate(ctx, project.Name, Source{YAML: project.YAML}, variables, files, project.ProjectDir)
+	context := ComposeContext{}
+	for _, item := range runtime {
+		if item.Config != nil {
+			service := item.Config.Labels["com.docker.compose.service"]
+			if !slices.Contains(context.Services, service) {
+				context.Services = append(context.Services, service)
+			}
+		}
+	}
+	preview, err := validateWithContext(ctx, project.Name, Source{YAML: project.YAML}, variables, files, project.ProjectDir, context)
 	if err != nil {
 		return nil, fmt.Errorf("previous Compose configuration cannot be validated; restore its saved source before updating")
 	}
@@ -236,7 +259,7 @@ func (m *Manager) snapshotDeployment(ctx context.Context, project store.ManagedP
 		}
 	}
 	if len(runtime) > 0 {
-		changes, err := compareAdoption(project.Name, project.ProjectDir, preview.model, runtime, defaults)
+		changes, err := compareAdoption(project.Name, project.ProjectDir, preview.model, comparableRuntimeBinds(ctx, project.ProjectDir, preview.model, runtime), defaults)
 		if err != nil {
 			return nil, fmt.Errorf("rollback assessment failed: %w", err)
 		}
@@ -400,7 +423,7 @@ func (m *Manager) deploy(ctx context.Context, job store.Job, payload workerPaylo
 	if err != nil {
 		return finishFailure("Saved project environment could not be read.")
 	}
-	preview, err := Validate(ctx, project.Name, Source{YAML: project.YAML}, variables, envFiles, project.ProjectDir)
+	preview, err := validateWithContext(ctx, project.Name, Source{YAML: project.YAML}, variables, envFiles, project.ProjectDir, payload.Context)
 	if err != nil {
 		return finishFailure("Saved Compose configuration could not be validated.")
 	}
@@ -511,7 +534,16 @@ func (m *Manager) deploy(ctx context.Context, job store.Job, payload workerPaylo
 			return nil
 		}
 	}
+	snapshot.OperationID = job.ID
+	snapshot.CandidateServices = []string{}
+	for service := range targets {
+		snapshot.CandidateServices = append(snapshot.CandidateServices, service)
+	}
+	sort.Strings(snapshot.CandidateServices)
 	snapshot.Candidate, err = resolvedDefinition(preview, project.ProjectDir, targets)
+	if err == nil {
+		snapshot.Candidate, err = definitionOperation(snapshot.Candidate, job.ID)
+	}
 	if err == nil {
 		platforms := map[string]string{}
 		for name := range targets {
@@ -553,7 +585,7 @@ func (m *Manager) deploy(ctx context.Context, job store.Job, payload workerPaylo
 	if err := m.saveDeployment(job, payload, "replacing"); err != nil {
 		return err
 	}
-	if err := runResolvedCompose(ctx, project.Name, project.ProjectDir, snapshot.Candidate, "up", "-d", "--no-build", "--pull", "never", "--remove-orphans"); err != nil {
+	if err := runResolvedCompose(ctx, project.Name, project.ProjectDir, snapshot.Candidate, "up", "-d", "--no-build", "--pull", "never"); err != nil {
 		return finishFailure("Replacement failed: " + err.Error())
 	}
 	if err := m.saveDeployment(job, payload, "verifying"); err != nil {
@@ -602,16 +634,21 @@ func matchesSourceImages(runtime []container.InspectResponse, images []store.Ima
 }
 
 func sameRunningState(a, b []container.InspectResponse) bool {
-	states := map[string]bool{}
+	type observedState struct {
+		Running   bool
+		StartedAt string
+		Restarts  int
+	}
+	states := map[string]observedState{}
 	for _, item := range b {
 		if item.State == nil {
 			return false
 		}
-		states[item.ID] = item.State.Running
+		states[item.ID] = observedState{item.State.Running, item.State.StartedAt, item.RestartCount}
 	}
 	for _, item := range a {
 		value, found := states[item.ID]
-		if !found || item.State == nil || value != item.State.Running {
+		if !found || item.State == nil || value != (observedState{item.State.Running, item.State.StartedAt, item.RestartCount}) {
 			return false
 		}
 	}
@@ -633,20 +670,8 @@ func (m *Manager) rollbackDeployment(ctx context.Context, project store.ManagedP
 	if snapshot.Previous == nil {
 		return fmt.Errorf("previous source snapshot is missing")
 	}
-	variables, files, err := projectEnvironment(*snapshot.Previous)
-	if err != nil {
-		return err
-	}
-	preview, err := Validate(ctx, project.Name, Source{YAML: snapshot.Previous.YAML}, variables, files, project.ProjectDir)
-	if err != nil {
-		return fmt.Errorf("previous source could not be verified")
-	}
-	wanted, counts, images := map[string]bool{}, map[string]int{}, map[string]string{}
-	for _, item := range snapshot.Runtime {
-		name := item.Config.Labels["com.docker.compose.service"]
-		wanted[name] = item.State.Running
-		counts[name]++
-		images[name] = item.Image
+	if snapshot.Mutation && snapshot.OperationID == "" {
+		return fmt.Errorf("candidate ownership is unavailable; manual recovery review is required")
 	}
 	if snapshot.FileCommit {
 		if err := hostProjectFiles(ctx, project.ProjectDir, snapshot.Previous, project, "restore"); err != nil {
@@ -654,68 +679,34 @@ func (m *Manager) rollbackDeployment(ctx context.Context, project store.ManagedP
 		}
 	}
 	if snapshot.Mutation {
-		if len(snapshot.Runtime) == 0 {
-			if err := runResolvedCompose(ctx, project.Name, project.ProjectDir, snapshot.Candidate, "down", "--remove-orphans"); err != nil {
-				return err
-			}
-		} else {
-			// Create the old containers without starting stopped services or running
-			// dependencies accidentally. Then start only originally running services.
-			if err := runResolvedCompose(ctx, project.Name, project.ProjectDir, snapshot.Definition, "up", "--no-start", "--no-build", "--pull", "never", "--remove-orphans"); err != nil {
-				return err
-			}
-			running := map[string]bool{}
-			for _, item := range snapshot.Runtime {
-				if item.State.Running {
-					running[item.Config.Labels["com.docker.compose.service"]] = true
-				}
-			}
-			current, err := m.runtime(ctx, project.Name)
-			if err != nil {
-				return fmt.Errorf("restored containers could not be inspected")
-			}
-			cli, err := client.New(client.WithHost("unix:///var/run/docker.sock"))
-			if err != nil {
-				return fmt.Errorf("Docker could not restore stopped services")
-			}
-			defer cli.Close()
-			for _, item := range current {
-				if item.Config == nil || item.State == nil {
-					return fmt.Errorf("restored container state is incomplete")
-				}
-				name := item.Config.Labels["com.docker.compose.service"]
-				if wanted[name] {
-					continue
-				}
-				if item.State.Running {
-					if _, err := cli.ContainerStop(ctx, item.ID, client.ContainerStopOptions{}); err != nil {
-						return fmt.Errorf("previous stopped state could not be restored")
-					}
-				}
-				if expectedServices(preview.model)[name].oneshot && (item.State.Status != "exited" || item.State.ExitCode != 0) {
-					running[name] = true
-				}
-			}
-			if len(running) > 0 {
-				args := []string{"start"}
-				for service := range running {
-					args = append(args, service)
-				}
-				if err := runResolvedCompose(ctx, project.Name, project.ProjectDir, snapshot.Definition, args...); err != nil {
-					return err
-				}
-			}
+		if err := recreate.RestoreOperationRuntime(ctx, project.Name, "", snapshot.Runtime, snapshot.CandidateServices, snapshot.OperationID); err != nil {
+			return err
 		}
 	}
-	for name := range counts {
-		if !wanted[name] && !expectedServices(preview.model)[name].oneshot {
-			service := preview.model.Services[name]
-			zero := 0
-			service.Scale = &zero
-			service.Deploy.Replicas = nil
-			preview.model.Services[name] = service
-		}
+	if len(snapshot.Runtime) == 0 {
+		return nil
 	}
+	variables, files, err := projectEnvironment(*snapshot.Previous)
+	if err != nil {
+		return err
+	}
+	context := ComposeContext{}
+	targets := map[string]string{}
+	for _, item := range snapshot.Runtime {
+		if item.Config == nil {
+			return ErrInvalidSource
+		}
+		name := item.Config.Labels["com.docker.compose.service"]
+		if !slices.Contains(context.Services, name) {
+			context.Services = append(context.Services, name)
+		}
+		targets[name] = item.Image
+	}
+	preview, err := validateWithContext(ctx, project.Name, Source{YAML: snapshot.Previous.YAML}, variables, files, project.ProjectDir, context)
+	if err != nil {
+		return fmt.Errorf("previous source could not be verified")
+	}
+	preview = fileVerification(preview, snapshot.Runtime)
 	if len(expectedServices(preview.model)) > 0 {
 		if err := m.verify(ctx, project.Name, preview); err != nil {
 			return err
@@ -723,36 +714,21 @@ func (m *Manager) rollbackDeployment(ctx context.Context, project store.ManagedP
 	}
 	current, err := m.runtime(ctx, project.Name)
 	if err != nil {
-		return fmt.Errorf("restored runtime could not be inspected")
-	}
-	if len(snapshot.Runtime) == 0 {
-		if len(current) != 0 {
-			return fmt.Errorf("new containers remain after rollback")
-		}
-		return nil
-	}
-	for _, item := range current {
-		if item.Config == nil || item.State == nil {
-			return fmt.Errorf("restored state is incomplete")
-		}
-		name := item.Config.Labels["com.docker.compose.service"]
-		if item.Image != images[name] || item.State.Running != wanted[name] {
-			return fmt.Errorf("previous image or running/stopped state was not restored")
-		}
-		counts[name]--
-	}
-	for _, count := range counts {
-		if count != 0 {
-			return fmt.Errorf("previous replica count was not restored")
-		}
-	}
-	if err := verifyRestoredRuntimeSettings(snapshot.Runtime, current); err != nil {
 		return err
 	}
-	if _, err := m.snapshotDeployment(ctx, *snapshot.Previous, current); err != nil {
-		return fmt.Errorf("restored runtime configuration does not match the previous source: %w", err)
+	if !unchangedImages(preview.model, current, targets) {
+		return fmt.Errorf("restored image identities or replica counts changed")
 	}
-	return hostProjectFiles(ctx, project.ProjectDir, snapshot.Previous, *snapshot.Previous, "verified")
+	selected := []container.InspectResponse{}
+	for _, item := range current {
+		if item.Config != nil && targets[item.Config.Labels["com.docker.compose.service"]] != "" {
+			selected = append(selected, item)
+		}
+	}
+	if err := verifyRestoredRuntimeSettings(snapshot.Runtime, selected); err != nil {
+		return err
+	}
+	return m.markObservedSource(ctx, project.Name)
 }
 
 func (m *Manager) reconcileDeployment(ctx context.Context, job store.Job, payload workerPayload) error {
@@ -797,4 +773,23 @@ func (m *Manager) reconcileDeployment(ctx context.Context, job store.Job, payloa
 	}
 	m.cleanupDeployment(job, snapshot)
 	return nil
+}
+
+func definitionOperation(definition, job string) (string, error) {
+	var model map[string]any
+	if err := json.Unmarshal([]byte(definition), &model); err != nil {
+		return "", err
+	}
+	services, _ := model["services"].(map[string]any)
+	for _, raw := range services {
+		service := raw.(map[string]any)
+		labels, _ := service["labels"].(map[string]any)
+		if labels == nil {
+			labels = map[string]any{}
+		}
+		labels["nox-yard.operation"] = job
+		service["labels"] = labels
+	}
+	encoded, err := json.Marshal(model)
+	return string(encoded), err
 }

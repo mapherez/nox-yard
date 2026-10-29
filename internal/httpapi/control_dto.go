@@ -100,6 +100,7 @@ type controlFailure struct {
 	Message string `json:"message"`
 }
 type controlActionResult struct {
+	Warnings  []string         `json:"warnings,omitempty"`
 	Action    string           `json:"action"`
 	Succeeded int              `json:"succeeded"`
 	Skipped   int              `json:"skipped"`

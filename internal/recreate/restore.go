@@ -3,12 +3,25 @@ package recreate
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mapherez/nox-yard/internal/imageidentity"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
+
+// AssessRuntimeRecovery checks the old settings before a file-backed operation
+// mutates Docker. Broader Compose input support must not promise a rollback
+// which Engine reconstruction cannot preserve.
+func AssessRuntimeRecovery(previous []container.InspectResponse) error {
+	for _, item := range previous {
+		if err := assess(item); err != nil {
+			return fmt.Errorf("previous runtime cannot be safely restored: %w", err)
+		}
+	}
+	return nil
+}
 
 // RestoreRuntime is used by file-backed Compose jobs after a failed up. It
 // restores exact Engine inspections rather than rereading edited host files.
@@ -18,6 +31,12 @@ func RestoreRuntime(ctx context.Context, name string, previous []container.Inspe
 }
 
 func RestoreServiceRuntime(ctx context.Context, name, service string, previous []container.InspectResponse) error {
+	return restoreRuntime(ctx, name, service, previous, nil, "")
+}
+func RestoreOperationRuntime(ctx context.Context, name, service string, previous []container.InspectResponse, active []string, job string) error {
+	return restoreRuntime(ctx, name, service, previous, active, job)
+}
+func restoreRuntime(ctx context.Context, name, service string, previous []container.InspectResponse, active []string, job string) error {
 	cli, err := client.New(client.WithHost("unix:///var/run/docker.sock"))
 	if err != nil {
 		return err
@@ -32,11 +51,14 @@ func RestoreServiceRuntime(ctx context.Context, name, service string, previous [
 		return err
 	}
 	for _, item := range listed.Items {
-		if service != "" && item.Labels["com.docker.compose.service"] != service {
+		if (service != "" && item.Labels["com.docker.compose.service"] != service) || (service == "" && active != nil && !slices.Contains(active, item.Labels["com.docker.compose.service"])) {
 			continue
 		}
 		if wanted[item.ID] {
 			continue
+		}
+		if job != "" && item.Labels["nox-yard.operation"] != job {
+			return fmt.Errorf("unrecognized container appeared during recovery; manual review is required")
 		}
 		_, _ = cli.ContainerStop(ctx, item.ID, client.ContainerStopOptions{})
 		if _, err := cli.ContainerRemove(ctx, item.ID, client.ContainerRemoveOptions{}); err != nil {
@@ -49,7 +71,7 @@ func RestoreServiceRuntime(ctx context.Context, name, service string, previous [
 		if old.Config == nil || old.HostConfig == nil || old.State == nil {
 			return fmt.Errorf("previous container inspection is incomplete")
 		}
-		if service != "" && old.Config.Labels["com.docker.compose.service"] != service {
+		if (service != "" && old.Config.Labels["com.docker.compose.service"] != service) || (service == "" && active != nil && !slices.Contains(active, old.Config.Labels["com.docker.compose.service"])) {
 			dependencies = append(dependencies, old)
 			continue
 		}

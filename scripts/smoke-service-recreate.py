@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify service-only Recreate and recovery in a disposable local Compose project."""
+from smoke_support import write_text, trace_docker
 import argparse
 import json
 import pathlib
@@ -33,6 +34,7 @@ mcp_origin = "http://127.0.0.1:" + str(mcp_port)
 mcp_token = ""
 sequence = 0
 
+@trace_docker(name, base)
 def docker(*parts):
     result = subprocess.run(["docker", *parts], capture_output=True, text=True)
     if result.returncode:
@@ -104,7 +106,7 @@ source = f'''services:
     labels: {{nox-yard.acceptance: {name}}}
     environment: {{NOX_DATA_DIR: /data, NOX_LISTEN_ADDR: ':8080'}}
     ports: ['127.0.0.1:{port}:8080', '127.0.0.1:{mcp_port}:8081']
-    volumes: ['./data:/data', '/var/run/docker.sock:/var/run/docker.sock']
+    volumes: ['yard-state:/data', '/var/run/docker.sock:/var/run/docker.sock']
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1']
       interval: 1s
@@ -133,9 +135,10 @@ source = f'''services:
     depends_on: {{init: {{condition: service_completed_successfully}}, db: {{condition: service_started}}}}
     stop_grace_period: 1s
 '''
+source += "\nvolumes: {yard-state: {}}\n"
 try:
-    (base / "compose.yaml").write_text(source, newline="")
-    (base / ".env").write_text("VALUE=initial\nFAIL=0\n", newline="")
+    write_text(base / "compose.yaml", source, newline="")
+    write_text(base / ".env", "VALUE=initial\nFAIL=0\n", newline="")
     compose("up", "-d", "--no-build", "--pull", "never")
     wait(lambda: urllib.request.urlopen(origin + "/healthz", timeout=3).status == 200, "Yard did not start")
     _, _, mcp_token = bootstrap_mcp(origin)
@@ -146,8 +149,8 @@ try:
     # Make the unrelated database image unavailable in the current file. Scoped
     # recreation must neither inspect/pull it nor recreate that dependency.
     edited = source.replace("  db:\n    image: " + json.dumps(args.image), "  db:\n    image: 127.0.0.1:1/unavailable:never")
-    (base / "compose.yaml").write_text(edited, newline="")
-    (base / ".env").write_text("VALUE=from-current-file\nFAIL=0\n", newline="")
+    write_text(base / "compose.yaml", edited, newline="")
+    write_text(base / ".env", "VALUE=from-current-file\nFAIL=0\n", newline="")
     result = recreate()
     assert result["status"] == "succeeded", result
     assert {item["Id"] for item in runtime("app")}.isdisjoint(old_ids)
@@ -169,14 +172,14 @@ try:
         docker("rm", "-f", peer)
     print("PASS: a container outside the Compose project sharing the target namespace blocks recreation before mutation", flush=True)
 
-    (base / ".env").write_text("VALUE=failing-candidate\nFAIL=1\n", newline="")
+    write_text(base / ".env", "VALUE=failing-candidate\nFAIL=1\n", newline="")
     result = recreate()
     assert result["status"] == "failed" and result["rollback"] == "restored", result
     assert all(item["State"]["Running"] and "VALUE=from-current-file" in item["Config"]["Env"] for item in runtime("app"))
     assert peers() == initial_peers and (base / "state/init-runs").read_text() == initial_runs
     print("PASS: failed replacement restores only selected replicas; dependency IDs/start times and initializer run count are preserved", flush=True)
 
-    (base / ".env").write_text("VALUE=stopped-candidate\nFAIL=0\n", newline="")
+    write_text(base / ".env", "VALUE=stopped-candidate\nFAIL=0\n", newline="")
     for item in runtime("app"):
         docker("stop", "--time", "1", item["Id"])
     result = recreate()
@@ -202,10 +205,11 @@ finally:
         docker("rm", "-f", *ids)
     for worker in docker("ps", "-aq", "--filter", "label=nox-yard.role=operation-worker").splitlines():
         info = json.loads(docker("inspect", worker))[0]
-        if any(mount.get("Source", "").replace("\\", "/").endswith(name + "/data") for mount in info.get("Mounts", [])):
+        if any(mount.get("Name") == name + "_yard-state" for mount in info.get("Mounts", [])):
             docker("rm", "-f", worker)
     networks = docker("network", "ls", "-q", "--filter", "label=com.docker.compose.project=" + name).splitlines()
     if networks:
         docker("network", "rm", *networks)
+    subprocess.run(["docker", "volume", "rm", name + "_yard-state"],capture_output=True)
     assert base.resolve().is_relative_to((root / ".tmp").resolve()) and base.name == name
     shutil.rmtree(base)

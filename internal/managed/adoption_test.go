@@ -281,3 +281,20 @@ func TestAdoptionUnsupportedComparisonReportsFieldAndService(t *testing.T) {
 		}
 	}
 }
+
+func TestAdoptionChecksBindsAfterNativeAbsoluteResolution(t *testing.T) {
+	model, item, _ := adoptionSample(t)
+	// Native resolution turns a relative source into an absolute path before
+	// adoption; this must retain the original-directory protection.
+	for key, value := range model.Services {
+		for i, mount := range value.Volumes {
+			if mount.Type == "bind" {
+				value.Volumes[i].Source = "/srv/wrong/data"
+			}
+		}
+		model.Services[key] = value
+	}
+	if err := verifyAdoptionBinds("/srv/wrong", model, []container.InspectResponse{item}); !errors.Is(err, ErrInvalidSource) {
+		t.Fatal("resolved wrong bind accepted", err)
+	}
+}

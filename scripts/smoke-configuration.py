@@ -3,6 +3,7 @@
 
 All resources use a generated fixture identity; never contacts a live Yard.
 """
+from smoke_support import write_text, trace_docker
 import argparse
 import http.cookiejar
 import json
@@ -27,6 +28,7 @@ host = str(base).replace("\\", "/")
 if len(host) > 2 and host[1] == ":":
     host = "/run/desktop/mnt/host/" + host[0].lower() + "/" + host[3:]
 
+@trace_docker(name, base)
 def docker(*parts):
     result = subprocess.run(["docker", *parts], capture_output=True, text=True)
     if result.returncode:
@@ -122,7 +124,7 @@ source = f'''services:
       TZ: Europe/Lisbon
       NOX_FILE_TEST: '${{FILE_TEST}}'
     ports: ['127.0.0.1:{port}:8080', '127.0.0.1:{mcp_port}:8081']
-    volumes: ['./data:/data', '/var/run/docker.sock:/var/run/docker.sock']
+    volumes: ['yard-state:/data', '/var/run/docker.sock:/var/run/docker.sock']
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1']
       interval: 1s
@@ -130,9 +132,10 @@ source = f'''services:
       retries: 5
     stop_grace_period: 2s
 '''
+source += "\nvolumes: {yard-state: {}}\n"
 try:
-    (base / "compose.yaml").write_text(source, newline="")
-    (base / ".env").write_text("FILE_TEST=initial\n", newline="")
+    write_text(base / "compose.yaml", source, newline="")
+    write_text(base / ".env", "FILE_TEST=initial\n", newline="")
     compose("up", "-d", "--pull", "never")
     wait(lambda: api("/api/bootstrap"), "fixture did not start")
     api("/api/setup", {"username": "fixture", "password": "fixture-password-configuration"})
@@ -147,7 +150,7 @@ try:
     rpc("initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                        "clientInfo": {"name": "configuration-fixture", "version": "1"}})
     catalog = rpc("tools/list", {})["tools"]
-    assert len(catalog) == 35 and not any("migration" in item["name"] for item in catalog)
+    assert len(catalog) == 38 and not any("migration" in item["name"] for item in catalog)
     configuration_id = {"id": "compose:" + name}
     assert tool("yard_project_configuration_read", configuration_id) == hidden
     assert tool("yard_project_configuration_read", {**configuration_id, "reveal": True}) == configuration
@@ -156,7 +159,7 @@ try:
     # replacing anything. Explicit cache-only Recreate remains usable below.
     unsigned = source.replace("image: " + json.dumps(args.image), "image: 127.0.0.1:1/unsigned-yard:fixture")
     try:
-        (base / "compose.yaml").write_text(unsigned, newline="")
+        write_text(base / "compose.yaml", unsigned, newline="")
         preview = tool("yard_recreate_preview", {**configuration_id, "operation": "update"})
         blocked = rpc("tools/call", {"name": "yard_recreate_submit", "arguments": {
             **configuration_id, "operation": "update", "confirm": True, "fingerprint": preview["fingerprint"],
@@ -166,7 +169,7 @@ try:
         assert (base / "compose.yaml").read_text() == unsigned
         assert api("/api/self-update")["status"] == "update_failed"
     finally:
-        (base / "compose.yaml").write_text(source, newline="")
+        write_text(base / "compose.yaml", source, newline="")
     print("PASS: unapproved Yard update is blocked before pull/replacement, preserves files/runtime and exposes its failure", flush=True)
     saved = tool("yard_project_variable_set", {**configuration_id, "fingerprint": configuration["fingerprint"],
                  "service": "nox-yard", "name": "NOX_FILE_TEST", "value": "edited$private-value"})
@@ -210,10 +213,10 @@ try:
     # or another service. The sibling's closed registry port makes scope errors
     # fail immediately. These edits are never applied to the Yard runtime.
     pull_source = modified.replace("image: " + json.dumps(args.image), "image: alpine:3.23")
-    pull_source += "  unavailable-sibling:\n    image: 127.0.0.1:1/fixture:never\n"
+    pull_source = pull_source.replace("\nvolumes:", "\n  unavailable-sibling:\n    image: 127.0.0.1:1/fixture:never\n\nvolumes:",1)
     before_pull = current()
     try:
-        (base / "compose.yaml").write_text(pull_source, newline="")
+        write_text(base / "compose.yaml", pull_source, newline="")
         pulled = tool("yard_container_pull", {"id": before_pull["Id"]})
         assert pulled["images"] == ["alpine:3.23"] and pulled["succeeded"] == 1, pulled
         assert current()["Id"] == before_pull["Id"] and current()["Image"] == before_pull["Image"]
@@ -221,12 +224,12 @@ try:
         assert failed.get("isError"), "project Pull must report the unavailable sibling"
         assert current()["Id"] == before_pull["Id"]
     finally:
-        (base / "compose.yaml").write_text(modified, newline="")
+        write_text(base / "compose.yaml", modified, newline="")
     print("PASS: container Pull reads the current service image and excludes siblings; project Pull reports failure without changing containers", flush=True)
 
     # Manual edits must be read afresh, without a DB configuration copy.
     manual = (base / "compose.yaml").read_text().replace("      TZ: Europe/Lisbon", "      TZ: Europe/Lisbon\n      NOX_MANUAL_TEST: from-host-file")
-    (base / "compose.yaml").write_text(manual, newline="")
+    write_text(base / "compose.yaml", manual, newline="")
     result = recreate()
     assert result["status"] == "succeeded", result
     assert "NOX_MANUAL_TEST=from-host-file" in current()["Config"]["Env"]
@@ -235,7 +238,7 @@ try:
     # A valid Compose with an application-invalid option must restore the old
     # runtime and SQLite snapshot, while preserving the user's edited file.
     invalid = manual.replace("      TZ: Europe/Lisbon", "      TZ: Europe/Lisbon\n      NOX_PUBLIC_URL: 'ftp://invalid-fixture'")
-    (base / "compose.yaml").write_text(invalid, newline="")
+    write_text(base / "compose.yaml", invalid, newline="")
     result = recreate()
     assert result["status"] == "failed" and result["rollback"] == "restored", result
     assert "NOX_FILE_TEST=edited$private-value" in current()["Config"]["Env"]
@@ -252,10 +255,11 @@ finally:
     workers = docker("ps", "-aq", "--filter", "label=nox-yard.role=operation-worker").splitlines()
     for worker in workers:
         info = json.loads(docker("inspect", worker))[0]
-        if any(mount.get("Source", "").replace("\\", "/").endswith(name + "/data") for mount in info.get("Mounts", [])):
+        if any(mount.get("Name") == name + "_yard-state" for mount in info.get("Mounts", [])):
             docker("rm", "-f", worker)
     networks = docker("network", "ls", "-q", "--filter", "label=com.docker.compose.project=" + name).splitlines()
     if networks:
         docker("network", "rm", *networks)
+    subprocess.run(["docker", "volume", "rm", name + "_yard-state"],capture_output=True)
     assert base.resolve().is_relative_to((root / ".tmp").resolve()) and base.name == name
     shutil.rmtree(base)

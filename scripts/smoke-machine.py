@@ -4,6 +4,7 @@
 Requires a prebuilt image and local Linux Docker Engine/Docker Desktop.
 Never contacts an installed Yard; every resource has a generated fixture name.
 """
+from smoke_support import write_text, trace_docker
 import argparse
 import http.cookiejar
 import json
@@ -13,6 +14,7 @@ import shutil
 import socket
 import subprocess
 import time
+import sys
 import urllib.error
 import urllib.request
 
@@ -39,6 +41,7 @@ opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.coo
 csrf = ""
 token = ""
 
+@trace_docker(name, base)
 def docker(*parts):
     result = subprocess.run(["docker", *parts], capture_output=True, text=True)
     if result.returncode:
@@ -102,8 +105,17 @@ def save(**changes):
     return api("/api/machine", settings, "PUT")["settings"]
 
 def finished(identifier):
-    job = api("/api/jobs/" + identifier)
-    return job if job["status"] != "running" else None
+    global origin
+    requested_origin=origin
+    try:
+        # Read the durable result at the actual binding, including rollback to
+        # the old port. A failed apply must not become a connection timeout.
+        actual=current()["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostPort"]
+        origin="http://127.0.0.1:"+actual
+        job=api("/api/jobs/"+identifier)
+        return job if job["status"]!="running" else None
+    finally:
+        origin=requested_origin
 
 source = f'''services:
   nox-yard:
@@ -112,7 +124,7 @@ source = f'''services:
     labels: {{nox-yard.acceptance: {name}}}
     environment: {{NOX_DATA_DIR: /data, NOX_LISTEN_ADDR: ':8080', NOX_MCP_LISTEN_ADDR: ':8081'}}
     ports: ['127.0.0.1:{web_port}:8080', '127.0.0.1:{mcp_port}:8081']
-    volumes: ['./data:/data', '/var/run/docker.sock:/var/run/docker.sock']
+    volumes: ['yard-state:/data', '/var/run/docker.sock:/var/run/docker.sock']
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1']
       interval: 1s
@@ -120,8 +132,9 @@ source = f'''services:
       retries: 2
     stop_grace_period: 1s
 '''
+source += "\nvolumes: {yard-state: {}}\n"
 try:
-    (base / "compose.yaml").write_text(source, newline="")
+    write_text(base / "compose.yaml", source, newline="")
     # No .env initially: rollback must also handle newly created configuration.
     compose("up", "-d", "--no-build", "--pull", "never")
     wait(lambda: request(origin, "/healthz")[0] == 200, "Yard startup")
@@ -151,7 +164,7 @@ try:
     assert rpc("tools/list", {})["tools"]
     assert request(origin, "/v1/projects")[0] == 401
     save(authMode="token", write=True, secrets=True)
-    assert len(rpc("tools/list", {}, token)["tools"]) == 35
+    assert len(rpc("tools/list", {}, token)["tools"]) == 38
     print("PASS: opt-in, separate routes, shared token rotation, inspection scopes and anonymous isolation", flush=True)
 
     original = current()["Id"]
@@ -171,7 +184,7 @@ try:
     mcp_origin = "http://127.0.0.1:" + str(mcp_port)
     assert current()["Id"] != original
     assert not api("/api/machine")["networkStatus"]["pending"]
-    assert len(rpc("tools/list", {}, token)["tools"]) == 35
+    assert len(rpc("tools/list", {}, token)["tools"]) == 38
     assert "NOX_MCP_PORT" in (base / ".env").read_text()
     compose("up", "-d", "--no-build", "--pull", "never")
     wait(lambda: request(origin, "/healthz")[0] == 200, "host Compose restart")
@@ -182,7 +195,7 @@ try:
     # Fail only the replacement's healthcheck. The recorded old runtime remains
     # healthy and must be restored with its exact previous port bindings.
     file = base / "compose.yaml"
-    file.write_text(file.read_text().replace("/healthz || exit 1", "/healthz && exit 1"), newline="")
+    write_text(file, file.read_text().replace("/healthz || exit 1", "/healthz && exit 1"), newline="")
     desired = api("/api/machine")["settings"]["network"]
     desired["mcp"]["port"] = port()
     settings = save(network=desired)
@@ -205,7 +218,10 @@ finally:
                     continue
                 raise RuntimeError("Fixture worker inspection failed: " + inspection.stderr)
             info = json.loads(inspection.stdout)[0]
-            if any(mount.get("Source") in (str(base / "data"), host + "/data") for mount in info["Mounts"]):
+            if any(mount.get("Name") == name + "_yard-state" for mount in info["Mounts"]):
+                if sys.exc_info()[0]:
+                    print("Fixture worker state:", info["State"], flush=True)
+                    print(subprocess.run(["docker", "logs", "--tail", "30", container],capture_output=True,text=True).stderr,flush=True)
                 removal = subprocess.run(["docker", "rm", "-f", container], capture_output=True, text=True)
                 if removal.returncode and "no such" not in removal.stderr.lower():
                     raise RuntimeError("Fixture worker cleanup failed: " + removal.stderr)

@@ -5,6 +5,7 @@ Requires a local Linux Docker Engine (or Docker Desktop) and an already built
 Yard image. Publishes only ephemeral loopback ports. Never targets existing
 containers, projects, volumes or settings; cleanup uses recorded fixture IDs.
 """
+from smoke_support import write_text, trace_docker
 import argparse
 import json
 import os
@@ -47,9 +48,11 @@ sequence = 0
 mcp_urls = {}
 browsers = {}
 
+@trace_docker(base.name, base, command)
 def docker(*arguments):
-    result = subprocess.run(command + list(arguments), check=True, text=True,
-                            capture_output=True)
+    result = subprocess.run(command + list(arguments), text=True, capture_output=True)
+    if result.returncode:
+        raise RuntimeError("Fixture Docker command failed: " + arguments[0] + "\n" + result.stderr)
     return result.stdout.strip()
 
 def create(*arguments):
@@ -115,7 +118,10 @@ def address(identifier):
     mcp_urls[url] = "http://127.0.0.1:" + info["NetworkSettings"]["Ports"]["8081/tcp"][0]["HostPort"]
     return url
 
-def serve(image, platform="linux/amd64", socket=False):
+def serve(image, platform=None, socket=False):
+    if platform is None:
+        metadata = json.loads(docker("image", "inspect", image))[0]
+        platform = metadata["Os"] + "/" + metadata["Architecture"]
     volume = "mcp-smoke-data-" + suffix + "-" + platform.split("/")[-1]
     docker("volume", "create", "--label", "nox-yard.mcp-smoke=" + suffix, volume)
     volumes.append(volume)
@@ -136,7 +142,7 @@ def serve(image, platform="linux/amd64", socket=False):
     browsers[identifier] = (browser, setup)
     rpc(url, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                            "clientInfo": {"name": "yard-smoke", "version": "1"}})
-    assert len(rpc(url, "tools/list", {})["tools"]) == 35
+    assert len(rpc(url, "tools/list", {})["tools"]) == 38
     assert tool(url, "yard_health")["ready"]
     return identifier, url
 
@@ -285,6 +291,7 @@ try:
                        "--filter", "label=com.docker.compose.service=healthy")
     docker("exec", health_id, "sh", "-c", "echo fixture > /data/keep; echo fixture > /bind/keep")
     for operation in ("restart", "update"):
+        until(lambda: json.loads(docker("inspect",health_id))[0]["State"].get("Health",{}).get("Status")=="healthy", "healthy original before requested replacement")
         await_job(url, tool(url, "yard_compose_operation", {
             "name": healthy_name, "operation": operation, "removeVolumes": False}))
         health_id = docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + healthy_name,
@@ -315,13 +322,13 @@ try:
     adoption_local.mkdir()
     (adoption_local / "data").mkdir()
     (adoption_local / "env").mkdir()
-    (adoption_local / "data/keep").write_text("original-data", encoding="utf-8", newline="")
+    write_text(adoption_local / "data/keep", "original-data", encoding="utf-8", newline="")
     env_text = "TOKEN=private-adoption-fixture\n"
-    (adoption_local / "env/runtime.env").write_text(env_text, encoding="utf-8", newline="")
+    write_text(adoption_local / "env/runtime.env", env_text, encoding="utf-8", newline="")
     adoption_yaml = ("services:\n  demo:\n    image: alpine:3.23\n    command: [sleep, '600']\n"
                      "    stop_grace_period: 1s\n    env_file: env/runtime.env\n"
                      "    volumes:\n      - ${BIND_PATH:-./data}:/bind\n")
-    (adoption_local / "original.yml").write_text(adoption_yaml, encoding="utf-8", newline="")
+    write_text(adoption_local / "original.yml", adoption_yaml, encoding="utf-8", newline="")
     host_dir = settings["projectsBase"] + "/original"
     managed_names.append(adoption_name)
     docker("run", "--rm", "--label", "nox-yard.role=managed-helper",
@@ -334,7 +341,7 @@ try:
     adoption = {"name": adoption_name, "source": {"kind": "paste", "yaml": adoption_yaml},
                 "variables": {}, "envFiles": {"env/runtime.env": env_text}, "mode": "adopt"}
     # An unprovided host .env could redirect binds on the next operation.
-    (adoption_local / ".env").write_text("BIND_PATH=./different-data\n", encoding="utf-8", newline="")
+    write_text(adoption_local / ".env", "BIND_PATH=./different-data\n", encoding="utf-8", newline="")
     tool(url, "yard_compose_preview", adoption, "OPERATION_CONFLICT")
     (adoption_local / ".env").unlink()
     preview = tool(url, "yard_compose_preview", adoption)
@@ -344,9 +351,9 @@ try:
     identifier = docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + adoption_name)
     adoption["fingerprint"] = preview["fingerprint"]
     # A new matching file still changes the reviewed presence identity.
-    (adoption_local / "compose.yml").write_text(adoption_yaml, encoding="utf-8", newline="")
+    write_text(adoption_local / "compose.yml", adoption_yaml, encoding="utf-8", newline="")
     tool(url, "yard_compose_submit", adoption, "OPERATION_CONFLICT")
-    (adoption_local / "compose.yml").write_text("services: {}\n", encoding="utf-8", newline="")
+    write_text(adoption_local / "compose.yml", "services: {}\n", encoding="utf-8", newline="")
     tool(url, "yard_compose_preview", adoption, "OPERATION_CONFLICT")
     (adoption_local / "compose.yml").unlink()
     preview = tool(url, "yard_compose_preview", adoption)
@@ -378,8 +385,8 @@ try:
     fallback_local = base / "fallback"
     (fallback_local / "data").mkdir(parents=True)
     (fallback_local / "env").mkdir()
-    (fallback_local / "data/keep").write_text("fallback-data", encoding="utf-8", newline="")
-    (fallback_local / "env/runtime.env").write_text(env_text, encoding="utf-8", newline="")
+    write_text(fallback_local / "data/keep", "fallback-data", encoding="utf-8", newline="")
+    write_text(fallback_local / "env/runtime.env", env_text, encoding="utf-8", newline="")
     fallback_dir = settings["projectsBase"] + "/fallback"
     managed_names.append(fallback_name)
     docker("network", "create", "--label", "com.docker.compose.project=" + fallback_name,
@@ -457,7 +464,7 @@ try:
     until(lambda: ready(url), "Yard recovery")
     assert request(url, "/api/bootstrap", opener=browser)[1]["authenticated"]
     assert tool(url, "yard_projects_settings_get")["projectsBase"] == settings["projectsBase"]
-    assert len(rpc(url, "tools/list", {})["tools"]) == 35
+    assert len(rpc(url, "tools/list", {})["tools"]) == 38
     def restart_job():
         history = tool(url, "yard_job_history", {"target": "container:" + yard})["jobs"]
         return next((job for job in history if job["operation"] == "restart" and job["status"] != "running"), None)

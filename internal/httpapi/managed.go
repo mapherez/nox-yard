@@ -39,7 +39,7 @@ func (s *Server) managedPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	preview, err := s.application.ComposePreview(r.Context(), input)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeConfigurationError(w, http.StatusBadRequest, err.Error(), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, preview)
@@ -63,7 +63,7 @@ func (s *Server) managedDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeConfigurationError(w, http.StatusBadRequest, err.Error(), err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, job)
@@ -100,18 +100,19 @@ func (s *Server) managedOperation(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Operation     string `json:"operation"`
 		RemoveVolumes bool   `json:"removeVolumes"`
+		RemoveImages  bool   `json:"removeImages"`
 		Fingerprint   string `json:"fingerprint,omitempty"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	job, err := s.application.ComposeOperationWithPreview(r.Context(), r.PathValue("name"), input.Operation, input.RemoveVolumes, input.Fingerprint)
+	job, err := s.application.ComposeOperationWithChoices(r.Context(), r.PathValue("name"), input.Operation, input.RemoveVolumes, input.RemoveImages, input.Fingerprint)
 	if errors.Is(err, managed.ErrConflict) || errors.Is(err, store.ErrOperationConflict) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeConfigurationError(w, http.StatusBadRequest, err.Error(), err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, job)

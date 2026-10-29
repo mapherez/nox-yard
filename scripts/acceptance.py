@@ -13,11 +13,15 @@ import platform
 import subprocess
 import sys
 import time
+from runtime_suites import SUITES
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--image", required=True)
-parser.add_argument("--legacy-image", required=True)
+parser.add_argument("--legacy-image")
+parser.add_argument("--skip-upgrade", action="store_true", help="Run the current-image runtime gates only; legacy upgrade evidence remains separate")
 parser.add_argument("--report", default=".tmp/acceptance-results.json")
+parser.add_argument("--keep-going", action="store_true", help="Record all selected suite results before returning failure")
+parser.add_argument("--suite", action="append", choices=[suite[1] for suite in SUITES], help="Run only explicitly selected suites")
 args = parser.parse_args()
 root = pathlib.Path(__file__).resolve().parents[1]
 report = pathlib.Path(args.report).resolve()
@@ -28,8 +32,9 @@ def inspect_image(image):
     item = json.loads(result.stdout)[0]
     return {"reference": image, "id": item["Id"], "os": item["Os"], "architecture": item["Architecture"]}
 
-images = [inspect_image(image) for image in (args.image, args.legacy_image)]
-if images[0]["architecture"] != images[1]["architecture"] or any(image["os"] != "linux" for image in images):
+if not args.skip_upgrade and not args.legacy_image: parser.error("--legacy-image is required unless --skip-upgrade is explicit")
+images = [inspect_image(image) for image in (args.image, args.legacy_image) if image]
+if len({image["architecture"] for image in images}) > 1 or any(image["os"] != "linux" for image in images):
     raise SystemExit("Current and legacy images must both target the same Linux architecture")
 info = subprocess.run(["docker", "info", "--format", "{{json .}}"], check=True, capture_output=True, text=True)
 engine = json.loads(info.stdout)
@@ -42,15 +47,10 @@ evidence = {"scope": "isolated-runtime-gates", "manualHostAcceptancePending": Tr
         "model": model.read_text().strip("\x00\n") if model.exists() else None},
     "engine": {"version": engine["ServerVersion"], "os": engine["OSType"], "architecture": engine["Architecture"]},
     "images": images, "checks": [], "complete": False}
-checks = [
-    ("v1.0.1 upgrade/password recovery/backup restore", "smoke-upgrade.py", ["--legacy-image", args.legacy_image]),
-    ("durable jobs and interruption", "smoke-jobs.py", []),
-    ("managed updates and rollback", "smoke-managed.py", []),
-    ("external/standalone recreation and rollback", "smoke-recreate.py", []),
-    ("HTTP/MCP, lifecycle, import/adoption and removal", "smoke-mcp.py", []),
-    ("automatic project scheduling", "smoke-schedules.py", []),
-    ("Yard self-update worker and failed replacement/SQLite recovery", "smoke-self-update.py", []),
-]
+checks = [(title,script,["--legacy-image",args.legacy_image] if legacy else []) for title,script,legacy in SUITES if not (legacy and args.skip_upgrade) and (not args.suite or script in args.suite)]
+evidence["legacyUpgradeIncluded"] = any(script=="smoke-upgrade.py" for _,script,_ in checks)
+evidence["selectedSuites"] = [script for _,script,_ in checks]
+
 try:
     for title, script, extra in checks:
         print("Running: " + title, flush=True)
@@ -59,10 +59,12 @@ try:
         evidence["checks"].append({"name": title, "script": script, "passed": result.returncode == 0,
             "seconds": round(time.monotonic() - started, 2)})
         report.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
-        if result.returncode:
+        if result.returncode and not args.keep_going:
             raise SystemExit(result.returncode)
-    evidence["complete"] = True
+    evidence["complete"] = all(check["passed"] for check in evidence["checks"])
 finally:
     evidence["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     report.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+if not evidence["complete"]:
+    raise SystemExit("FAIL: one or more isolated runtime gates; evidence saved to " + str(report))
 print("PASS: isolated runtime gates; evidence saved to " + str(report), flush=True)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mapherez/nox-yard/internal/store"
@@ -34,22 +35,27 @@ func otherServiceRuntime(runtime []container.InspectResponse, service string) []
 }
 
 func fileOperationFingerprint(source FileSnapshot, runtime []container.InspectResponse, operation, service string) string {
-	states := map[string]bool{}
+	type observedState struct {
+		Running   bool
+		StartedAt string
+		Restarts  int
+	}
+	states := map[string]observedState{}
 	for _, item := range runtime {
 		if item.State != nil {
-			states[item.ID] = item.State.Running
+			states[item.ID] = observedState{item.State.Running, item.State.StartedAt, item.RestartCount}
 		}
 	}
 	encoded, _ := json.Marshal(struct {
 		Files, Runtime, Operation, Service string
-		Running                            map[string]bool
+		Running                            map[string]observedState
 	}{source.Fingerprint, adoptionRuntimeFingerprint(runtime), operation, service, states})
 	return fingerprint(encoded)
 }
 
 func fileServiceRuntime(source FileSnapshot, runtime []container.InspectResponse, service string) ([]container.InspectResponse, error) {
 	if service == "" {
-		return runtime, nil
+		return selectedFileRuntime(source, runtime, service), nil
 	}
 	if _, exists := filePreview(source).model.Services[service]; !exists {
 		return nil, fmt.Errorf("%w: the selected service is absent from the current Compose configuration", ErrInvalidSource)
@@ -98,15 +104,14 @@ func scopedFilePreview(source FileSnapshot, service string) Preview {
 		}
 		definition.Profiles = nil // Explicit service selection activates that service.
 		preview.model.Services = map[string]modelService{service: definition}
+		preview.model.ActiveServices = []string{service}
 	}
 	return preview
 }
 
 func fileCreateArgs(operation, service string) []string {
 	args := []string{"up", "--no-start", "--no-build", "--pull", "never"}
-	if service == "" {
-		args = append(args, "--remove-orphans")
-	} else {
+	if service != "" {
 		args = append(args, "--no-deps")
 	}
 	if operation == "recreate" {
@@ -131,7 +136,32 @@ func fileServiceVerification(preview Preview, previous []container.InspectRespon
 
 func (m *Manager) verifyFileDeployment(ctx context.Context, name string, model composeModel, targets map[string]string, work *fileDeployment) error {
 	if work.Service == "" {
-		return m.verifyDeploymentImages(ctx, name, model, targets)
+		current, err := m.runtime(ctx, name)
+		if err != nil {
+			return err
+		}
+		if !unchangedImages(model, selectedFileRuntime(work.Source, current, ""), targets) {
+			return store.ErrJobChanged
+		}
+		selected := map[string]bool{}
+		for _, item := range selectedFileRuntime(work.Source, work.Runtime, "") {
+			selected[item.ID] = true
+		}
+		beforePeers, afterPeers := []container.InspectResponse{}, []container.InspectResponse{}
+		for _, item := range work.Runtime {
+			if !selected[item.ID] {
+				beforePeers = append(beforePeers, item)
+			}
+		}
+		for _, item := range current {
+			if item.Config != nil && !slices.Contains(work.Source.ActiveServices, item.Config.Labels["com.docker.compose.service"]) {
+				afterPeers = append(afterPeers, item)
+			}
+		}
+		if work.Source.ActiveServices != nil && (adoptionRuntimeFingerprint(beforePeers) != adoptionRuntimeFingerprint(afterPeers) || !sameRunningState(beforePeers, afterPeers)) {
+			return store.ErrJobChanged
+		}
+		return nil
 	}
 	runtime, err := m.runtime(ctx, name)
 	if err != nil {
@@ -157,4 +187,20 @@ func (m *Manager) verifyFileDeployment(ctx context.Context, name string, model c
 		}
 	}
 	return nil
+}
+
+func selectedFileRuntime(source FileSnapshot, runtime []container.InspectResponse, service string) []container.InspectResponse {
+	if service != "" {
+		return serviceRuntime(runtime, service)
+	}
+	if source.ActiveServices == nil {
+		return runtime
+	}
+	selected := []container.InspectResponse{}
+	for _, item := range runtime {
+		if item.Config != nil && slices.Contains(source.ActiveServices, item.Config.Labels["com.docker.compose.service"]) {
+			selected = append(selected, item)
+		}
+	}
+	return selected
 }

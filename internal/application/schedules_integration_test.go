@@ -309,8 +309,14 @@ func TestScheduleDockerAcceptance(t *testing.T) {
 	publish("V1")
 	tick("compose:"+managedName, "verified", true)
 	stored, found, err := data.ManagedProject(managedName)
-	if err != nil || !found || stored.YAML != source {
-		t.Fatal("automatic update changed source", err)
+	if err != nil || !found {
+		t.Fatal("managed project metadata missing", err)
+	}
+	// Host files have been authoritative since converter retirement. Verify the
+	// actual saved bytes rather than expecting a retired SQLite YAML copy.
+	content, err := os.ReadFile(path.Join(stored.ProjectDir, "compose.yml"))
+	if err != nil || string(content) != source || stored.YAML != "" {
+		t.Fatal("automatic update changed host source or restored retired DB configuration", err)
 	}
 	docker("compose", "-p", managedName, "-f", path.Join(stored.ProjectDir, "compose.yml"), "stop")
 	tick("compose:"+managedName, "skipped", false)

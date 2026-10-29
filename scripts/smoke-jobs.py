@@ -1,4 +1,5 @@
 """Disposable real-Docker C2 acceptance; never operates on user stacks."""
+from smoke_support import write_text, trace_docker
 import argparse
 import json
 import pathlib
@@ -33,6 +34,7 @@ url = ""
 mcp_url = ""
 mcp_token = ""
 
+@trace_docker(name, base)
 def docker(*parts):
     completed = subprocess.run(["docker", *parts], capture_output=True, text=True)
     if completed.returncode:
@@ -93,6 +95,18 @@ def submit(operation):
     job_ids.add(accepted["id"])
     return accepted
 
+def submit_unready():
+    # Keep the original healthy until replacement; only gate the candidate's
+    # readiness after Compose has created it. Recovery assessment must remain
+    # strict for a changed-image replacement.
+    (directory / ".entered-up").unlink(missing_ok=True)
+    (directory / ".hold-up").touch()
+    accepted = submit("update")
+    until(lambda: (directory / ".entered-up").exists(), "candidate created before readiness gate")
+    (directory / "data" / "ready").unlink()
+    (directory / ".hold-up").unlink()
+    return accepted
+
 def finished(identifier, expected="succeeded"):
     current = until(lambda: (value if (value := job(identifier))["status"] != "running" else None), "job result")
     assert current["status"] == expected, current
@@ -115,7 +129,7 @@ def interrupt_web(identifier):
 
 try:
     # Gate Compose only in a derived fixture image; production has no test hooks.
-    (base / "docker-wrapper").write_text("""#!/bin/sh
+    write_text(base / "docker-wrapper", """#!/bin/sh
 operation=''; gate_directory="$PWD"; previous=''
 for argument do
   case "$argument" in pull|up) operation="$argument";; esac
@@ -154,12 +168,12 @@ exit "$result"
 else
   /usr/bin/docker "$@"
 fi''')
-    (base / "docker-wrapper").write_text(wrapper, newline="")
+    write_text(base / "docker-wrapper", wrapper, newline="")
     for index, app_image in enumerate(app_images):
-        (base / "Dockerfile").write_text("FROM alpine:3.23\nLABEL nox-yard.jobs-smoke=" + suffix + " fixture.revision=" + str(index) + "\n", newline="")
+        write_text(base / "Dockerfile", "FROM alpine:3.23\nLABEL nox-yard.jobs-smoke=" + suffix + " fixture.revision=" + str(index) + "\n", newline="")
         docker("build", "-t", app_image, str(base))
     (directory / ".fixture-image").write_text(app_images[revision] + " " + app_reference)
-    (base / "Dockerfile").write_text("FROM " + args.image + "\nCOPY docker-wrapper /usr/local/bin/docker\nRUN chmod 755 /usr/local/bin/docker\n", newline="")
+    write_text(base / "Dockerfile", "FROM " + args.image + "\nCOPY docker-wrapper /usr/local/bin/docker\nRUN chmod 755 /usr/local/bin/docker\n", newline="")
     docker("build", "-t", image, str(base))
     docker("volume", "create", "--label", "nox-yard.jobs-smoke=" + suffix, volume)
     yard = docker("create", "--name", name, "--label", "nox-yard.jobs-smoke=" + suffix,
@@ -209,8 +223,7 @@ fi''')
     assert ids() == replaced and len(replaced) == 1 and result.get("sourceImages") and result.get("targetImages")
     print("PASS: web interruption after replacement does not launch a duplicate replacement", flush=True)
 
-    (directory / "data" / "ready").unlink()
-    accepted = submit("update")
+    accepted = submit_unready()
     until(lambda: job(accepted["id"])["stage"] == "verifying", "verification gate")
     replaced = ids()
     interrupt_web(accepted["id"])
@@ -219,8 +232,7 @@ fi''')
     assert ids() == replaced
     print("PASS: verification continues across web restart and reports a verified outcome", flush=True)
 
-    (directory / "data" / "ready").unlink()
-    accepted = submit("update")
+    accepted = submit_unready()
     until(lambda: job(accepted["id"])["stage"] == "verifying", "lost worker verification")
     current = job(accepted["id"])
     replaced = ids()
@@ -235,6 +247,7 @@ fi''')
     assert acknowledged["outcome"] == "recovery_acknowledged" and ids() == replaced
     (directory / "data" / "ready").touch()
     finished(submit("restart")["id"])
+    until(lambda: all(item["State"].get("Health",{}).get("Status")=="healthy" for item in json.loads(docker("inspect",*ids()))), "healthy original after explicit recovery restart")
     print("PASS: vanished worker retains ownership; reviewed recovery releases it without replay or secret exposure", flush=True)
 
     accepted = submit("update")

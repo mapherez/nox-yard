@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """C5 daily scheduling through real independent workers and a disposable registry."""
+from smoke_support import write_text, trace_docker
 import argparse
 import pathlib
 import secrets
@@ -17,6 +18,7 @@ base.mkdir(parents=True)
 images = []
 references = []
 
+@trace_docker(name, base)
 def docker(*parts, stream=False):
     result = subprocess.run(["docker", *parts], text=True, capture_output=not stream)
     if result.returncode:
@@ -38,8 +40,8 @@ try:
     for version in ("V1", "V2", "BAD", "EXTRA"):
         image = name + ":" + version.lower()
         images.append(image)
-        (base / "start").write_text("#!/bin/sh\n" + ("touch /tmp/ready\n" if version != "BAD" else "") + "exec sleep 600\n", newline="")
-        (base / "Dockerfile").write_text("FROM alpine:3.23\nLABEL nox-yard.acceptance=" + name + " fixture.version=" + version +
+        write_text(base / "start", "#!/bin/sh\n" + ("touch /tmp/ready\n" if version != "BAD" else "") + "exec sleep 600\n", newline="")
+        write_text(base / "Dockerfile", "FROM alpine:3.23\nLABEL nox-yard.acceptance=" + name + " fixture.version=" + version +
             "\nCOPY start /app/start\nRUN chmod +x /app/start\n" +
             "VOLUME /anonymous\n" + ("VOLUME /extra\n" if version == "EXTRA" else "") +
             "HEALTHCHECK --interval=1s --timeout=1s --retries=1 CMD test -f /tmp/ready\nCMD [\"/app/start\"]\n", newline="")
@@ -53,7 +55,7 @@ try:
     docker("volume", "create", "--label", "nox-yard.acceptance=" + name, name + "-state")
     runner = name + ":runner"
     images.append(runner)
-    (base / "Dockerfile").write_text("FROM " + args.image + " AS tools\nFROM golang:1.26-alpine\n" +
+    write_text(base / "Dockerfile", "FROM " + args.image + " AS tools\nFROM golang:1.26-alpine\n" +
         "LABEL nox-yard.acceptance=" + name + "\n" +
         "COPY --from=tools /usr/local/bin/nox-yard /usr/local/bin/nox-yard\n" +
         "COPY --from=tools /usr/bin/docker /usr/bin/docker\n" +

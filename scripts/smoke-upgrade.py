@@ -5,6 +5,7 @@ Requires Docker, Python 3 and images for the current source and v1.0.1.
 Creates only random, explicitly tracked fixtures; never uses an existing Yard.
 Runs natively on a Linux Pi 5/amd64 host or through Linux Docker Desktop.
 """
+from smoke_support import trace_docker
 import argparse
 import hashlib
 import json
@@ -43,6 +44,7 @@ replacement = secrets.token_urlsafe(24)
 os.chmod(base / "passwords.json", 0o600)
 
 
+@trace_docker(name, base)
 def docker(*parts, input=None):
     result = subprocess.run(["docker", *parts], input=input, text=True, capture_output=True)
     if result.returncode:

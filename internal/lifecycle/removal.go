@@ -25,6 +25,13 @@ type RemovalItem struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type RemovalSource struct {
+	Fingerprint      string
+	Known            bool
+	ExternalVolumes  map[string]bool
+	ExternalNetworks map[string]bool
+}
+
 type RemovalPlan struct {
 	Fingerprint string        `json:"fingerprint"`
 	Items       []RemovalItem `json:"items"`
@@ -68,11 +75,14 @@ func (m *Manager) remove(ctx context.Context, id, fingerprint string) (RemovalRe
 }
 
 func (m *Manager) RemoveWithOptions(ctx context.Context, id, fingerprint string, removeVolumes bool) (RemovalReport, error) {
+	return m.RemoveWithChoices(ctx, id, fingerprint, removeVolumes, false)
+}
+func (m *Manager) RemoveWithChoices(ctx context.Context, id, fingerprint string, removeVolumes, removeImages bool) (RemovalReport, error) {
 	if err := m.mu.Lock(ctx); err != nil {
 		return RemovalReport{}, err
 	}
 	defer m.mu.Unlock()
-	plan, err := m.removalPlanWithOptions(ctx, id, removeVolumes)
+	plan, err := m.removalPlanWithChoices(ctx, id, removeVolumes, removeImages)
 	if err != nil {
 		return RemovalReport{}, err
 	}
@@ -189,6 +199,16 @@ func (m *Manager) PreviewRemoval(ctx context.Context, id string, removeVolumes b
 }
 
 func (m *Manager) removalPlanWithOptions(ctx context.Context, id string, removeVolumes bool) (RemovalPlan, error) {
+	return m.removalPlanWithChoices(ctx, id, removeVolumes, false)
+}
+func (m *Manager) PreviewRemovalChoices(ctx context.Context, id string, removeVolumes, removeImages bool) (RemovalPlan, error) {
+	if err := m.mu.Lock(ctx); err != nil {
+		return RemovalPlan{}, err
+	}
+	defer m.mu.Unlock()
+	return m.removalPlanWithChoices(ctx, id, removeVolumes, removeImages)
+}
+func (m *Manager) removalPlanWithChoices(ctx context.Context, id string, removeVolumes, removeImages bool) (RemovalPlan, error) {
 	all, err := m.client.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return RemovalPlan{}, err
@@ -197,6 +217,14 @@ func (m *Manager) removalPlanWithOptions(ctx context.Context, id string, removeV
 	containerID, single := strings.CutPrefix(id, "container:")
 	if (!compose || name == "") && (!single || containerID == "") {
 		return RemovalPlan{}, ErrNotFound
+	}
+	source := RemovalSource{Known: true}
+	if compose && m.removalSource != nil {
+		var err error
+		source, err = m.removalSource(ctx, name)
+		if err != nil {
+			return RemovalPlan{}, err
+		}
 	}
 	var targets []container.Summary
 	for _, item := range all.Items {
@@ -316,6 +344,9 @@ func (m *Manager) removalPlanWithOptions(ctx context.Context, id string, removeV
 				}
 			}
 		}
+		if item.Action == "remove" && compose && (!source.Known || source.ExternalVolumes[item.ID]) {
+			item.Action, item.Reason = "keep", "External or unverified Compose volume; source ownership does not permit deletion."
+		}
 		if !removeVolumes && item.Action == "remove" {
 			item.Action, item.Reason = "keep", "Volume deletion was not selected."
 		}
@@ -338,6 +369,9 @@ func (m *Manager) removalPlanWithOptions(ctx context.Context, id string, removeV
 		if !compose || network.Labels["com.docker.compose.project"] != name {
 			item.Action, item.Reason = "keep", "External or shared network; not owned by this Compose project."
 		}
+		if item.Action == "remove" && compose && (!source.Known || source.ExternalNetworks[item.ID] || source.ExternalNetworks[item.Name]) {
+			item.Action, item.Reason = "keep", "External or unverified Compose network; source ownership does not permit deletion."
+		}
 		for _, other := range all.Items {
 			if targetIDs[other.ID] || other.NetworkSettings == nil {
 				continue
@@ -352,6 +386,9 @@ func (m *Manager) removalPlanWithOptions(ctx context.Context, id string, removeV
 	}
 	for imageID, imageName := range images {
 		item := RemovalItem{Kind: "image", ID: imageID, Name: imageName, Action: "remove"}
+		if !removeImages {
+			item.Action, item.Reason = "keep", "Image deletion was not selected."
+		}
 		if imageName == "" {
 			item.Name = imageID
 		}
@@ -375,8 +412,10 @@ func (m *Manager) removalPlanWithOptions(ctx context.Context, id string, removeV
 	encoded, _ := json.Marshal(struct {
 		Target        string
 		RemoveVolumes bool
+		RemoveImages  bool
+		Source        string
 		Items         []RemovalItem
-	}{id, removeVolumes, plan.Items})
+	}{id, removeVolumes, removeImages, source.Fingerprint, plan.Items})
 	sum := sha256.Sum256(encoded)
 	plan.Fingerprint = hex.EncodeToString(sum[:])
 	return plan, nil

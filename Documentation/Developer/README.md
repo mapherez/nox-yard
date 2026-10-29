@@ -14,6 +14,7 @@ Start here:
 
 | Document | Responsibility |
 | --- | --- |
+| [Docker/Compose parity](Docker-Compose-Parity.md) | Findings P0/P1/P2, intentional contracts, differential tests and recorded validation. |
 | [Configuration files](Configuration-Files.md) | Host source of truth, file editors, concurrency, ownership and uniform actions. |
 | [Durable operations](Operation-Jobs.md) | Worker lifetime, reservations, history and reviewed recovery. |
 | [Managed updates](Managed-Updates.md) | Compose deployment, image comparison, source sync and rollback. |

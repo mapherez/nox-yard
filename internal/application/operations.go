@@ -107,6 +107,19 @@ func (s *Service) Action(ctx context.Context, id string, container bool, action 
 	defer finish()
 	ctx = jobs.WithJob(ctx, job)
 	var result lifecycle.Result
+	if !container {
+		if name, compose := strings.CutPrefix(id, "compose:"); compose {
+			if files, ok := s.Managed.(interface {
+				LifecycleFiles(context.Context, string, lifecycle.Action) (lifecycle.Result, error)
+			}); ok {
+				result, err = files.LifecycleFiles(ctx, name, action)
+				if !errors.Is(err, managed.ErrFilesMissing) {
+					s.finishOperation(job, result.Failed > 0, operationFailure(err, result.Failures))
+					return result, err
+				}
+			}
+		}
+	}
 	if container {
 		result, err = s.Lifecycle.Container(ctx, id, action)
 	} else {

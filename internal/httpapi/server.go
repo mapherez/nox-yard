@@ -161,6 +161,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/managed/projects/{name}/operations", s.managedOperation)
 	mux.HandleFunc("GET /api/containers/{id}", s.containerInspection)
 	mux.HandleFunc("GET /api/containers/{id}/logs", s.containerLogs)
+	mux.HandleFunc("GET /api/containers/{id}/logs/history", s.containerLogHistory)
 	mux.HandleFunc("GET /api/projects/{id}/logs/export", s.projectLogExport)
 	mux.HandleFunc("POST /api/projects/{id}/logs/export", s.projectLogExport)
 	mux.HandleFunc("GET /api/containers/{id}/terminal", s.containerTerminal)

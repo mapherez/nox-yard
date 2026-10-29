@@ -51,7 +51,7 @@ func TestConfigurationRoutesProtectSecretsAndConcurrentWrites(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		return w
 	}
-	for _, operation := range []string{"read", "save"} {
+	for _, operation := range []string{"read", "save", "override-preview", "override-apply"} {
 		if w := request(operation, "http://yard.test", session.CSRFToken, `{}`, false); w.Code != 401 {
 			t.Fatal("anonymous configuration access", operation, w.Code)
 		}

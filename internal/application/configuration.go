@@ -74,3 +74,36 @@ func (s *Service) SaveProjectConfiguration(ctx context.Context, id string, input
 	s.finishOperation(job, err != nil, err)
 	return view, err
 }
+
+func (s *Service) PreviewProjectOverride(ctx context.Context, id string, input managed.OverrideRequest) (managed.OverridePreview, error) {
+	name, ok := strings.CutPrefix(id, "compose:")
+	if !ok || !ValidTarget(id, false) {
+		return managed.OverridePreview{}, managed.ErrInvalidSource
+	}
+	controller, ok := s.Managed.(interface {
+		PreviewOverride(context.Context, string, managed.OverrideRequest) (managed.OverridePreview, error)
+	})
+	if !ok {
+		return managed.OverridePreview{}, ErrUnavailable
+	}
+	return controller.PreviewOverride(ctx, name, input)
+}
+func (s *Service) ApplyProjectOverride(ctx context.Context, id string, input managed.OverrideRequest) (managed.FileConfigurationView, error) {
+	name, ok := strings.CutPrefix(id, "compose:")
+	if !ok || !ValidTarget(id, false) {
+		return managed.FileConfigurationView{}, managed.ErrInvalidSource
+	}
+	controller, ok := s.Managed.(interface {
+		ApplyOverride(context.Context, string, managed.OverrideRequest) (managed.FileConfigurationView, error)
+	})
+	if !ok {
+		return managed.FileConfigurationView{}, ErrUnavailable
+	}
+	job, err := s.beginOperation(ctx, id, "edit_configuration")
+	if err != nil {
+		return managed.FileConfigurationView{}, err
+	}
+	view, err := controller.ApplyOverride(jobs.WithJob(ctx, job), name, input)
+	s.finishOperation(job, err != nil, err)
+	return view, err
+}

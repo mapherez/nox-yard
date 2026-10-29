@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/inventory"
+	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/store"
 )
 
@@ -73,7 +74,7 @@ func (s *Service) finishOperation(job store.Job, failed bool, err error) {
 		status, outcome, message = "failed", "failed", "Docker could not complete every requested action. Inspect the target before retrying."
 	}
 	var timeout net.Error
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &timeout) && timeout.Timeout()) {
+	if errors.Is(err, managed.ErrConfigurationRecovery) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &timeout) && timeout.Timeout()) {
 		outcome = "recovery_required"
 		message = "Operation response was interrupted. Inspect the target and retained resources, then acknowledge recovery before retrying."
 	}

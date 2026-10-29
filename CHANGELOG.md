@@ -4,6 +4,13 @@ User-facing changes in Yard. Entries summarize tagged source changes; [GitHub Re
 
 ## Unreleased
 
+- Add reviewed Compose overrides without rewriting original files; retain explicit file order, profile and interpolation-file selections.
+- Resolve interpolation, local includes and file dependencies through Compose, support published images alongside development build definitions, and preserve full resolved configuration.
+- Use dependency-aware Compose lifecycle actions, restart selected stopped services, and preserve unrelated orphans during recreation and recovery.
+- Keep images and volumes by default during removal, with independent explicit deletion choices and shared/external resource checks.
+- Browse retained Docker logs by time range and bounded pages, preserving long/empty lines, Unicode, timestamps and stream identity without automatic archives.
+- Expand shared runtime acceptance to configuration, service recreation, machine recovery and native Compose comparisons.
+
 ## 1.3.11
 
 This entry summarizes the changes since 1.3.4.

@@ -93,3 +93,7 @@ If Docker is unavailable, show the inventory as unavailable instead of stale suc
 - [Compose project and service labels](https://docs.docker.com/reference/compose-file/services/)
 - [Compose config validation and rendering](https://docs.docker.com/reference/cli/docker/compose/config/)
 - [Docker daemon access security](https://docs.docker.com/engine/security/)
+
+## Native Compose resolution context
+
+`internal/managed/compose_context.go` extends the existing managed/file protocol. It stages a bounded snapshot of the explicit ordered Compose sources and local dependencies, asks native Compose to resolve interpolation/profiles/selection, and retains the complete JSON execution document. Private transformations pin images and paths without round-tripping through the reduced inspection model. Browser, HTTP and MCP reach it through `internal/application`; schedules and independent workers persist/recheck the same context. Source selection edits use the existing durable operation journal/reservations. Individual containers and source-unavailable assessed fallbacks remain Engine operations. This is not a separate orchestration layer; see [configuration](Configuration-Files.md) and [parity audit](Docker-Compose-Parity.md).

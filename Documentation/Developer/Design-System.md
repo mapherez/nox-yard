@@ -107,3 +107,9 @@ Verify desktop, tablet, mobile, keyboard traversal, focus return, contrast, redu
 For styling changes, review the dashboard with running, partial, and stopped projects, long names, and missing metric values. Check the expanded and collapsed sidebar, project/settings/new-project drawers, and authentication screens. Include narrow layouts down to 320px and ensure content stays within the viewport. Inspect normal, hovered, focused, selected, and disabled controls; check contrast using the rendered foreground and background colors. Preserve status text, visible keyboard focus, and system forced-color support.
 
 Use isolated API fixtures for visual review when a live Docker host is unavailable. Keep fixture data and screenshots out of production code, and distinguish visual validation from real Docker-operation testing. Record completed validation in [Progress](Progress.md).
+
+## Compose review and Docker history
+
+Override review reuses the existing drawer, upload/URL/paste fields and disclosure protections. Native effective before/after configuration is shown with textual `+`/`~`/`−` markers and existing semantic success/warning/danger tokens; `--color-danger-subtle` supplies the removal background. No new theme system is introduced. The full effective Compose view is available from the same review. The diff computation is bounded, with exact before/after blocks for very large changes. Layout, dirty close, focus return, cancellation and late request guards follow the existing drawer contracts. Browser fixture widths are 1440/768/390/320 px.
+
+Logs separate the live bounded window from explicit Docker history pages/time selection. Long-line transport continuation is explained when present, and page navigation replaces the visible page. Search/export operate the displayed buffer. Reading history never creates host files; export retains the existing explicit confirmation.

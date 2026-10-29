@@ -26,11 +26,13 @@ New projects use `BASE/PROJECT_NAME/compose.yml`. Existing managed projects reta
 
 Supported projects expose environment editing and a **Compose and environment files** editor in Details. **Save** validates and writes the files; **Recreate** applies them. Restart does not apply configuration changes. Synchronizing a URL source is a separate reviewed action.
 
+To add an override, open **Compose and environment files → Add override**, provide a URL, pasted YAML or file, then choose **Read source**. Review the effective configuration and changes before saving. The override stays separate and the original file keeps its formatting. **Add override** only saves; follow with **Recreate** to apply it. Removing an override from selection keeps the file on the host. Yard uses the displayed file order and does not automatically select overrides added through the terminal. Select profiles and interpolation files in the same configuration section when needed.
+
 ## Details, logs, and terminal
 
 **Details** contains lifecycle actions, state and health, resource usage, image information, ports, mounts, networks, and environment variables. Environment values are hidden until explicitly revealed. At project level, use **Operations** to inspect action progress, results, and recovery information; jobs retain their recorded state when you close or refresh the browser.
 
-**Logs** lets you switch containers, follow output, and search with highlighted matches. Export saves the currently displayed buffer as a `.txt` file on the Docker host, rather than downloading it to your browser. Files use `BASE/PROJECT_NAME/logs/YYYY-MM-DD-HH-mm.txt`; projects outside the configured base and standalone containers use a named directory under that base. The latest export time appears below the logs.
+**Logs** opens the latest 200 lines and follows output. Switch to history to select a time interval and load bounded pages directly from Docker; previous/next pages keep memory bounded. Search highlights matches in the displayed buffer. Docker rotation and removal determine which history remains; Yard creates no archive when reading it. TTY containers combine stdout and stderr. Export saves the currently displayed buffer as a `.txt` file on the Docker host, rather than downloading it to your browser. Files use `BASE/PROJECT_NAME/logs/YYYY-MM-DD-HH-mm.txt`; projects outside the configured base and standalone containers use a named directory under that base. The latest export time appears below the logs.
 
 **Terminal** opens an interactive `/bin/sh` in the selected running container. The container must provide that shell. Leaving the terminal view closes the session.
 
@@ -63,4 +65,6 @@ The built-in updater verifies the official image signature before installation. 
 
 Back up three things separately: Yard's `./data` directory, project Compose/environment files, and workload volumes or bind-mounted data. Let active operations finish, then stop Yard before copying its data directory for a consistent offline backup. See the [maintenance guide](../Developer/Development.md) for backup, restore, and administrator password recovery.
 
-Removal is reviewed before confirmation. Docker volumes are retained by default unless eligible volume deletion is explicitly selected. Check operation results and any recovery instructions before retrying a failed action.
+Restart includes selected stopped services and may rerun completed initializers; it never applies saved configuration edits. Recreate preserves services that were stopped and leaves unrelated orphan containers alone.
+
+Removal is reviewed before confirmation. Images and volumes are retained by default. **Remove unused images** and **Remove volumes** are separate choices; shared/external resources remain protected. Check operation results and any recovery instructions before retrying a failed action.

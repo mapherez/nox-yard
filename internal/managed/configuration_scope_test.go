@@ -56,7 +56,7 @@ func TestServiceCreateExcludesDependenciesAndOrphanRemoval(t *testing.T) {
 	if !strings.Contains(args, "--no-deps") || strings.Contains(args, "--remove-orphans") || !strings.HasSuffix(args, " app") || !strings.Contains(args, "--no-build --pull never") {
 		t.Fatal("unsafe service create", args)
 	}
-	if args := strings.Join(fileCreateArgs("recreate", ""), " "); !strings.Contains(args, "--remove-orphans") || strings.Contains(args, "--no-deps") {
+	if args := strings.Join(fileCreateArgs("recreate", ""), " "); strings.Contains(args, "--remove-orphans") || strings.Contains(args, "--no-deps") {
 		t.Fatal("project scope changed", args)
 	}
 }
@@ -100,5 +100,16 @@ func TestServicePortsDoNotIgnoreSiblingBindings(t *testing.T) {
 	peer.Labels["com.docker.compose.service"] = "app"
 	if err := compareServiceHostPorts("sample", "app", claims, []container.Summary{peer}); err != nil {
 		t.Fatal("selected service cannot reuse its port", err)
+	}
+}
+
+func TestFileOperationFingerprintIncludesExternalRestartRevision(t *testing.T) {
+	first := []container.InspectResponse{{ID: "same-id", State: &container.State{Running: true, StartedAt: "2026-10-29T00:00:00Z"}}}
+	next := []container.InspectResponse{{ID: "same-id", State: &container.State{Running: true, StartedAt: "2026-10-29T00:01:00Z"}}}
+	if fileOperationFingerprint(FileSnapshot{}, first, "recreate", "") == fileOperationFingerprint(FileSnapshot{}, next, "recreate", "") {
+		t.Fatal("external restart did not invalidate confirmation")
+	}
+	if sameRunningState(first, next) {
+		t.Fatal("external restart was accepted before mutation")
 	}
 }

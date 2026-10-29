@@ -12,7 +12,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/inventory"
 )
 
-type logLine = inventory.LogLine
+type logLine = inventory.LogEvent
 
 func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 	if !s.requireSession(w, r, false) {
@@ -55,7 +55,7 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request) {
 	lines := make(chan logLine, 64)
 	completed := make(chan error, 1)
 	go func() {
-		readErr := inventory.DecodeLogs(ctx, stream, func(line inventory.LogLine) error {
+		readErr := inventory.DecodeLogEvents(ctx, stream, func(line inventory.LogEvent) error {
 			select {
 			case lines <- line:
 				return nil
@@ -112,4 +112,33 @@ func writeLogEvent(w io.Writer, controller *http.ResponseController, name string
 		return err
 	}
 	return controller.Flush()
+}
+
+func (s *Server) containerLogHistory(w http.ResponseWriter, r *http.Request) {
+	if !s.requireSession(w, r, false) {
+		return
+	}
+	id := r.PathValue("id")
+	if !containerIDPattern.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "Invalid container ID.")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	q := r.URL.Query()
+	page, err := s.application.LogHistory(ctx, id, inventory.LogHistoryQuery{Since: q.Get("since"), Until: q.Get("until"), Cursor: q.Get("cursor")})
+	if err != nil {
+		if errors.Is(err, inventory.ErrContainerNotFound) {
+			writeError(w, http.StatusNotFound, "Container no longer exists.")
+		} else {
+			if errors.Is(err, inventory.ErrLogHistoryInput) || errors.Is(err, inventory.ErrLogTimestamps) {
+				writeError(w, http.StatusBadRequest, err.Error())
+			} else {
+				writeError(w, http.StatusServiceUnavailable, "Docker cannot read retained logs for this container; check its logging driver.")
+			}
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
 }

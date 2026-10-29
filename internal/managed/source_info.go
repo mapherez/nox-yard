@@ -28,7 +28,7 @@ func InspectSource(content string) (SourceInfo, error) {
 		return SourceInfo{}, fmt.Errorf("%w: invalid YAML; check the Compose syntax", ErrInvalidSource)
 	}
 	services, ok := model["services"].(map[string]any)
-	if !ok || len(services) == 0 {
+	if (!ok || len(services) == 0) && model["include"] == nil {
 		return SourceInfo{}, fmt.Errorf("%w: Compose file has no services", ErrInvalidSource)
 	}
 	info := SourceInfo{EnvFiles: []EnvFile{}}
@@ -55,6 +55,19 @@ func InspectSource(content string) (SourceInfo, error) {
 		}
 		for _, entry := range entries {
 			byPath[entry.Path] = byPath[entry.Path] || entry.Required
+		}
+	}
+	deps, err := dependencyNames(content, ".")
+	if err != nil {
+		return SourceInfo{}, err
+	}
+	for _, dep := range deps {
+		if !strings.Contains(dep.name, "$") {
+			p := path.Clean(dep.name)
+			if !validEnvPath(p) {
+				return SourceInfo{}, fmt.Errorf("%w: configuration dependencies must remain within the project", ErrInvalidSource)
+			}
+			byPath[p] = byPath[p] || dep.required
 		}
 	}
 	if info.SuggestedName == "" {
@@ -104,6 +117,9 @@ func envFileEntries(raw any) ([]EnvFile, error) {
 			}
 		default:
 			return nil, fmt.Errorf("unsupported env_file entry")
+		}
+		if strings.Contains(entry.Path, "$") {
+			continue
 		}
 		if !validEnvPath(entry.Path) {
 			return nil, fmt.Errorf("env_file must use a relative path within the project")

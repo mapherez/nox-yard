@@ -7,7 +7,7 @@ import (
 
 func TestGlobalEnvironmentCannotChangeComposeOrDockerControls(t *testing.T) {
 	source := "services:\n  web:\n    image: alpine:3.23\n"
-	for _, value := range []string{"COMPOSE_PROFILES=unhealthy\n", "export DOCKER_HOST=tcp://other-host:2375\n", "'COMPOSE_FILE' : other.yml\n"} {
+	for _, value := range []string{"COMPOSE_REMOVE_ORPHANS=1\n", "export DOCKER_HOST=tcp://other-host:2375\n", "'DOCKER_CONTEXT' : other\n"} {
 		_, _, err := prepareCompose(source, map[string]string{".env": value})
 		if !errors.Is(err, ErrInvalidSource) {
 			t.Fatalf("global control accepted: %v", err)

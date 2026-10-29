@@ -1,0 +1,9 @@
+.review { display: grid; gap: var(--space-3); min-inline-size: 0; }
+.review p { overflow-wrap: anywhere; }
+.diff { margin: 0; padding: var(--space-3); overflow: auto; max-block-size: 65vh; background: var(--color-surface-1); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: .82rem/1.65 var(--font-code); tab-size: 2; }
+.diff > span { display: block; min-inline-size: max-content; border-inline-start: 3px solid transparent; white-space: pre; }
+.diff > span[data-change="added"] { background: var(--color-success-subtle); border-color: var(--color-success); }
+.diff > span[data-change="modified"] { background: var(--color-warning-subtle); border-color: var(--color-warning); }
+.diff > span[data-change="removed"] { background: var(--color-danger-subtle); border-color: var(--color-danger); }
+.legend { color: var(--color-text-secondary); font-size: .8rem; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }

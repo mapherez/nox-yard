@@ -94,6 +94,10 @@ func TestPreviouslyCancelledContextDoesNotDispatch(t *testing.T) {
 		func() error { _, e := app.ComposePreview(ctx, managed.Request{}); return e },
 		func() error { _, e := app.ComposeSubmit(ctx, managed.Request{}); return e },
 		func() error { _, e := app.ComposeOperation(ctx, "target", "start", false); return e },
+		func() error {
+			_, e := app.ComposeOperationWithChoices(ctx, "target", "remove", false, true, strings.Repeat("a", 64))
+			return e
+		},
 		func() error { _, _, e := app.ComposeJob(ctx, "job"); return e },
 		func() error { _, e := app.ProjectsBase(ctx); return e },
 		func() error { _, e := app.SetProjectsBase(ctx, "path"); return e },
@@ -197,6 +201,15 @@ func TestAcceptedUpdateWithFailedStatusIsDistinguished(t *testing.T) {
 		var read UpdateStatusError
 		if !errors.As(err, &read) {
 			t.Fatal("lost accepted mutation/status distinction")
+		}
+	}
+}
+
+func TestImageRemovalChoiceRequiresRemovalOperation(t *testing.T) {
+	app := New(nil, inventory.NewNotifier())
+	for _, request := range []struct{ operation, fingerprint string }{{"start", ""}, {"remove", "stale"}} {
+		if _, err := app.ComposeOperationWithChoices(context.Background(), "target", request.operation, false, true, request.fingerprint); !errors.Is(err, ErrInvalidRemoval) {
+			t.Fatalf("invalid choice dispatched: %v", err)
 		}
 	}
 }

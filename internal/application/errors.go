@@ -25,6 +25,12 @@ func ClassifyError(err error, execution bool) (int, Problem) {
 	var storage ManagedReadError
 	var network net.Error
 	switch {
+	case errors.Is(err, managed.ErrConfigurationRecovery):
+		return 409, Problem{Code: "OPERATION_RECOVERY_REQUIRED", Message: "Configuration save completion is uncertain. Review the private file journal and retained reservation before retrying."}
+	case errors.Is(err, inventory.ErrLogHistoryInput):
+		return 400, Problem{Code: "INVALID_PAYLOAD", Message: err.Error()}
+	case errors.Is(err, inventory.ErrLogsUnavailable), errors.Is(err, inventory.ErrLogTimestamps):
+		return 503, Problem{Code: "CAPABILITY_UNAVAILABLE", Message: err.Error()}
 	case errors.Is(err, schedule.ErrInvalidTime):
 		return 400, Problem{Code: "INVALID_PAYLOAD", Message: err.Error()}
 	case errors.Is(err, ErrScheduleUnsupported):

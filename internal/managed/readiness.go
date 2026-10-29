@@ -3,6 +3,7 @@ package managed
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -56,7 +57,7 @@ func expectedServices(model composeModel) map[string]serviceExpectation {
 		}
 	}
 	for name, service := range model.Services {
-		if len(service.Profiles) > 0 {
+		if (model.ActiveServices != nil && !slices.Contains(model.ActiveServices, name)) || (model.ActiveServices == nil && len(service.Profiles) > 0) {
 			continue
 		}
 		count := 1

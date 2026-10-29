@@ -130,6 +130,7 @@ func run() error {
 	}
 	defer dockerLifecycle.Close()
 	dockerLifecycle.SetStore(data)
+	dockerLifecycle.SetRemovalSource(managedProjects.RemovalSource)
 	api.SetLifecycle(dockerLifecycle)
 	recreator, err := recreate.New(data)
 	if err != nil {

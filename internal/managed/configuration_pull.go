@@ -26,7 +26,7 @@ func (m *Manager) pullFiles(ctx context.Context, name, service string) (lifecycl
 	if err != nil {
 		return result, err
 	}
-	preview := filePreview(source)
+	preview := scopedFilePreview(source, service)
 	services := expectedServices(preview.model)
 	args := []string{"pull"}
 	if service != "" {
@@ -36,7 +36,11 @@ func (m *Manager) pullFiles(ctx context.Context, name, service string) (lifecycl
 		services = map[string]serviceExpectation{service: {}}
 		args = append(args, service)
 	}
-	if err := runResolvedCompose(ctx, name, source.Directory, string(source.Resolved), args...); err != nil {
+	definition, err := resolvedDefinition(preview, source.Directory, nil)
+	if err != nil {
+		return result, err
+	}
+	if err := runResolvedCompose(ctx, name, source.Directory, definition, args...); err != nil {
 		return result, err
 	}
 	seen := map[string]bool{}

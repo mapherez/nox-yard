@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"github.com/mapherez/nox-yard/internal/application"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"net/http"
@@ -24,6 +25,16 @@ func (s *Server) projectConfiguration(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		output, err = s.application.ReadProjectConfiguration(r.Context(), r.PathValue("id"), input.Reveal)
+	case "override-preview", "override-apply":
+		var input managed.OverrideRequest
+		if !decodeManaged(w, r, &input) {
+			return
+		}
+		if r.PathValue("operation") == "override-preview" {
+			output, err = s.application.PreviewProjectOverride(r.Context(), r.PathValue("id"), input)
+		} else {
+			output, err = s.application.ApplyProjectOverride(r.Context(), r.PathValue("id"), input)
+		}
 	case "save":
 		var input managed.ConfigurationEdit
 		if !decodeManaged(w, r, &input) {
@@ -36,8 +47,17 @@ func (s *Server) projectConfiguration(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		code, problem := application.ClassifyError(err, false)
-		writeError(w, code, problem.Message)
+		writeConfigurationError(w, code, problem.Message, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, output)
+}
+
+func writeConfigurationError(w http.ResponseWriter, status int, message string, err error) {
+	var diagnostic *managed.ComposeDiagnostic
+	if errors.As(err, &diagnostic) {
+		writeJSON(w, status, map[string]any{"error": message, "diagnostic": diagnostic})
+		return
+	}
+	writeError(w, status, message)
 }

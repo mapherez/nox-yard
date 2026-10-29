@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -139,7 +140,13 @@ func (s *Store) CommitManagedJob(job Job, project *ManagedProject, remove bool, 
 			// Verified deployment/adoption already wrote the authoritative files.
 			// Commit location-only metadata with the terminal job CAS.
 			metadata.YAML, metadata.VariablesJSON, metadata.EnvFilesJSON = "", "{}", "{}"
-			if _, err := tx.Exec(`INSERT INTO file_configurations(name,directory,compose_files,state,error) VALUES(?,?,?,'ready','') ON CONFLICT(name) DO UPDATE SET directory=excluded.directory,compose_files=excluded.compose_files,state='ready',error=''`, project.Name, project.ProjectDir, `["compose.yml"]`); err != nil {
+			var payload struct{ Context json.RawMessage }
+			_ = json.Unmarshal([]byte(job.Payload), &payload)
+			context := string(payload.Context)
+			if context == "" || context == "null" {
+				context = "{}"
+			}
+			if _, err := tx.Exec(`INSERT INTO file_configurations(name,directory,compose_files,state,error,context_json) VALUES(?,?,?,'ready','',?) ON CONFLICT(name) DO UPDATE SET directory=excluded.directory,compose_files=excluded.compose_files,state='ready',error='',context_json=CASE WHEN excluded.context_json='{}' THEN file_configurations.context_json ELSE excluded.context_json END`, project.Name, project.ProjectDir, `["compose.yml"]`, context); err != nil {
 				return err
 			}
 		}

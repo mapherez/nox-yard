@@ -116,7 +116,7 @@ func TestConfigurationEditsTargetSourceFiles(t *testing.T) {
 func TestSelfFileConfigurationPreservesRecoverableData(t *testing.T) {
 	service := modelService{Volumes: []modelVolume{{Type: "bind", Source: "/srv/yard/data", Target: "/data"}, {Type: "bind", Source: "/var/run/docker.sock", Target: "/var/run/docker.sock"}}, Environment: map[string]*string{}}
 	preview := Preview{model: composeModel{Services: map[string]modelService{"nox-yard": service}}}
-	runtime := []container.InspectResponse{{Config: &container.Config{Labels: map[string]string{"com.docker.compose.service": "nox-yard"}}, Mounts: []container.MountPoint{{Source: "/srv/yard/data", Destination: "/data"}, {Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock"}}}}
+	runtime := []container.InspectResponse{{Config: &container.Config{Labels: map[string]string{"com.docker.compose.service": "nox-yard"}}, Mounts: []container.MountPoint{{Type: "bind", Source: "/srv/yard/data", Destination: "/data"}, {Type: "bind", Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock"}}}}
 	if err := validateSelfFileConfiguration(preview, runtime, "/data"); err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +129,19 @@ func TestSelfFileConfigurationPreservesRecoverableData(t *testing.T) {
 	service.Volumes[0].Source = "/unrelated-state"
 	if err := validateSelfFileConfiguration(preview, runtime, "/data"); err == nil {
 		t.Fatal("self-recreation discarded the recovery data mount")
+	}
+}
+
+func TestSelfFileConfigurationPreservesNamedDataVolume(t *testing.T) {
+	service := modelService{Volumes: []modelVolume{{Type: "volume", Source: "state", Target: "/data"}, {Type: "bind", Source: "/var/run/docker.sock", Target: "/var/run/docker.sock"}}}
+	preview := Preview{model: composeModel{Services: map[string]modelService{"nox-yard": service}, Volumes: map[string]modelResource{"state": {Name: "yard_state"}}}}
+	old := []container.InspectResponse{{Config: &container.Config{Labels: map[string]string{"com.docker.compose.service": "nox-yard"}}, Mounts: []container.MountPoint{{Type: "volume", Name: "yard_state", Destination: "/data"}, {Type: "bind", Source: "/var/run/docker.sock", Destination: "/var/run/docker.sock"}}}}
+	if err := validateSelfFileConfiguration(preview, old, "/data"); err != nil {
+		t.Fatal(err)
+	}
+	preview.model.Volumes["state"] = modelResource{Name: "unrelated_state"}
+	if err := validateSelfFileConfiguration(preview, old, "/data"); err == nil {
+		t.Fatal("changed data volume accepted")
 	}
 }
 

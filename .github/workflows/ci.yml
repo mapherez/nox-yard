@@ -87,8 +87,14 @@ jobs:
             BUILD_VERSION=${{ steps.metadata.outputs.version }}
       - name: Check bundled image signature verifier
         run: docker run --rm --network none --entrypoint /usr/local/bin/cosign nox-yard:ci-amd64 version
-      - name: Check MCP access and network recovery
-        run: python3 scripts/smoke-machine.py --image nox-yard:ci-amd64
+      - name: Run isolated current-image runtime gates
+        run: python3 scripts/acceptance.py --image nox-yard:ci-amd64 --skip-upgrade
+      - name: Preserve runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-acceptance
+          path: .tmp/acceptance-results.json
       - name: Build linux/arm64 image
         uses: docker/build-push-action@v7
         with:

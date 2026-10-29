@@ -109,12 +109,25 @@ func (s *Service) Metrics(ctx context.Context) (map[string]inventory.Metrics, er
 func (s *Service) PreviewRemove(ctx context.Context, id string, container bool) (lifecycle.RemovalPlan, error) {
 	return s.PreviewRemoveWithOptions(ctx, id, container, false)
 }
-func (s *Service) PreviewRemoveWithOptions(ctx context.Context, id string, container, removeVolumes bool) (lifecycle.RemovalPlan, error) {
+func (s *Service) PreviewRemoveWithOptions(ctx context.Context, id string, container, removeVolumes bool, imageChoice ...bool) (lifecycle.RemovalPlan, error) {
 	if err := ctx.Err(); err != nil {
 		return lifecycle.RemovalPlan{}, err
 	}
 	if s.Lifecycle == nil {
 		return lifecycle.RemovalPlan{}, ErrDockerUnavailable
+	}
+	if len(imageChoice) > 0 && imageChoice[0] {
+		controller, ok := s.Lifecycle.(interface {
+			PreviewRemovalChoices(context.Context, string, bool, bool) (lifecycle.RemovalPlan, error)
+		})
+		if !ok {
+			return lifecycle.RemovalPlan{}, ErrUnavailable
+		}
+		target := id
+		if container {
+			target = "container:" + id
+		}
+		return controller.PreviewRemovalChoices(ctx, target, removeVolumes, true)
 	}
 	if controller, ok := s.Lifecycle.(interface {
 		PreviewRemoval(context.Context, string, bool) (lifecycle.RemovalPlan, error)
@@ -136,7 +149,7 @@ func (s *Service) PreviewRemoveWithOptions(ctx context.Context, id string, conta
 func (s *Service) Remove(ctx context.Context, id string, container, confirm bool, fingerprint string) (lifecycle.RemovalReport, error) {
 	return s.RemoveWithOptions(ctx, id, container, confirm, fingerprint, false)
 }
-func (s *Service) RemoveWithOptions(ctx context.Context, id string, container, confirm bool, fingerprint string, removeVolumes bool) (lifecycle.RemovalReport, error) {
+func (s *Service) RemoveWithOptions(ctx context.Context, id string, container, confirm bool, fingerprint string, removeVolumes bool, imageChoice ...bool) (lifecycle.RemovalReport, error) {
 	if err := ctx.Err(); err != nil {
 		return lifecycle.RemovalReport{}, err
 	}
@@ -157,7 +170,16 @@ func (s *Service) RemoveWithOptions(ctx context.Context, id string, container, c
 	finish := s.Changes.Begin(target, "remove")
 	defer finish()
 	var result lifecycle.RemovalReport
-	if controller, ok := s.Lifecycle.(interface {
+	if len(imageChoice) > 0 && imageChoice[0] {
+		controller, ok := s.Lifecycle.(interface {
+			RemoveWithChoices(context.Context, string, string, bool, bool) (lifecycle.RemovalReport, error)
+		})
+		if !ok {
+			err = ErrUnavailable
+		} else {
+			result, err = controller.RemoveWithChoices(ctx, target, fingerprint, removeVolumes, true)
+		}
+	} else if controller, ok := s.Lifecycle.(interface {
 		RemoveWithOptions(context.Context, string, string, bool) (lifecycle.RemovalReport, error)
 	}); ok {
 		result, err = controller.RemoveWithOptions(ctx, target, fingerprint, removeVolumes)
@@ -405,4 +427,31 @@ func (s *Service) OpenLogs(ctx context.Context, id string) (inventory.LogStream,
 		return inventory.LogStream{}, ErrUnavailable
 	}
 	return s.Logs.OpenLogs(ctx, id)
+}
+
+func (s *Service) ComposeOperationWithChoices(ctx context.Context, name, operation string, removeVolumes, removeImages bool, fingerprint string) (store.ManagedJob, error) {
+	if err := ctx.Err(); err != nil {
+		return store.Job{}, err
+	}
+	if removeImages {
+		if operation != "remove" || (fingerprint != "" && len(fingerprint) != 64) {
+			return store.Job{}, ErrInvalidRemoval
+		}
+		controller, ok := s.Managed.(interface {
+			OperationWithChoices(string, string, bool, bool, string) (store.ManagedJob, error)
+		})
+		if !ok {
+			return store.Job{}, ErrUnavailable
+		}
+		return controller.OperationWithChoices(name, operation, removeVolumes, removeImages, fingerprint)
+	}
+	return s.ComposeOperationWithPreview(ctx, name, operation, removeVolumes, fingerprint)
+}
+
+func (s *Service) LogHistory(ctx context.Context, id string, query inventory.LogHistoryQuery) (inventory.LogPage, error) {
+	reader, ok := s.Logs.(inventory.SnapshotLogReader)
+	if !ok {
+		return inventory.LogPage{}, ErrUnavailable
+	}
+	return inventory.ReadLogPage(ctx, reader, id, query)
 }

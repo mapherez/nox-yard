@@ -4,6 +4,7 @@
 Never targets user stacks. The URL business-flow test uses an injected source
 loader, without publishing fixture files or weakening production URL checks.
 """
+from smoke_support import write_text, trace_docker
 import argparse
 import json
 import pathlib
@@ -25,6 +26,7 @@ images = []
 registry = None
 reference = ""
 
+@trace_docker(name, base)
 def docker(*parts, stream=False):
     result = subprocess.run(["docker", *parts], text=True, capture_output=not stream)
     if result.returncode:
@@ -47,7 +49,7 @@ try:
     for version in ("V1", "V2", "BAD"):
         image = name + ":" + version.lower()
         images.append(image)
-        (base / "Dockerfile").write_text("FROM alpine:3.23\nLABEL nox-yard.acceptance=" + name + " fixture.version=" + version +
+        write_text(base / "Dockerfile", "FROM alpine:3.23\nLABEL nox-yard.acceptance=" + name + " fixture.version=" + version +
             "\nHEALTHCHECK --interval=1s --timeout=1s --retries=1 CMD " + ("false" if version == "BAD" else "true") +
             "\nCMD [\"sleep\", \"600\"]\n", newline="")
         docker("build", "-t", image, str(base))
@@ -56,7 +58,7 @@ try:
     docker("push", reference)
     runner = name + ":runner"
     images.append(runner)
-    (base / "Dockerfile").write_text("FROM " + args.image + " AS tools\nFROM golang:1.26-alpine\n" +
+    write_text(base / "Dockerfile", "FROM " + args.image + " AS tools\nFROM golang:1.26-alpine\n" +
         "COPY --from=tools /usr/bin/docker /usr/bin/docker\n" +
         "COPY --from=tools /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose\n", newline="")
     docker("build", "-t", runner, str(base))

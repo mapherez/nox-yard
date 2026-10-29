@@ -8,7 +8,7 @@ import styles from "./NewProjectDrawer.module.css";
 type EnvRow = { id: string; key: string; value: string };
 let nextEnvRowId = 0;
 
-function FileUploadField({ id, label, accept, hint, filename, required = false, disabled, onChange }: {
+export function FileUploadField({ id, label, accept, hint, filename, required = false, disabled, onChange }: {
   id: string;
   label: string;
   accept: string;
@@ -46,10 +46,12 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
   const [input, setInput] = useState<ManagedSourceInput | null>(null);
   const [source, setSource] = useState<ManagedSource | null>(null);
   const [name, setName] = useState("");
+ const [profiles,setProfiles]=useState("");
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [envRows, setEnvRows] = useState<Record<string, EnvRow[]>>({});
   const [envUploads, setEnvUploads] = useState<Record<string, { filename: string; content: string }>>({});
   const [showValues, setShowValues] = useState(false);
+ const [additionalFiles,setAdditionalFiles]=useState<Record<string,string>>({});
   const [mode, setMode] = useState<ManagedRequest["mode"]>("new");
   const [adoptionDir, setAdoptionDir] = useState("");
   const [adoptionDirty, setAdoptionDirty] = useState(false);
@@ -81,13 +83,13 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
         next = { kind, filename: file.name, yaml: new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer()) };
       }
       const loaded = await loadManagedSource(next, csrfToken);
-      setSource(loaded); setInput(next); setName(loaded.suggestedName || ""); setVariables({}); setEnvRows({}); setEnvUploads({}); setShowValues(false); setMode("new"); setAdoptionDir(""); setAdoptionDirty(false);
+      setSource(loaded); setInput(next); setName(loaded.suggestedName || ""); setVariables({}); setEnvRows({}); setEnvUploads({});setAdditionalFiles({}); setShowValues(false); setMode("new"); setAdoptionDir(""); setAdoptionDirty(false);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to read source."); }
     finally { setBusy(false); }
   }
 
   function providedEnvFiles(): Record<string, string> {
-    const result: Record<string, string> = {};
+    const result: Record<string, string> = {...additionalFiles};
     for (const file of source?.envFiles || []) {
       if (envUploads[file.path]) { result[file.path] = envUploads[file.path].content; continue; }
       const rows = envRows[file.path] || [];
@@ -113,13 +115,6 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
     setEnvRows((current) => ({ ...current, [path]: (current[path] || []).map((row) => row.id === id ? { ...row, [field]: value } : row) }));
   }
 
-  function rootEnvDefines(key: string): boolean {
-    if (envRows[".env"]?.some((row) => row.key.trim() === key)) return true;
-    return envUploads[".env"]?.content.split(/\r?\n/).some((line) => {
-      const match = line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)\s*[=:]/);
-      return match?.[1] === key;
-    }) || false;
-  }
 
   async function uploadEnv(path: string, file: File | null) {
     if (!file) return;
@@ -137,7 +132,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
     if (!modal.current?.open && document.activeElement instanceof HTMLElement) previewInvoker.current = document.activeElement;
     setBusy(true); setError(""); setMode(nextMode);
     try {
-      const next = await previewManaged({ name: name.trim(), source: input, variables: providedVariables(), envFiles: providedEnvFiles(), mode: nextMode, ...(nextMode === "adopt" && adoptionDir.trim() ? { projectDir: adoptionDir.trim() } : {}) }, csrfToken);
+      const next = await previewManaged({ name: name.trim(), source: input, profiles:profiles.trim()?profiles.split(",").map(value=>value.trim()).filter(Boolean):undefined, variables: providedVariables(), envFiles: providedEnvFiles(), mode: nextMode, ...(nextMode === "adopt" && adoptionDir.trim() ? { projectDir: adoptionDir.trim() } : {}) }, csrfToken);
       setPreview(next); setAdoptionDirty(false);
       if (next.adoptionDir) setAdoptionDir(next.adoptionDir);
     }
@@ -148,7 +143,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
   async function confirm() {
     if (!input || !preview || preview.mode !== mode || adoptionDirty) return;
     setBusy(true); setError("");
-    try { setJob(await deployManaged({ name: name.trim(), source: input, variables: providedVariables(), envFiles: providedEnvFiles(), mode, fingerprint: preview.fingerprint, ...(mode === "adopt" ? { projectDir: preview.projectDir } : {}) }, csrfToken)); setPreview(null); }
+    try { setJob(await deployManaged({ name: name.trim(), source: input, profiles:profiles.trim()?profiles.split(",").map(value=>value.trim()).filter(Boolean):undefined, variables: providedVariables(), envFiles: providedEnvFiles(), mode, fingerprint: preview.fingerprint, ...(mode === "adopt" ? { projectDir: preview.projectDir } : {}) }, csrfToken)); setPreview(null); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to deploy project."); setPreview(null); }
     finally { setBusy(false); }
   }
@@ -161,28 +156,22 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
       <div className={`${appStyles.settingsContent} ${styles.content}`}>
         <p className={styles.intro}>Choose a Compose source, enter its variables, then review the project before deployment.</p>
         <form className={styles.form} onSubmit={(event) => { void readSource(event); }}>
-          <fieldset className={styles.sourceChoices} disabled={busy}><legend>Source</legend>
-            <label><input type="radio" name="kind" checked={kind === "url"} onChange={() => { setKind("url"); setSource(null); setFile(null); }} /> HTTPS URL</label>
-            <label><input type="radio" name="kind" checked={kind === "paste"} onChange={() => { setKind("paste"); setSource(null); setFile(null); }} /> Paste YAML</label>
-            <label><input type="radio" name="kind" checked={kind === "upload"} onChange={() => { setKind("upload"); setSource(null); }} /> Upload file</label>
-          </fieldset>
-          {kind === "url" && <div className={styles.field}><label htmlFor="managed-url">Public HTTPS URL</label><input id="managed-url" type="url" value={url} required onChange={(event) => { setURL(event.target.value); setSource(null); }} /></div>}
-          {kind === "paste" && <div className={styles.field}><label htmlFor="managed-yaml">Compose YAML</label><textarea id="managed-yaml" rows={12} value={yaml} required spellCheck={false} onChange={(event) => { setYAML(event.target.value); setSource(null); }} /></div>}
-          {kind === "upload" && <FileUploadField id="managed-file" label="Compose file" accept=".yaml,.yml,text/yaml" hint=".yaml or .yml · Up to 1 MiB" filename={file?.name} required disabled={busy} onChange={(event) => { setFile(event.target.files?.[0] || null); setSource(null); }} />}
+          <ComposeSourceFields prefix="managed" kind={kind} url={url} yaml={yaml} file={file} busy={busy} onKind={value => { setKind(value); setSource(null); setFile(null); }} onURL={value => { setURL(value); setSource(null); }} onYAML={value => { setYAML(value); setSource(null); }} onFile={value => { setFile(value); setSource(null); }} />
           <button className={appStyles.primaryButton} type="submit" disabled={busy}>Read source</button>
         </form>
         {source && !job && <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void validate(); }}>
           <div className={styles.loaded}><strong>Source loaded</strong><span>{source.filename || source.url || "Pasted YAML"}</span></div>
           <div className={styles.field}><label htmlFor="managed-name">Project name</label><input id="managed-name" value={name} required pattern={"[a-z0-9][a-z0-9_\\-]{0,62}"} onChange={(event) => setName(event.target.value)} /></div>
+          <div className={styles.field}><label htmlFor="managed-profiles">Active profiles (optional, separated by commas)</label><input id="managed-profiles" value={profiles} onChange={event=>setProfiles(event.target.value)} /></div>
           {(source.variables.length > 0 || source.envFiles.length > 0) && <label className={styles.visibilityToggle}><input type="checkbox" checked={showValues} onChange={(event) => setShowValues(event.target.checked)} /> Show environment values</label>}
           {source.variables.length > 0 && <fieldset className={styles.envSection}><legend>Compose interpolation variables</legend>
             <p className={styles.hint}>When syncing, untouched fields keep the saved project values. Edit a field to override its saved value.</p>
-            {source.variables.map((variable) => <div className={styles.field} key={variable.name}><label htmlFor={`managed-var-${variable.name}`}>{variable.name}{variable.required && !rootEnvDefines(variable.name) ? " *" : ""}</label><input id={`managed-var-${variable.name}`} type={showValues ? "text" : "password"} value={variables[variable.name] ?? ""} required={variable.required && !rootEnvDefines(variable.name)} placeholder={variable.default} autoComplete="off" onChange={(event) => setVariables((current) => ({ ...current, [variable.name]: event.target.value }))} /></div>)}
+            {source.variables.map((variable) => <div className={styles.field} key={variable.name}><label htmlFor={`managed-var-${variable.name}`}>{variable.name}{variable.required ? " *" : ""}</label><input id={`managed-var-${variable.name}`} type={showValues ? "text" : "password"} value={variables[variable.name] ?? ""} placeholder={variable.default} autoComplete="off" onChange={(event) => setVariables((current) => ({ ...current, [variable.name]: event.target.value }))} /></div>)}
           </fieldset>}
           {source.envFiles.map((envFile, index) => <fieldset className={styles.envSection} key={envFile.path}>
-            <legend>Environment file: <code>{envFile.path}</code>{envFile.required ? " *" : " (optional)"}</legend>
-            <p className={styles.hint}>Load this file from your computer or enter its variables below. Values are hidden by default.</p>
-            <FileUploadField id={`managed-env-file-${index}`} label="Load variables from .env file" accept=".env,.txt,text/plain" hint=".env or .txt · Up to 1 MiB" filename={envUploads[envFile.path]?.filename} disabled={busy} onChange={(event) => { void uploadEnv(envFile.path, event.target.files?.[0] || null); event.target.value = ""; }} />
+            <legend>Project dependency: <code>{envFile.path}</code>{envFile.required ? " *" : " (optional)"}</legend>
+            <p className={styles.hint}>Load this dependency from your computer. For dotenv files you can also enter variables below. Values are hidden by default.</p>
+            <FileUploadField id={`managed-env-file-${index}`} label="Load project dependency" accept=".env,.txt,.yaml,.yml,.json,text/plain" hint=".env or .txt · Up to 1 MiB" filename={envUploads[envFile.path]?.filename} disabled={busy} onChange={(event) => { void uploadEnv(envFile.path, event.target.files?.[0] || null); event.target.value = ""; }} />
             {envUploads[envFile.path] && <div className={styles.uploaded}><span>{envUploads[envFile.path].filename} loaded · values hidden</span><button type="button" onClick={() => setEnvUploads((current) => { const next = { ...current }; delete next[envFile.path]; return next; })}>Remove file</button></div>}
             {!envUploads[envFile.path] && <>
               {(envRows[envFile.path] || []).map((row) => <div className={styles.envRow} key={row.id}>
@@ -193,6 +182,7 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
               <button type="button" className={styles.addVariable} onClick={() => setEnvRows((current) => ({ ...current, [envFile.path]: [...(current[envFile.path] || []), { id: String(++nextEnvRowId), key: "", value: "" }] }))}>Add variable</button>
             </>}
           </fieldset>)}
+          <AdditionalProjectFiles files={additionalFiles} onChange={setAdditionalFiles} disabled={busy} onError={setError} />
           <button className={appStyles.primaryButton} type="submit" disabled={busy}>Validate and preview</button>
         </form>}
         {job && <div className={styles.loaded} role="status"><strong>{operationStage(job)}</strong><span>{job.operation} · {job.projectName}</span>{job.error && <p>{job.error}</p>}</div>}
@@ -235,4 +225,19 @@ export function NewProjectDrawer({ open, csrfToken, onClose, onChanged }: { open
       <div className={styles.previewActions}><button type="button" onClick={() => setPreview(null)} disabled={busy}>Cancel</button><button type="button" className={appStyles.primaryButton} disabled={busy || conflict || preview.mode !== mode || adoptionDirty} onClick={() => { void confirm(); }}>{mode === "adopt" ? "Confirm adoption" : "Confirm deployment"}</button></div>
     </div>}
   </dialog></>;
+}
+
+export function ComposeSourceFields({prefix,kind,url,yaml,file,busy,onKind,onURL,onYAML,onFile}:{prefix:string;kind:ManagedSourceInput["kind"];url:string;yaml:string;file:File|null;busy:boolean;onKind:(kind:ManagedSourceInput["kind"])=>void;onURL:(value:string)=>void;onYAML:(value:string)=>void;onFile:(file:File|null)=>void}) {
+ return <><fieldset className={styles.sourceChoices} disabled={busy}><legend>Source</legend>
+ {([["url","HTTPS URL"],["paste","Paste YAML"],["upload","Upload file"]] as const).map(([value,label])=><label key={value}><input type="radio" name={`${prefix}-kind`} checked={kind===value} onChange={()=>onKind(value)} />{label}</label>)}
+ </fieldset>
+ {kind==="url"&&<div className={styles.field}><label htmlFor={`${prefix}-url`}>Public HTTPS URL</label><input id={`${prefix}-url`} type="url" value={url} required disabled={busy} onChange={event=>onURL(event.target.value)} /></div>}
+ {kind==="paste"&&<div className={styles.field}><label htmlFor={`${prefix}-yaml`}>Compose YAML</label><textarea id={`${prefix}-yaml`} rows={12} value={yaml} required disabled={busy} spellCheck={false} onChange={event=>onYAML(event.target.value)} /></div>}
+ {kind==="upload"&&<FileUploadField id={`${prefix}-file`} label="Compose file" accept=".yaml,.yml,text/yaml" hint=".yaml or .yml · Up to 1 MiB" filename={file?.name} required disabled={busy} onChange={event=>onFile(event.target.files?.[0]||null)} />}
+ </>;
+}
+
+export function AdditionalProjectFiles({files,onChange,disabled,onError}:{files:Record<string,string>;onChange:(value:Record<string,string>)=>void;disabled:boolean;onError:(error:string)=>void}){
+ const [path,setPath]=useState("");const generation=useRef(0);const latest=useRef({files,disabled});latest.current={files,disabled};useEffect(()=>()=>{generation.current++;},[]);
+ return <fieldset className={styles.envSection}><legend>Additional project files</legend><p className={styles.hint}>Upload local dependencies used by include, extends, configs, secrets or env_file. Paths are relative to the project directory; no remote dependencies are fetched.</p><div className={styles.field}><label htmlFor="additional-project-path">Project-relative path</label><input id="additional-project-path" value={path} placeholder="parts/settings.yaml" disabled={disabled} onChange={event=>setPath(event.target.value)} /></div><FileUploadField id="additional-project-upload" label="Upload project dependency" accept=".env,.txt,.yaml,.yml,.json,text/plain" hint="UTF-8 · Up to 1 MiB" disabled={disabled} onChange={event=>{const file=event.target.files?.[0];if(!file)return;const version=generation.current,name=path.trim()||file.name;if(file.size>1024*1024){onError("Project dependency exceeds 1 MiB.");return;}void file.arrayBuffer().then(value=>{if(version===generation.current&&!latest.current.disabled)onChange({...latest.current.files,[name]:new TextDecoder("utf-8",{fatal:true}).decode(value)});}).catch(()=>{if(version===generation.current)onError("Project dependencies must contain UTF-8 text.");});event.target.value="";}} />{Object.keys(files).map(name=><div className={styles.uploaded} key={name}><code>{name}</code><button type="button" disabled={disabled} onClick={()=>{const next={...files};delete next[name];onChange(next);}}>Remove file</button></div>)}</fieldset>;
 }

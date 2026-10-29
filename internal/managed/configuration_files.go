@@ -8,10 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -27,18 +25,23 @@ var ErrFilesMissing = errors.New("project Compose files were not found")
 
 // FileSnapshot is private execution data. Only FileConfigurationView is public.
 type FileSnapshot struct {
-	Name         string
-	Directory    string
-	ComposeFiles []string
-	Files        map[string]string
-	Resolved     json.RawMessage
-	Fingerprint  string
-	Problem      string
+	Name              string
+	Directory         string
+	ComposeFiles      []string
+	Files             map[string]string
+	Resolved          json.RawMessage
+	Fingerprint       string
+	Problem           string
+	Context           ComposeContext
+	ActiveServices    []string
+	AvailableProfiles []string
+	EffectiveProfiles []string
 }
 type ConfigurationFile struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 	Compose bool   `json:"compose"`
+	Missing bool   `json:"missing,omitempty"`
 }
 type ConfigurationVariable struct {
 	Name    string `json:"name"`
@@ -47,20 +50,27 @@ type ConfigurationVariable struct {
 	Pending bool   `json:"pending"`
 }
 type FileConfigurationView struct {
-	Available   bool                    `json:"available"`
-	State       string                  `json:"state"`
-	Error       string                  `json:"error,omitempty"`
-	Directory   string                  `json:"directory,omitempty"`
-	Fingerprint string                  `json:"fingerprint,omitempty"`
-	Files       []ConfigurationFile     `json:"files"`
-	Variables   []ConfigurationVariable `json:"variables"`
+	ContextRevision    uint64                  `json:"contextRevision"`
+	InterpolationFiles []string                `json:"interpolationFiles"`
+	Available          bool                    `json:"available"`
+	State              string                  `json:"state"`
+	Error              string                  `json:"error,omitempty"`
+	Directory          string                  `json:"directory,omitempty"`
+	Fingerprint        string                  `json:"fingerprint,omitempty"`
+	Files              []ConfigurationFile     `json:"files"`
+	Variables          []ConfigurationVariable `json:"variables"`
+	ComposeFiles       []string                `json:"composeFiles"`
+	Profiles           []string                `json:"profiles"`
+	AvailableProfiles  []string                `json:"availableProfiles"`
 }
 type ConfigurationEdit struct {
-	Fingerprint string `json:"fingerprint"`
-	Path        string `json:"path,omitempty"`
-	Content     string `json:"content"`
-	Service     string `json:"service,omitempty"`
-	Variable    string `json:"variable,omitempty"`
+	InterpolationFiles *[]string `json:"interpolationFiles,omitempty"`
+	Fingerprint        string    `json:"fingerprint"`
+	Path               string    `json:"path,omitempty"`
+	Content            string    `json:"content"`
+	Service            string    `json:"service,omitempty"`
+	Variable           string    `json:"variable,omitempty"`
+	Profiles           *[]string `json:"profiles,omitempty"`
 }
 
 func safeProjectFile(name string) bool {
@@ -201,6 +211,7 @@ func (m *Manager) readFileSnapshotMode(ctx context.Context, name string, allowIn
 	if found {
 		snapshot.Directory = location.Directory
 		_ = json.Unmarshal([]byte(location.ComposeFiles), &snapshot.ComposeFiles)
+		_ = json.Unmarshal([]byte(location.Context), &snapshot.Context)
 	}
 	// A later terminal deployment may change the ordered -f list. Fresh real
 	// labels take precedence; Yard's stdin label "-" falls back to the location.
@@ -235,9 +246,28 @@ func (m *Manager) readFileSnapshotMode(ctx context.Context, name string, allowIn
 		}
 		labelDirectory, labelFiles = directory, files
 	}
-	if labelDirectory != "" {
+	observed := sourceLabelSignature(items)
+	active, err := m.data.Jobs(ctx, "compose:"+name, true)
+	if err != nil {
+		return snapshot, err
+	}
+	observeLabels := !found || len(active) == 0
+	if observeLabels && labelDirectory != "" && (snapshot.Context.ObservedLabels == "" || snapshot.Context.ObservedLabels != observed) {
 		snapshot.Directory, snapshot.ComposeFiles = labelDirectory, labelFiles
 	}
+	if observeLabels {
+		snapshot.Context.ObservedLabels = observed
+	}
+	snapshot.Context.Services = nil
+	for _, item := range items {
+		if item.Config != nil && snapshot.Context.Profiles == nil {
+			service := item.Config.Labels["com.docker.compose.service"]
+			if service != "" && !slices.Contains(snapshot.Context.Services, service) {
+				snapshot.Context.Services = append(snapshot.Context.Services, service)
+			}
+		}
+	}
+	sort.Strings(snapshot.Context.Services)
 	if len(snapshot.ComposeFiles) == 0 {
 		project, managed, err := m.data.ManagedProject(name)
 		if err != nil {
@@ -256,30 +286,32 @@ func (m *Manager) readFileSnapshotMode(ctx context.Context, name string, allowIn
 	if err != nil {
 		return snapshot, err
 	}
+	present := 0
+	missing := ""
 	for _, file := range snapshot.ComposeFiles {
-		content, found := snapshot.Files[file]
-		if !found {
-			return snapshot, ErrFilesMissing
-		}
-		envFiles, err := configurationEnvFiles(content)
-		if err != nil {
-			if allowInvalid {
-				continue
-			}
-			return snapshot, err
-		}
-		for _, envFile := range envFiles {
-			if !slices.Contains(names, envFile) {
-				names = append(names, envFile)
-			}
+		if _, exists := snapshot.Files[file]; exists {
+			present++
+		} else {
+			missing = file
 		}
 	}
-	if len(names) > len(snapshot.ComposeFiles)+1 {
-		snapshot.Files, err = readConfigurationFiles(ctx, snapshot.Directory, names)
-		if err != nil {
+	if present == 0 {
+		return snapshot, ErrFilesMissing
+	}
+	if missing != "" {
+		if !allowInvalid {
+			return snapshot, fmt.Errorf("%w: selected Compose file %s is missing; restore it or remove it from the selection", ErrInvalidSource, missing)
+		}
+		snapshot.Problem = "Selected Compose file " + missing + " is missing; restore it or remove it from the selection."
+	}
+
+	if err := snapshotDependencies(ctx, &snapshot, true); err != nil {
+		if !allowInvalid {
 			return snapshot, err
 		}
+		snapshot.Problem = err.Error()
 	}
+
 	snapshot.Fingerprint = fileFingerprint(snapshot)
 	if err := resolveFileSnapshot(ctx, &snapshot); err != nil {
 		if !allowInvalid {
@@ -320,69 +352,7 @@ func (m *Manager) hydrateFileProject(ctx context.Context, project store.ManagedP
 }
 
 func resolveFileSnapshot(ctx context.Context, snapshot *FileSnapshot) error {
-	dir, err := os.MkdirTemp("", "nox-config-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(dir)
-	for name, content := range snapshot.Files {
-		if !safeProjectFile(name) || !utf8.ValidString(content) || len(content) > MaxSourceBytes {
-			return ErrInvalidSource
-		}
-		destination := filepath.Join(dir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
-			return err
-		}
-		if err := os.WriteFile(destination, []byte(content), 0600); err != nil {
-			return err
-		}
-	}
-	args := []string{"compose", "--ansi", "never", "-p", snapshot.Name, "--project-directory", dir}
-	for _, file := range snapshot.ComposeFiles {
-		args = append(args, "-f", filepath.Join(dir, filepath.FromSlash(file)))
-	}
-	args = append(args, "config", "--format", "json", "--no-path-resolution")
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	cmd.Dir = dir
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
-	resolved, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("%w: Compose validation failed; check the YAML and environment file syntax", ErrInvalidSource)
-	}
-	var model map[string]any
-	if json.Unmarshal(resolved, &model) != nil {
-		return ErrInvalidSource
-	}
-	services, ok := model["services"].(map[string]any)
-	if !ok || len(services) == 0 {
-		return ErrInvalidSource
-	}
-	for name, raw := range services {
-		service := raw.(map[string]any)
-		if image, _ := service["image"].(string); image == "" {
-			return fmt.Errorf("%w: service %s needs an explicit prebuilt image; builds are not performed", ErrInvalidSource, name)
-		}
-		// A development build definition does not prevent using its prebuilt
-		// image. Strip it only from the private execution model, never host files.
-		delete(service, "build")
-		if volumes, ok := service["volumes"].([]any); ok {
-			for _, raw := range volumes {
-				volume, ok := raw.(map[string]any)
-				if !ok {
-					continue
-				}
-				if volume["type"] == "bind" {
-					source, _ := volume["source"].(string)
-					if !path.IsAbs(source) {
-						volume["source"] = path.Join(snapshot.Directory, source)
-					}
-				}
-			}
-		}
-	}
-	snapshot.Resolved, _ = json.Marshal(model)
-	snapshot.Fingerprint = fileFingerprint(*snapshot)
-	return nil
+	return resolveSnapshot(ctx, snapshot)
 }
 
 func fileFingerprint(snapshot FileSnapshot) string {
@@ -390,7 +360,8 @@ func fileFingerprint(snapshot FileSnapshot) string {
 		Directory    string
 		ComposeFiles []string
 		Files        map[string]string
-	}{snapshot.Directory, snapshot.ComposeFiles, snapshot.Files})
+		Context      ComposeContext
+	}{snapshot.Directory, snapshot.ComposeFiles, snapshot.Files, snapshot.Context})
 	return fingerprint(encoded)
 }
 
@@ -416,7 +387,8 @@ for file do
   cat "/tmp/config/new/$file" > "$temporary"
   if [ -f "$host/$file" ]; then chmod "$(stat -c %a "$host/$file")" "$temporary"; fileowner=$(stat -c '%u:%g' "$host/$file"); if [ "${fileowner%%:*}" = 0 ]; then fileowner="$owner"; fi; chown "$fileowner" "$temporary"
   else chown "$owner" "$temporary"; fi
-  mv -f "$temporary" "$host/$file"
+  if [ -f "/tmp/config/old/$file" ]; then mv -f "$temporary" "$host/$file"
+  else ln "$temporary" "$host/$file"; rm -f "$temporary"; fi
  else
   rm -f -- "$host/$file"
  fi
@@ -462,7 +434,11 @@ func saveConfigurationFiles(ctx context.Context, before, after FileSnapshot) err
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Stdin = &archive
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: files changed or cannot be safely written; reload the current files", ErrConflict)
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 73 {
+			return fmt.Errorf("%w: files changed or cannot be safely written; reload the current files", ErrConflict)
+		}
+		return fmt.Errorf("%w: file helper did not confirm completion; inspect the private configuration journal", ErrConfigurationRecovery)
 	}
 	return nil
 }
@@ -479,6 +455,14 @@ func (m *Manager) Configuration(ctx context.Context, name string) (FileConfigura
 	view.Available = true
 	view.Directory = snapshot.Directory
 	view.Fingerprint = snapshot.Fingerprint
+	view.ContextRevision = snapshot.Context.Revision
+	view.ComposeFiles = slices.Clone(snapshot.ComposeFiles)
+	view.InterpolationFiles = []string{".env"}
+	if snapshot.Context.EnvFiles != nil {
+		view.InterpolationFiles = slices.Clone(*snapshot.Context.EnvFiles)
+	}
+	view.AvailableProfiles = slices.Clone(snapshot.AvailableProfiles)
+	view.Profiles = slices.Clone(snapshot.EffectiveProfiles)
 	view.Error = snapshot.Problem
 	names := []string{}
 	for file := range snapshot.Files {
@@ -486,7 +470,12 @@ func (m *Manager) Configuration(ctx context.Context, name string) (FileConfigura
 	}
 	sort.Strings(names)
 	for _, file := range names {
-		view.Files = append(view.Files, ConfigurationFile{file, snapshot.Files[file], slices.Contains(snapshot.ComposeFiles, file)})
+		view.Files = append(view.Files, ConfigurationFile{Path: file, Content: snapshot.Files[file], Compose: slices.Contains(snapshot.ComposeFiles, file)})
+	}
+	for _, file := range snapshot.ComposeFiles {
+		if _, exists := snapshot.Files[file]; !exists {
+			view.Files = append(view.Files, ConfigurationFile{Path: file, Compose: true, Missing: true})
+		}
 	}
 	decoded, _ := decodedComposeModel(snapshot.Resolved)
 	var model composeModel
@@ -526,12 +515,16 @@ func (m *Manager) Configuration(ctx context.Context, name string) (FileConfigura
 	})
 	// Persist only the discovered location, so stdin-generated Compose labels
 	// after recreation do not lose the original filenames.
-	encoded, _ := json.Marshal(snapshot.ComposeFiles)
-	_ = m.data.SetFileConfiguration(store.FileConfiguration{Name: name, Directory: snapshot.Directory, ComposeFiles: string(encoded), State: "ready"})
+	if err := m.data.SetFileConfiguration(configurationLocation(snapshot)); err != nil {
+		return view, err
+	}
 	return view, nil
 }
 
 func (m *Manager) SaveConfiguration(ctx context.Context, name string, input ConfigurationEdit) (FileConfigurationView, error) {
+	return m.configurationJob(ctx, name, func(ctx context.Context) (FileConfigurationView, error) { return m.saveConfiguration(ctx, name, input) })
+}
+func (m *Manager) saveConfiguration(ctx context.Context, name string, input ConfigurationEdit) (FileConfigurationView, error) {
 	active, err := m.data.Jobs(ctx, "compose:"+name, true)
 	if err != nil {
 		return FileConfigurationView{}, err
@@ -554,36 +547,35 @@ func (m *Manager) SaveConfiguration(ctx context.Context, name string, input Conf
 	for file, content := range before.Files {
 		after.Files[file] = content
 	}
-	if input.Variable != "" {
-		if err := editConfigurationVariable(&after, input.Service, input.Variable, input.Content); err != nil {
-			return FileConfigurationView{}, err
-		}
-	} else {
-		if _, found := after.Files[input.Path]; !found {
-			return FileConfigurationView{}, ErrInvalidSource
-		}
-		after.Files[input.Path] = input.Content
+	if input.InterpolationFiles != nil {
+		after.Context.EnvFiles = input.InterpolationFiles
 	}
-	// A Compose edit may introduce another existing env_file. Include its
-	// current bytes in the compare-before-write check as well.
-	for _, file := range after.ComposeFiles {
-		names, err := configurationEnvFiles(after.Files[file])
-		if err != nil {
-			return FileConfigurationView{}, err
-		}
-		for _, name := range names {
-			if _, found := after.Files[name]; !found {
-				files, err := readConfigurationFiles(ctx, after.Directory, []string{name})
-				if err != nil {
-					return FileConfigurationView{}, err
-				}
-				if content, exists := files[name]; exists {
-					before.Files[name] = content
-					after.Files[name] = content
-				}
+	if input.Profiles != nil {
+		after.Context.Profiles = input.Profiles
+		after.Context.Services = nil
+	}
+	if input.Profiles == nil && input.InterpolationFiles == nil {
+		if input.Variable != "" {
+			if err := editConfigurationVariable(&after, input.Service, input.Variable, input.Content); err != nil {
+				return FileConfigurationView{}, err
 			}
+		} else {
+			if _, found := after.Files[input.Path]; !found && !slices.Contains(after.ComposeFiles, input.Path) {
+				return FileConfigurationView{}, ErrInvalidSource
+			}
+			after.Files[input.Path] = input.Content
 		}
 	}
+	// Capture newly referenced local dependencies in the same snapshot.
+	if err := snapshotDependencies(ctx, &after, true); err != nil {
+		return FileConfigurationView{}, err
+	}
+	for file, content := range after.Files {
+		if _, exists := before.Files[file]; !exists {
+			before.Files[file] = content
+		}
+	}
+
 	if err := resolveFileSnapshot(ctx, &after); err != nil {
 		return FileConfigurationView{}, err
 	}
@@ -594,7 +586,9 @@ func (m *Manager) SaveConfiguration(ctx context.Context, name string, input Conf
 			return FileConfigurationView{}, fmt.Errorf("%w: this variable definition could not preserve the requested value; edit its file directly", ErrInvalidSource)
 		}
 	}
-	if err := saveConfigurationFiles(ctx, before, after); err != nil {
+	after.Context.Revision++
+	after.Fingerprint = fileFingerprint(after)
+	if err := m.commitConfigurationEdit(ctx, before, after); err != nil {
 		return FileConfigurationView{}, err
 	}
 	if m.changes != nil {

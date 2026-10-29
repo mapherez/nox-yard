@@ -85,6 +85,20 @@ func TestRemovalReportsEveryResourceAndNeverDeletesUnreviewedResources(t *testin
 			t.Fatal("default removal deletes volumes")
 		}
 	}
+
+	m.SetRemovalSource(func(context.Context, string) (RemovalSource, error) {
+		return RemovalSource{Known: true, Fingerprint: "external-selection", ExternalVolumes: map[string]bool{"sample_data": true}, ExternalNetworks: map[string]bool{"sample_default": true}}, nil
+	})
+	external, err := m.PreviewRemovalChoices(context.Background(), "compose:sample", true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range external.Items {
+		if (item.Kind == "volume" || item.Kind == "network") && item.Action != "keep" {
+			t.Fatalf("external resource could be deleted: %+v", item)
+		}
+	}
+	m.SetRemovalSource(nil)
 	plan, err := m.PreviewRemoval(context.Background(), "compose:sample", true)
 	if err != nil {
 		t.Fatal(err)
@@ -109,12 +123,12 @@ func TestRemovalReportsEveryResourceAndNeverDeletesUnreviewedResources(t *testin
 			t.Fatalf("leftover %s has no reason", item.Kind)
 		}
 	}
-	for kind, want := range map[string]string{"container": "removed", "volume": "removed", "network": "failed", "image": "removed", "bind mount": "retained", "Compose file": "retained"} {
+	for kind, want := range map[string]string{"container": "removed", "volume": "removed", "network": "failed", "image": "retained", "bind mount": "retained", "Compose file": "retained"} {
 		if statuses[kind] != want {
 			t.Errorf("%s: got %q, want %q", kind, statuses[kind], want)
 		}
 	}
-	if strings.Join(deletes, ",") != "container,volume,network,image" {
+	if strings.Join(deletes, ",") != "container,volume,network" {
 		t.Fatalf("unexpected deletion order or scope: %v", deletes)
 	}
 }

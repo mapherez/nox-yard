@@ -231,6 +231,7 @@ func runResolvedCompose(ctx context.Context, name, directory, definition string,
 func safeDockerFailure(message string) string {
 	message = strings.ToLower(message)
 	for _, item := range []struct{ match, result string }{
+		{"depends on undefined service", "The selected service references an undefined dependency; review Compose file order and profiles."},
 		{"unauthorized", "Registry authentication failed; check Docker host credentials."},
 		{"denied", "Registry access was denied; check image permissions and Docker host credentials."},
 		{"manifest unknown", "The requested image tag or digest is unavailable in the registry."},

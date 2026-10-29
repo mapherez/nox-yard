@@ -39,6 +39,7 @@
   --color-accent-subtle: #222a34;
   --color-accent-border: #455469;
   --color-success-subtle: #202c26;
+  --color-danger-subtle: #302224;
   --color-warning-subtle: #302a22;
   --color-backdrop: rgb(0 0 0 / 0.7);
 
@@ -85,6 +86,7 @@
     --color-accent-subtle: Canvas;
     --color-accent-border: Highlight;
     --color-success-subtle: Canvas;
+    --color-danger-subtle: Canvas;
     --color-warning-subtle: Canvas;
   }
 }
