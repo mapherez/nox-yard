@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from smoke_support import cleanup_fixture
+from smoke_support import cleanup_fixture, create_fixture_output
 
 
 class FixtureCase(unittest.TestCase):
@@ -28,6 +28,21 @@ class FixtureCase(unittest.TestCase):
 
 
 class FixtureCleanupTests(FixtureCase):
+    def test_private_output_creation_is_exclusive(self):
+        output = self.base / "worker-ids"
+        create_fixture_output(output)
+        self.assertEqual(output.stat().st_uid, os.geteuid())
+        self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+        output.write_text("keep")
+        with self.assertRaises(FileExistsError):
+            create_fixture_output(output)
+        self.assertEqual(output.read_text(), "keep")
+        linked = self.base / "linked-output"
+        linked.symlink_to(output)
+        with self.assertRaises(FileExistsError):
+            create_fixture_output(linked)
+        self.assertEqual(output.read_text(), "keep")
+
     def test_owned_tree_and_symlink_leave_sibling_untouched(self):
         sibling = self.root / ".tmp" / "other-fixture"
         sibling.mkdir()
@@ -120,6 +135,28 @@ class LinuxFixtureCleanupTests(FixtureCase):
         self.clean()
         self.assertFalse(self.base.exists())
         self.assertEqual((self.sibling / "keep").read_text(), "keep")
+
+    def test_private_root_runner_output_remains_readable_by_nonroot_host(self):
+        self.prepare_root_owned_data()
+        # Reproduce the failing contract first: a root-created 0600 ledger is
+        # unreadable to the same non-root caller that runs GitHub's scripts.
+        def append(filename):
+            self.docker("run", "--rm", "--pull", "never", "--network", "none",
+                        "--user", "0:0", "--label", "nox-yard.acceptance=" + self.name,
+                        "--mount", "type=bind,source=" + str(self.base) + ",target=/fixture",
+                        "--entrypoint", "sh", self.image, "-ec",
+                        "umask 077; printf 'first\\nrepeated\\nrepeated\\n' >> /fixture/" + filename)
+        append("unprepared")
+        with self.assertRaises(PermissionError):
+            (self.base / "unprepared").read_text()
+        for filename in ("anonymous-volumes", "worker-ids"):
+            output = self.base / filename
+            create_fixture_output(output)
+            append(filename)
+            self.assertEqual(output.read_text().splitlines(), ["first", "repeated", "repeated"])
+            self.assertEqual(output.stat().st_uid, os.geteuid())
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+        self.clean()
 
     def test_actual_mount_blocks_privileged_cleanup(self):
         self.prepare_root_owned_data()

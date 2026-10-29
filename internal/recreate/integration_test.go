@@ -48,7 +48,8 @@ func TestRecreateDockerAcceptance(t *testing.T) {
 	}
 	recordVolumes := func() {
 		t.Helper()
-		file, err := os.OpenFile(path.Join(base, "anonymous-volumes"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		// The host precreates the private ledger so its non-root user can read it.
+		file, err := os.OpenFile(path.Join(base, "anonymous-volumes"), os.O_APPEND|os.O_WRONLY, 0600)
 		if err != nil {
 			t.Fatal(err)
 		}

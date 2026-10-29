@@ -90,7 +90,8 @@ func TestSelfUpdateDockerAcceptance(t *testing.T) {
 		if err != nil || !found {
 			t.Fatal("worker registration missing")
 		}
-		ledger, err := os.OpenFile("/fixture/worker-ids", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		// The host precreates the private ledger so its non-root user can read it.
+		ledger, err := os.OpenFile("/fixture/worker-ids", os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			t.Fatal(err)
 		}

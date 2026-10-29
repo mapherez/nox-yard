@@ -94,6 +94,8 @@ All ten suites from `scripts/runtime_suites.py` passed in one current-image acce
 
 Local reports are `.tmp/ci-drift-validation.json`, `.tmp/ci-drift-acceptance-results.json`, `.tmp/ci-drift-amd64-smoke.json` and `.tmp/ci-drift-cleanup-results.json`. They retain exact identities and outcomes. The [checkpoint](Progress.md#ci-fingerprint-follow-up-2026-10-29) records the scope and cleanup; these ignored artifacts do not establish remote CI success.
 
+The subsequent [private-output/SQLite startup follow-up](Progress.md#ci-private-runner-output-and-sqlite-startup-follow-up-2026-10-29) records the later CI permission failure, the three host-owned private ledgers and a reproduced SQLite startup-lock race. After both corrections, all ten suites passed in one invocation on final ARM64 image `sha256:b883caa8346979517e74f00ebca0eb45a762d676bfc58467d25ae15f8cf37e8a`, using a private Linux daemon/filesystem and real UID 1001. Schedules passed twice more, and controlled WAL/DELETE lock regressions plus concurrent opens passed ten repetitions. Both architecture builds and emulated AMD64 smoke passed. This remains local VM evidence; native-host/manual, legacy and remote CI results are not inferred from it.
+
 ## Official references
 
 - [Compose config](https://docs.docker.com/reference/cli/docker/compose/config/) — native model resolution and variable discovery.
@@ -108,6 +110,8 @@ References reviewed on 2026-10-29; local behavior is validated against the bundl
 Original parity cleanup: **0 containers, 0 volumes, 0 image references, 0 build-cache entries and 0 build-history records** remained from that run. Only the three built-in Docker networks remained. Cleanup removed 17 remaining image references, two test-created Go cache volumes, 266 cache entries and 80 task build records. Fixtures had already removed their workload containers/networks/volumes; 24 resource manifests reported no declared resources left behind. Temporary fixture trees and task-specific host caches/debug files were removed. Reports and the responsive UI screenshot are retained for review.
 
 The CI fingerprint follow-up restored the same initial inventory again, including zero cache/history entries and no temporary fixture directories. Its dedicated builder was removed; the original builder and three built-in networks were preserved. Exact task image references, volumes and cache IDs were removed without global prune; resources from the interrupted local attempt were included.
+
+The later private-output/SQLite follow-up also restored its initial inventory, independently verified after removing both private daemons and all nested test state, volumes, images, cache/history and temporary harness/import archives. The original builder and three built-in networks were preserved. See `.tmp/ci-linux-cleanup-results.json` and the current [checkpoint](Progress.md).
 
 Cleanup used the initial inventory, unique fixture identities and exact image/cache/build IDs, checked usage, preserved the default builder and used no global prune. Nonforced image/volume/network deletion retained the same safety boundary as the implementation. Detailed identities are in the local cleanup JSON; the counts describe this session only.
 

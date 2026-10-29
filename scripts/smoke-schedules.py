@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """C5 daily scheduling through real independent workers and a disposable registry."""
-from smoke_support import write_text, trace_docker, cleanup_fixture
+from smoke_support import write_text, trace_docker, cleanup_fixture, create_fixture_output
 import argparse
 import pathlib
 import secrets
@@ -25,6 +25,7 @@ def docker(*parts, stream=False):
     return (result.stdout or "").strip()
 
 try:
+    create_fixture_output(base / "anonymous-volumes")
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = str(probe.getsockname()[1])

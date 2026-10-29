@@ -4,6 +4,18 @@ def write_text(path, data, encoding="utf-8", errors=None, newline=None):
     with path.open("w", encoding=encoding, errors=errors, newline=newline) as stream:
         return stream.write(data)
 
+def create_fixture_output(path):
+    """Keep private runner output owned by the host user who reads it later.
+
+    Create before launching the root container. Appending inside the container
+    preserves this owner/mode; creating there would leave a root-only file on
+    native Linux. Exclusive creation refuses existing files and symlinks.
+    """
+    import os
+
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.close(descriptor)
+
 def cleanup_fixture(base, root, fixture, image, docker_command=None):
     """Remove only this run's .tmp child, including root-owned Linux bind data.
 

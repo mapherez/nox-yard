@@ -5,7 +5,7 @@ Only the fixture binary's restore-tag constant is remapped to a private local
 image tag. Registry lookup/pull is outside this worker-protocol acceptance.
 The shipped binary has no configuration override or production test hook.
 """
-from smoke_support import write_text, trace_docker, cleanup_fixture
+from smoke_support import write_text, trace_docker, cleanup_fixture, create_fixture_output
 import argparse
 import json
 import pathlib
@@ -34,6 +34,7 @@ def docker(*parts,stream=False):
  return (result.stdout or '').strip()
 
 try:
+ create_fixture_output(base/'worker-ids')
  docker('volume','create','--label','nox-yard.acceptance='+name,state)
  # The updater intentionally requires a bind. Bind the disposable Linux
  # volume directory so SQLite locks stay native inside Docker Desktop's VM.

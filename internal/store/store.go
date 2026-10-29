@@ -48,8 +48,10 @@ func Open(dataDir string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 	for _, pragma := range []string{
-		"PRAGMA journal_mode = WAL",
+		// Journal configuration can contend with another process opening or
+		// writing the database. Install the bounded wait before that first read.
 		"PRAGMA busy_timeout = 5000",
+		"PRAGMA journal_mode = WAL",
 		"PRAGMA foreign_keys = ON",
 	} {
 		if _, err := db.Exec(pragma); err != nil {

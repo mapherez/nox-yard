@@ -8,6 +8,7 @@ Uses only randomly named disposable fixtures. Does not deploy the normal Yard.
 import argparse
 import datetime
 import json
+import os
 import pathlib
 import platform
 import subprocess
@@ -52,6 +53,19 @@ evidence["legacyUpgradeIncluded"] = any(script=="smoke-upgrade.py" for _,script,
 evidence["selectedSuites"] = [script for _,script,_ in checks]
 
 try:
+    # Docker Desktop remaps bind ownership. Exercise the actual root producer /
+    # non-root reader boundary on Linux before spending time on runtime suites.
+    if sys.platform == "linux":
+        started = time.monotonic()
+        environment = dict(os.environ, NOX_CLEANUP_TEST_IMAGE=args.image,
+                           NOX_CLEANUP_TEST_ROOT=str(report.parent))
+        print("Running: native Linux fixture ownership regressions", flush=True)
+        result = subprocess.run([sys.executable, "-X", "utf8", "-u", str(root / "scripts/test_smoke_support.py"),
+                                 "LinuxFixtureCleanupTests", "-v"], cwd=root, env=environment)
+        evidence["fixtureOwnership"] = {"passed": result.returncode == 0,
+                                        "seconds": round(time.monotonic() - started, 2)}
+        if result.returncode:
+            raise SystemExit(result.returncode)
     for title, script, extra in checks:
         print("Running: " + title, flush=True)
         started = time.monotonic()

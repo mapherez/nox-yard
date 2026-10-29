@@ -86,7 +86,8 @@ func TestScheduleDockerAcceptance(t *testing.T) {
 	open()
 	defer func() { close() }()
 	recordVolumes := func() {
-		file, err := os.OpenFile(path.Join(base, "anonymous-volumes"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		// The host precreates the private ledger so its non-root user can read it.
+		file, err := os.OpenFile(path.Join(base, "anonymous-volumes"), os.O_APPEND|os.O_WRONLY, 0600)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +136,8 @@ func TestScheduleDockerAcceptance(t *testing.T) {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		t.Fatal("job did not finish")
+		last, found, err := data.Job(id)
+		t.Fatalf("job did not finish: found=%t read_error=%v status=%s outcome=%s stage=%s worker=%s error=%s", found, err, last.Status, last.Outcome, last.Stage, last.WorkerID, last.Error)
 		return store.Job{}
 	}
 	publish := func(version string) {
