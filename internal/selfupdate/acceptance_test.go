@@ -114,6 +114,22 @@ func TestSelfUpdateDockerAcceptance(t *testing.T) {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
+		// The durable outcome is recorded before the worker removes rollback
+		// resources. Wait for that process to exit before checking cleanup or
+		// launching the next update; a terminal job alone is not that barrier.
+		if err := waitSelfUpdateAcceptanceWorker(ctx, func(ctx context.Context) (bool, error) {
+			worker, err := cli.ContainerInspect(ctx, operation.WorkerID, client.ContainerInspectOptions{})
+			if errdefs.IsNotFound(err) {
+				return true, nil // AutoRemove removes the worker after it exits.
+			}
+			if err != nil {
+				return false, err
+			}
+			state := worker.Container.State
+			return state != nil && !state.Running && (state.Status == "exited" || state.Status == "dead"), nil
+		}); err != nil {
+			t.Fatalf("self-update job reached %s but worker cleanup did not finish: %v", finished.Status, err)
+		}
 		replacement, err := cli.ContainerInspect(ctx, strings.TrimPrefix(old.Container.Name, "/"), client.ContainerInspectOptions{})
 		if err != nil {
 			t.Fatal(err)
