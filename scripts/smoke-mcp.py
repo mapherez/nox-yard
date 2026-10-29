@@ -5,13 +5,12 @@ Requires a local Linux Docker Engine (or Docker Desktop) and an already built
 Yard image. Publishes only ephemeral loopback ports. Never targets existing
 containers, projects, volumes or settings; cleanup uses recorded fixture IDs.
 """
-from smoke_support import write_text, trace_docker
+from smoke_support import write_text, trace_docker, cleanup_fixture
 import argparse
 import json
 import os
 import queue
 import secrets
-import shutil
 import subprocess
 import threading
 import time
@@ -494,7 +493,4 @@ finally:
         subprocess.run(command + ["rm", "-f", identifier], capture_output=True)
     for name in volumes:
         subprocess.run(command + ["volume", "rm", name], capture_output=True)
-    # This directory was created by this run and is verified inside repo .tmp.
-    resolved = base.resolve()
-    assert resolved.is_relative_to((root / ".tmp").resolve()) and resolved.name == "mcp-smoke-" + suffix
-    shutil.rmtree(resolved)
+    cleanup_fixture(base, root, "mcp-smoke-" + suffix, args.image, command)

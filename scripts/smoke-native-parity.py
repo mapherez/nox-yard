@@ -4,7 +4,7 @@
 No registry pulls, host pruning or existing workloads are used. The supplied
 Yard image must already exist. Every created resource is recorded and removed.
 """
-from smoke_support import trace_docker
+from smoke_support import trace_docker, cleanup_fixture
 from collections import Counter
 import argparse
 import datetime
@@ -12,7 +12,6 @@ import difflib
 import json
 import pathlib
 import secrets
-import shutil
 import socket
 import subprocess
 import time
@@ -409,5 +408,4 @@ finally:
     manifest["cleanup"] = "verified"
     manifest["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     record()
-    assert base.resolve().is_relative_to((root / ".tmp").resolve()) and base.name == name
-    shutil.rmtree(base)
+    cleanup_fixture(base, root, name, args.image)

@@ -5,7 +5,7 @@ Only the fixture binary's restore-tag constant is remapped to a private local
 image tag. Registry lookup/pull is outside this worker-protocol acceptance.
 The shipped binary has no configuration override or production test hook.
 """
-from smoke_support import write_text, trace_docker
+from smoke_support import write_text, trace_docker, cleanup_fixture
 import argparse
 import json
 import pathlib
@@ -98,5 +98,4 @@ finally:
  if ids:docker('rm','-f',*ids)
  subprocess.run(['docker','volume','rm',state],capture_output=True)
  for image in reversed(images):subprocess.run(['docker','image','rm',image],capture_output=True)
- assert base.resolve().is_relative_to((root/'.tmp').resolve()) and base.name==name
- shutil.rmtree(base)
+ cleanup_fixture(base, root, name, args.image)

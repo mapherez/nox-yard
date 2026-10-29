@@ -5,14 +5,13 @@ Requires Docker, Python 3 and images for the current source and v1.0.1.
 Creates only random, explicitly tracked fixtures; never uses an existing Yard.
 Runs natively on a Linux Pi 5/amd64 host or through Linux Docker Desktop.
 """
-from smoke_support import trace_docker
+from smoke_support import trace_docker, cleanup_fixture
 import argparse
 import hashlib
 import json
 import os
 import pathlib
 import secrets
-import shutil
 import subprocess
 import time
 import urllib.error
@@ -234,5 +233,4 @@ finally:
         if identifiers:
             docker(kind, "rm", *identifiers)
     subprocess.run(["docker", "image", "rm", tools], capture_output=True)
-    assert base.resolve().is_relative_to((root / ".tmp").resolve()) and base.name == name
-    shutil.rmtree(base)
+    cleanup_fixture(base, root, name, args.image)

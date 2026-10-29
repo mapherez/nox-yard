@@ -14,6 +14,12 @@ The final results and exact image/Engine identities are recorded in [Docker/Comp
 
 Docker Desktop uses a Linux ARM64 VM. amd64 smoke is emulated. Neither establishes designated native Linux host/manual acceptance. The existing frontend chunk-size warning remains an improvement item.
 
+## CI cleanup follow-up (2026-10-29)
+
+[Run 40854166306](https://github.com/mapherez/nox-yard/actions/runs/40854166306), source `712518f`, passed source validation, the amd64 image build, the jobs fixture and every managed-update behavior check. The runtime gate then failed in `smoke-managed.py` while the non-root GitHub runner attempted to delete root-owned bind data (`PermissionError` in `shutil.rmtree`); later suites and ARM64 build were not executed in that run.
+
+All eleven runtime fixtures now share confined directory cleanup with an explicit Docker helper fallback for Linux ownership. The machine fixture also stops hiding directory-cleanup errors. Eight regressions passed locally in Linux Python 3.14, including real root-owned mode-000 bind data removed by a UID-1001 caller, actual mounted-target refusal and sibling/symlink preservation. This validates the cleanup correction, not a fresh remote CI pass; the fixed source has not been pushed or rerun remotely from this workspace.
+
 ## Remaining acceptance outside this local environment
 
 - Designated native Linux amd64 and ARM64 hosts, plus manual public-HTTPS intake, proxy/session behavior, unavailable daemon, actual scheduling boundary and backup/restore checks. [Procedure](Host-Validation.md).

@@ -4,13 +4,12 @@
 Requires a prebuilt image and local Linux Docker Engine/Docker Desktop.
 Never contacts an installed Yard; every resource has a generated fixture name.
 """
-from smoke_support import write_text, trace_docker
+from smoke_support import write_text, trace_docker, cleanup_fixture
 import argparse
 import http.cookiejar
 import json
 import pathlib
 import secrets
-import shutil
 import socket
 import subprocess
 import time
@@ -229,6 +228,4 @@ finally:
         try:
             compose("down", "--volumes", "--remove-orphans", "--timeout", "1")
         finally:
-            resolved = base.resolve()
-            assert resolved.is_relative_to((root / ".tmp").resolve()) and resolved.name == name
-            shutil.rmtree(resolved, ignore_errors=True)
+            cleanup_fixture(base, root, name, args.image)

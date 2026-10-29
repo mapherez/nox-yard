@@ -1,10 +1,9 @@
 """Disposable real-Docker C2 acceptance; never operates on user stacks."""
-from smoke_support import write_text, trace_docker
+from smoke_support import write_text, trace_docker, cleanup_fixture
 import argparse
 import json
 import pathlib
 import secrets
-import shutil
 import subprocess
 import time
 import urllib.error
@@ -300,5 +299,4 @@ finally:
             subprocess.run(["docker", "image", "rm", tag], capture_output=True)
     for tag in [app_reference, *app_images]:
         subprocess.run(["docker", "image", "rm", tag], capture_output=True)
-    assert base.resolve().is_relative_to((root / ".tmp").resolve()) and base.name == name
-    shutil.rmtree(base)
+    cleanup_fixture(base, root, name, args.image)

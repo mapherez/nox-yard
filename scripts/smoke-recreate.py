@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """C4 isolated Engine recreation with a disposable registry and Linux runner."""
-from smoke_support import write_text, trace_docker
+from smoke_support import write_text, trace_docker, cleanup_fixture
 import argparse
 import pathlib
 import secrets
-import shutil
 import socket
 import subprocess
 
@@ -96,5 +95,4 @@ finally:
             docker(kind, "rm", *identifiers)
     for image in references + list(reversed(images)):
         subprocess.run(["docker", "image", "rm", image], capture_output=True)
-    assert base.resolve().is_relative_to((root / ".tmp").resolve()) and base.name == name
-    shutil.rmtree(base)
+    cleanup_fixture(base, root, name, args.image)

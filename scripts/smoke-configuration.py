@@ -3,13 +3,12 @@
 
 All resources use a generated fixture identity; never contacts a live Yard.
 """
-from smoke_support import write_text, trace_docker
+from smoke_support import write_text, trace_docker, cleanup_fixture
 import argparse
 import http.cookiejar
 import json
 import pathlib
 import secrets
-import shutil
 import socket
 import subprocess
 import time
@@ -261,5 +260,4 @@ finally:
     if networks:
         docker("network", "rm", *networks)
     subprocess.run(["docker", "volume", "rm", name + "_yard-state"],capture_output=True)
-    assert base.resolve().is_relative_to((root / ".tmp").resolve()) and base.name == name
-    shutil.rmtree(base)
+    cleanup_fixture(base, root, name, args.image)

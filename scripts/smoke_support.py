@@ -4,6 +4,68 @@ def write_text(path, data, encoding="utf-8", errors=None, newline=None):
     with path.open("w", encoding=encoding, errors=errors, newline=newline) as stream:
         return stream.write(data)
 
+def cleanup_fixture(base, root, fixture, image, docker_command=None):
+    """Remove only this run's .tmp child, including root-owned Linux bind data.
+
+    Containers must be stopped/removed first. Never chmod/chown the checkout or
+    hide cleanup failures. Docker Desktop may map ownership to the host user;
+    native Linux keeps the UID/mode written by the disposable containers.
+    """
+    import json
+    import pathlib
+    import shutil
+    import stat
+    import subprocess
+
+    base, root = pathlib.Path(base).absolute(), pathlib.Path(root).resolve()
+    temporary = root / ".tmp"
+    if (not fixture or fixture in (".", "..") or base.name != fixture or
+            temporary.is_symlink() or base.parent != temporary or base.is_symlink()):
+        raise ValueError("Cleanup requires the exact fixture directory inside repository .tmp")
+    try:
+        mode = base.lstat().st_mode
+    except FileNotFoundError:
+        return
+    if not stat.S_ISDIR(mode):
+        raise ValueError("Fixture cleanup target must be a directory")
+    try:
+        shutil.rmtree(base)
+        return
+    except PermissionError:
+        pass
+
+    command = list(docker_command or ["docker"])
+
+    def docker(*parts):
+        result = subprocess.run([*command, *parts], capture_output=True, text=True)
+        if result.returncode:
+            raise RuntimeError("Fixture cleanup helper could not complete " + parts[0])
+        return result.stdout
+
+    source = str(base).replace("\\", "/")
+    if source[1:2] == ":":
+        source = "/run/desktop/mnt/host/" + source[0].lower() + "/" + source[3:]
+    if "," in source or any(char in source for char in "\0\n\r"):
+        raise ValueError("Fixture cleanup mount path is unsupported")
+    identifiers = docker("ps", "-aq").split()
+    if identifiers:
+        for item in json.loads(docker("inspect", *identifiers)):
+            for mount in item.get("Mounts", []):
+                mounted = mount.get("Source", "").rstrip("/")
+                if mounted == source or mounted.startswith(source + "/"):
+                    raise RuntimeError("Remove containers using the fixture before directory cleanup")
+    # Mount only the disposable child, never its parent or the repository. find
+    # does not follow symlinks and -xdev refuses traversal into nested mounts.
+    docker("run", "--rm", "--pull", "never", "--network", "none", "--read-only",
+           "--user", "0:0", "--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE",
+           "--security-opt", "no-new-privileges:true",
+           "--label", "nox-yard.acceptance=" + fixture,
+           "--mount", "type=bind,source=" + source + ",target=/fixture",
+           "--entrypoint", "sh", image, "-ec",
+           "find /fixture -xdev -mindepth 1 -depth -delete")
+    base.rmdir()
+
+
 # Keep fixture resource manifests independent of their temporary source trees.
 # Never record command arguments: environment values and credentials may occur
 # in a command. Only explicit resource identities and safe labels are retained.
