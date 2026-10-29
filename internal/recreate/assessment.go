@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"github.com/mapherez/nox-yard/internal/composeorder"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -340,13 +341,17 @@ func fingerprint(state *journal) string {
 	}
 	for _, target := range all {
 		item := target.Old
+		// Engine builds inspection mounts from a map; their enumeration order
+		// is not configuration drift. Sort a copy and retain every mount field.
+		mounts := slices.Clone(item.Mounts)
+		sort.Slice(mounts, func(i, j int) bool { return mounts[i].Destination < mounts[j].Destination })
 		networkIDs := map[string]string{}
 		if item.NetworkSettings != nil {
 			for name, endpoint := range item.NetworkSettings.Networks {
 				networkIDs[name] = endpoint.NetworkID
 			}
 		}
-		values = append(values, []any{item.ID, item.Name, item.Image, item.Config, item.HostConfig, item.Mounts, endpoints(item), item.State.Running, item.State.Status, item.State.ExitCode, item.State.Paused, item.State.Restarting, item.State.StartedAt})
+		values = append(values, []any{item.ID, item.Name, item.Image, item.Config, item.HostConfig, mounts, endpoints(item), item.State.Running, item.State.Status, item.State.ExitCode, item.State.Paused, item.State.Restarting, item.State.StartedAt})
 		values = append(values, networkIDs)
 	}
 	encoded, _ := json.Marshal(values)

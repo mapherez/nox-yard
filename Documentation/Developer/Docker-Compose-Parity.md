@@ -50,7 +50,7 @@ The frozen context includes directory, ordered source/dependency bytes, interpol
 
 ## Evidence and limitations
 
-Validation completed locally on 2026-10-29. All ten current-image suites have passing final executions after targeted corrections. This is consolidated per-suite evidence, **not one uninterrupted aggregate pass on a single final image**. Original failed attempts remain recorded; no unexecuted case is counted as passed. Docker Desktop Linux ARM64 evidence is separate from native Linux host acceptance, amd64 smoke/emulation and CI publication. A missing test or another platform is never marked passed. The v1.0.1 direct-upgrade fixture does not prove the supported v1.3.1 intermediate-conversion upgrade path after converter retirement.
+Validation completed locally on 2026-10-29. After the CI fingerprint correction, all ten current-image suites passed in one uninterrupted acceptance invocation on the same corrected ARM64 image. The earlier r7/r8/r9 results below are historical per-suite evidence; the subsequent aggregate run is recorded separately. Original failed attempts remain recorded; no unexecuted case is counted as passed. Docker Desktop Linux ARM64 evidence is separate from native Linux host acceptance, amd64 smoke/emulation and CI publication. A missing test or another platform is never marked passed. The v1.0.1 direct-upgrade fixture does not prove the supported v1.3.1 intermediate-conversion upgrade path after converter retirement.
 
 The native parity fixture compares separate native/Yard projects and normalizes fixture identities/paths only. Other suites cover interruption, rollback, schedules, adapters and self-protection. The shared suite list is `scripts/runtime_suites.py`; acceptance and CI use it once. Fixture resources are manifest-scoped and cleaned on success or failure; no global prune is permitted.
 
@@ -58,7 +58,7 @@ See [configuration protocol](Configuration-Files.md), [Engine limitations](Exter
 
 ## Recorded validation
 
-Host: macOS ARM64, Docker Desktop Engine 29.9.2 / Linux aarch64 VM. Host Compose 5.6.1; the bundled Compose used by Yard, its unit runner and differential reference is 2.40.3. Final source/image revision is the r9 local build; tags are disposable test references, not releases. The final network-context persistence change was verified by the machine suite; the adoption/input-validation changes were verified by MCP and Go tests. No source behavior changed after those checks.
+Host: macOS ARM64, Docker Desktop Engine 29.9.2 / Linux aarch64 VM. Host Compose 5.6.1; the bundled Compose used by Yard, its unit runner and differential reference is 2.40.3. The original parity validation used the r9 local build as its final image; tags are disposable test references, not releases. The network-context persistence change was verified by the machine suite; the adoption/input-validation changes were verified by MCP and Go tests. The following table records that original validation; the later CI correction and fresh runtime evidence follow below.
 
 | Check | Result / boundary |
 | --- | --- |
@@ -86,6 +86,14 @@ Local JSON evidence is retained under `.tmp/`: `parity-validation-summary.json` 
 
 Failures corrected during validation included actual absolute-bind adoption protection and network-context fingerprint persistence, plus fixture-only ARM64 selection, restart/readiness synchronization, retired DB-YAML expectations, a malformed sibling insertion and a driver rotation setting. Desktop multi-process SQLite fixtures use Linux volume storage; the self-updater keeps its required bind contract by binding its disposable Linux volume directory. Production SQLite durability and recovery rules were not weakened. Restart event order is intentionally not asserted: native Compose can restart concurrently; multiplicity/state are compared, while Start/Stop dependency ordering is checked.
 
+### CI correction and aggregate runtime validation
+
+[CI job 123395931345](https://github.com/mapherez/nox-yard/actions/runs/40858385274/job/123395931345) confirmed the ownership-cleanup fix on `058ca18`, then failed an unchanged-image update because raw Docker mount inspection order changed the fingerprint. The correction canonicalizes a copy without discarding mount fields. A deterministic test failed before the correction; afterward, all mount permutations and real-field-change regressions, `go test ./...` and `go vet ./...` passed in Linux ARM64 with Compose installed.
+
+All ten suites from `scripts/runtime_suites.py` passed in one current-image acceptance invocation, 10:50:35–11:02:09 UTC on 2026-10-29. The ARM64 image ID was `sha256:a0f76b6c3d22330863583579903a8a3efc4570e13fc0777d41cdf43c29462136`. Both architecture builds passed; the AMD64 health/Cosign smoke was emulated on ARM64. Legacy upgrade, native Linux host acceptance and a remote rerun of this correction remain unexecuted. The earlier isolated-builder attempt failed to resolve local fixture images and is not counted as passing.
+
+Local reports are `.tmp/ci-drift-validation.json`, `.tmp/ci-drift-acceptance-results.json`, `.tmp/ci-drift-amd64-smoke.json` and `.tmp/ci-drift-cleanup-results.json`. They retain exact identities and outcomes. The [checkpoint](Progress.md#ci-fingerprint-follow-up-2026-10-29) records the scope and cleanup; these ignored artifacts do not establish remote CI success.
+
 ## Official references
 
 - [Compose config](https://docs.docker.com/reference/cli/docker/compose/config/) — native model resolution and variable discovery.
@@ -97,7 +105,9 @@ References reviewed on 2026-10-29; local behavior is validated against the bundl
 
 ## Cleanup result
 
-Final inventory: **0 containers, 0 volumes, 0 image references, 0 build-cache entries and 0 build-history records** from this work. Only the three built-in Docker networks remain. Cleanup removed 17 remaining image references, two test-created Go cache volumes, 266 cache entries and 80 task build records. Fixtures had already removed their workload containers/networks/volumes; 24 resource manifests reported no declared resources left behind. Temporary fixture trees and task-specific host caches/debug files were removed. Reports and the responsive UI screenshot are retained for review.
+Original parity cleanup: **0 containers, 0 volumes, 0 image references, 0 build-cache entries and 0 build-history records** remained from that run. Only the three built-in Docker networks remained. Cleanup removed 17 remaining image references, two test-created Go cache volumes, 266 cache entries and 80 task build records. Fixtures had already removed their workload containers/networks/volumes; 24 resource manifests reported no declared resources left behind. Temporary fixture trees and task-specific host caches/debug files were removed. Reports and the responsive UI screenshot are retained for review.
+
+The CI fingerprint follow-up restored the same initial inventory again, including zero cache/history entries and no temporary fixture directories. Its dedicated builder was removed; the original builder and three built-in networks were preserved. Exact task image references, volumes and cache IDs were removed without global prune; resources from the interrupted local attempt were included.
 
 Cleanup used the initial inventory, unique fixture identities and exact image/cache/build IDs, checked usage, preserved the default builder and used no global prune. Nonforced image/volume/network deletion retained the same safety boundary as the implementation. Detailed identities are in the local cleanup JSON; the counts describe this session only.
 
