@@ -16,5 +16,6 @@ check_gofmt() {
 
 run_check 'gofmt' check_gofmt
 run_check 'go vet ./...' go vet ./...
+run_check 'Python script syntax' python3 -m py_compile scripts/*.py
 run_check 'GitHub Actions workflows' go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= .github/workflows/ci.yml .github/workflows/release.yml
-run_check 'Docker Compose configuration' docker compose config --quiet
+run_check 'Docker Compose configuration' env NOX_PUBLIC_URL=http://yard.example.test NOX_AUTH_PUBLIC_URL=https://auth.example.test docker compose config --quiet

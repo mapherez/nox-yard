@@ -1,3 +1,19 @@
+# NoX Login update — November 3, 2026
+
+The working tree now replaces dashboard password entry with NoX Login, consuming Auth v0.0.1. It preserves existing data/legacy administrator records in additive tables, uses an automatic one-shot enrollment component with a separate admin mount, and retains independent direct MCP/Control API behavior. See [NoX Login](NoX-Login.md). Real installed Google/Yard acceptance remains pending publication/deployment; source tests are not that acceptance. Earlier unfinished Suite pairing/lifecycle changes remain unfinished and are preserved in the same working tree. No release or commit is performed by this work.
+
+## Local verification of NoX Login
+
+November 3, 2026: shared source checks passed (Go vet/tests, workflow/Compose and Python syntax validation, CI/release tooling, frontend build and all ten browser regressions). `go test -race ./...` also passed. The three current-image CI groups passed all **eleven** runtime suites using Linux ARM64 on Docker Desktop, Engine 29.9.2. Reports are `.tmp/nox-login-final-group-{1,2,3}.json`, all against image `sha256:7c3aad38e4f1122b9ff472a9ae75557d860283bfbd816a5c1864a7478a53561b`.
+
+Those checks found a Docker Desktop bind-alias issue during restoration: `/Users/...` and the daemon's `/host_mnt/Users/...` can identify the same directory. The existing device/inode/type proof is now shared by managed operations and Engine restoration/comparison. Only proven bind sources are aligned for comparison; recovery inputs and checks of type, destination, access, propagation and other options remain intact. Regression tests reject unproven aliases and changed mount properties. Temporary diagnostic copies/overlays were removed.
+
+A final guard additionally makes failed/empty `stat` results refuse identity instead of comparing two empty strings. Its actual shell expression passed positive/negative tests; affected packages passed race tests. After that guard, the rebuilt image `sha256:343f8365183ca08b6ba6ea03a940d6a37776291c9710fbb163bcd16cc7e4181e` passed published Auth enrollment (including independent Yard client identities), HTTP private-origin/Google redirects, real v1.3.13 rollback and the complete managed-deployment/rollback suite again.
+
+Real Google-account acceptance on the installed Yard remains pending deployment. This run does not claim new remote CI, designated native Linux host acceptance, or legacy v1.0.1 converter/upgrade evidence. It does not complete the earlier unfinished Suite pairing/lifecycle work. No commit, release or homelab deployment was performed.
+
+The records below describe earlier delivered work and its identified verification, not a claim that all newly changed Auth paths were included in those historical runs.
+
 # Current checkpoint
 
 **Reviewed:** 2026-10-29. The parity implementation began on `96ec730` (v1.3.11); subsequent source commits are `712518f`, cleanup correction `058ca18` and fingerprint correction `3512b7d`. The current fixture-output and SQLite startup corrections are uncommitted working-tree changes. No commit, push, release or production deployment was performed by this follow-up.

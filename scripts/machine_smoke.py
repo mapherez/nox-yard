@@ -19,11 +19,8 @@ def enable_mcp(origin, opener, csrf, token=None):
     return token
 
 
-def bootstrap_mcp(origin, token=None):
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-    req = urllib.request.Request(origin + "/api/setup", data=json.dumps({"username": "smoke", "password": secrets.token_hex(24)}).encode(),
-        headers={"Content-Type": "application/json", "Origin": origin})
-    with opener.open(req, timeout=30) as response:
-        setup = json.load(response)
+def bootstrap_mcp(origin, token=None, docker=None):
+    from auth_fixture import login
+    opener, setup = login(origin, docker=docker)
     token = enable_mcp(origin, opener, setup["csrfToken"], token)
     return opener, setup, token

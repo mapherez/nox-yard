@@ -63,7 +63,7 @@ The built-in updater verifies the official image signature before installation. 
 
 ### Backups and removal
 
-Back up three things separately: Yard's `./data` directory, project Compose/environment files, and workload volumes or bind-mounted data. Let active operations finish, then stop Yard before copying its data directory for a consistent offline backup. See the [maintenance guide](../Developer/Development.md) for backup, restore, and administrator password recovery.
+Back up three things separately: Yard's `./data` directory, project Compose/environment files, and workload volumes or bind-mounted data. Let active operations finish, then stop Yard before copying its data directory for a consistent offline backup. See the [maintenance guide](../Developer/Development.md) for backup, restore, and legacy administrator password recovery after rollback.
 
 Restart includes selected stopped services and may rerun completed initializers; it never applies saved configuration edits. Recreate preserves services that were stopped and leaves unrelated orphan containers alone.
 

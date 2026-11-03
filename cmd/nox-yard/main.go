@@ -24,6 +24,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/logexport"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/mcpapi"
+	"github.com/mapherez/nox-yard/internal/noxlogin"
 	"github.com/mapherez/nox-yard/internal/recreate"
 	"github.com/mapherez/nox-yard/internal/schedule"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
@@ -62,6 +63,15 @@ func run() error {
 	}
 
 	if len(os.Args) > 1 {
+		if len(os.Args) == 2 && os.Args[1] == "auth-setup" {
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			defer cancel()
+			err := noxlogin.Setup(ctx, data, os.Getenv("NOX_AUTH_PUBLIC_URL"), os.Getenv("NOX_PUBLIC_URL"), environment("NOX_AUTH_ADMIN_SOCKET", "/run/nox-auth-admin/control.sock"), environment("NOX_YARD_SUITE_SOCKET_DIR", "/run/nox-suite")+"/nox-auth.sock")
+			if err == nil {
+				log.Print("NoX Login client configured.")
+			}
+			return err
+		}
 		if len(os.Args) == 4 && os.Args[1] == "recreate-worker" {
 			return recreate.RunWorker(data, os.Args[2], os.Args[3])
 		}
@@ -89,7 +99,18 @@ func run() error {
 	}
 	changes := inventory.NewNotifier()
 	app := application.New(data, changes)
-	api, err := httpapi.New(data, environment("NOX_WEB_DIR", "./web/dist"), os.Getenv("NOX_PUBLIC_URL"), app)
+	publicURL := os.Getenv("NOX_PUBLIC_URL")
+	if loginConfig, found, err := data.NoXLoginConfiguration(); err != nil {
+		return err
+	} else if found {
+		if publicURL != "" && strings.TrimRight(publicURL, "/") != loginConfig.Origin {
+			return errors.New("NOX_PUBLIC_URL differs from the enrolled callback origin; recreate the auth-setup service with the updated configuration")
+		}
+		if configuredIssuer := os.Getenv("NOX_AUTH_PUBLIC_URL"); configuredIssuer != "" && strings.TrimRight(configuredIssuer, "/") != loginConfig.Issuer {
+			return errors.New("NOX_AUTH_PUBLIC_URL differs from the enrolled Auth issuer")
+		}
+	}
+	api, err := httpapi.New(data, environment("NOX_WEB_DIR", "./web/dist"), publicURL, app)
 	if err != nil {
 		return err
 	}
@@ -251,7 +272,7 @@ func resetAdminPassword(data *store.Store) error {
 	if err := data.ResetAdminPassword(hash); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stdout, "Administrator password updated. All sessions have been signed out.")
+	fmt.Fprintln(os.Stdout, "Legacy administrator password updated for older Yard images. NoX Login is managed by NoX Auth.")
 	return nil
 }
 

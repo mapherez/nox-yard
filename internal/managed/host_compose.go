@@ -10,55 +10,14 @@ import (
 	"path"
 	"sort"
 	"strings"
-	"time"
+
+	"github.com/mapherez/nox-yard/internal/hosthelper"
 )
 
-func helperImage(ctx context.Context) (string, error) {
-	if image := os.Getenv("NOX_HELPER_IMAGE"); image != "" {
-		return image, nil
-	}
-	hostname, err := os.Hostname()
-	if err != nil {
-		return "", err
-	}
-	command := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.Image}}", hostname)
-	output, err := command.Output()
-	if err != nil {
-		return "", fmt.Errorf("cannot identify Yard image: %w", err)
-	}
-	image := strings.TrimSpace(string(output))
-	if image == "" {
-		return "", fmt.Errorf("cannot identify Yard image")
-	}
-	return image, nil
-}
-
-func helperCommandArgs(args ...string) []string {
-	result := []string{"run", "--rm", "--label", "nox-yard.role=managed-helper"}
-	if id := os.Getenv("NOX_JOB_ID"); id != "" {
-		result = append(result, "--label", "nox-yard.job="+id)
-	}
-	return append(result, args...)
-}
-
-// Engines may report the canonical VM path after recreation (Docker Desktop,
-// for example). Accept aliases only when the daemon mounts the very same inode;
-// textual prefixes or a list of special-case paths cannot establish identity.
+func helperImage(ctx context.Context) (string, error) { return hosthelper.Image(ctx) }
+func helperCommandArgs(args ...string) []string       { return hosthelper.Args(args...) }
 func sameHostSource(ctx context.Context, previous, next string) bool {
-	if previous == next {
-		return true
-	}
-	if !path.IsAbs(previous) || !path.IsAbs(next) || strings.ContainsAny(previous+next, ",\x00\n\r") {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	image, err := helperImage(ctx)
-	if err != nil {
-		return false
-	}
-	args := helperCommandArgs("--network", "none", "--mount", "type=bind,source="+previous+",target=/previous,readonly", "--mount", "type=bind,source="+next+",target=/next,readonly", "--entrypoint", "sh", image, "-c", `[ "$(stat -c '%d:%i:%F' /previous)" = "$(stat -c '%d:%i:%F' /next)" ]`)
-	return exec.CommandContext(ctx, "docker", args...).Run() == nil
+	return hosthelper.SameSource(ctx, previous, next)
 }
 
 func checkHostBase(ctx context.Context, base string) error {

@@ -8,8 +8,8 @@
 
 ## Repository layout
 
-- `cmd/nox-yard/`: service entrypoint and interactive password reset command.
-- `internal/auth/`: password validation and Argon2id hashes.
+- `cmd/nox-yard/`: service entrypoint, one-shot Auth enrollment and legacy password recovery command.
+- `internal/auth/`: legacy password validation and Argon2id hashes retained for rollback recovery.
 - `internal/store/`: SQLite schema, administrator, and sessions.
 - `internal/httpapi/`: browser HTTP routes, session protection, static assets, and the independent versioned machine Control API.
 - `internal/selfupdate/`: opt-in GHCR checks and the temporary Engine-based update worker; see [Self-Update](Self-Update.md).
@@ -30,13 +30,13 @@ Keep Go packages and frontend modules small and named for their responsibilities
 
 ## Local run
 
-For frontend work against real containers on a machine with Docker Desktop in Linux container mode, start the local API and Vite together:
+For frontend work against real containers on a machine with Docker Desktop in Linux container mode, use a development Auth instance and its volume names (separate from a production Yard/Auth pair), then start the local API and Vite together:
 
 ```sh
 docker compose -f compose.dev.yaml up -d --build
 ```
 
-Open `http://127.0.0.1:5173` and create a local administrator account on first run. The `web` service runs Vite with hot reload and forwards `/api` to the `api` service. The `api` service builds the Go backend target from this checkout, binds to host loopback, stores its database in a Compose named volume, and mounts the Docker Engine socket. No image is pulled from GHCR or built on GitHub. Frontend edits reload automatically; after Go changes, run `docker compose -f compose.dev.yaml up -d --build api` to rebuild the API. Stop both services with `docker compose -f compose.dev.yaml down`; this keeps the local data and Node dependency volumes. The development backend has the app's normal Docker management permissions, so use it only on a trusted machine.
+Start a development NoX Auth on the same Docker host and configure `NOX_AUTH_PUBLIC_URL` (and custom shared/admin volume names, if used). Open `http://127.0.0.1:5173` and select **NoX Login**. The `auth-setup` component registers Vite's origin before the API starts. The `web` service runs Vite with hot reload and forwards `/api` and `/auth/nox` to the `api` service. The `api` service builds the Go backend target from this checkout, binds to host loopback, stores its database in a Compose named volume, and mounts the Docker Engine socket. The Yard development image is built locally. Frontend edits reload automatically; after Go changes, run `docker compose -f compose.dev.yaml up -d --build api` to rebuild the API. Stop both services with `docker compose -f compose.dev.yaml down`; this keeps the local data and Node dependency volumes. The development backend has the app's normal Docker management permissions, so use it only on a trusted machine.
 
 If the page reports that the local API is unavailable, check `docker compose -f compose.dev.yaml ps` and `docker compose -f compose.dev.yaml logs api web`. Docker Desktop must be running for the API to read inventory. Vite is fixed to port 5173 because the backend uses that origin for session and CSRF checks.
 
@@ -120,7 +120,7 @@ Markdown/reStructuredText, README/CHANGELOG files and `.gitkeep` are excluded ev
 
 The native path allowlist and `scripts/ci-policy.mjs` agree; a planning job rechecks the complete Git diff, including all commits in a push, before scheduling heavy work. The **CI / Run workflow** action explicitly runs full validation for otherwise excluded inputs and never requests publication. A change to an ignored build/validation input, such as `.dockerignore` or Compose, still invalidates reuse of an old approval until explicitly validated.
 
-Source checks and AMD64/ARM64 image builds run concurrently. The AMD64 image is built once, exported as a short-lived artifact and loaded by three isolated runtime runners. The ten current-image suites in `scripts/runtime_suites.py` are partitioned exactly once; legacy upgrade remains separate. Group 1 alone runs native Linux fixture ownership regressions. The ARM64 image is checked under QEMU for ELF architecture, health and bundled Cosign. Fixture module/build caches are transferred through host-owned private archives and cached per group across runs. Runners remove those cache volumes without force; fixture cleanup remains scoped to each test. All groups remain required, with evidence checked by **CI approved (policy v1)**. Require that approval job for source branch protection instead of the retired **Docker builds and ARM64 smoke test** job. A path-filtered documentation-only push creates no required-check result; account for that if branch protection requires checks on documentation pull requests.
+Source checks and AMD64/ARM64 image builds run concurrently. The AMD64 image is built once, exported as a short-lived artifact and loaded by three isolated runtime runners. The eleven current-image suites in `scripts/runtime_suites.py` are partitioned exactly once; legacy upgrade remains separate. Group 1 alone runs native Linux fixture ownership regressions. The ARM64 image is checked under QEMU for ELF architecture, health and bundled Cosign. Fixture module/build caches are transferred through host-owned private archives and cached per group across runs. Runners remove those cache volumes without force; fixture cleanup remains scoped to each test. All groups remain required, with evidence checked by **CI approved (policy v1)**. Require that approval job for source branch protection instead of the retired **Docker builds and ARM64 smoke test** job. A path-filtered documentation-only push creates no required-check result; account for that if branch protection requires checks on documentation pull requests.
 
 Formal releases continue to use `npm run release` from a clean checkout. A marked version-only request verifies a successful same-branch ancestor CI with identical inputs, skips source tests and CI image builds, and calls the reusable publisher. Missing/mismatched approval fails early; it never silently starts full CI. The publisher builds the final image once with the release SHA/version, imports CI build caches, smoke tests both final architectures, and retains the existing signing, verification and version/publication guards. Publication retries in the same workflow run reuse the immutable image receipt when available, avoiding another build. Stable releases publish the version and `latest`; prereleases publish only their version. See [Releases](Releases.md) for first-run migration, evidence and recovery.
 
@@ -132,7 +132,7 @@ The image package may be private. Set its visibility to public in GitHub package
 
 The optional [Control API](Control-API.md) uses the UI port and shares one SQLite-backed Yard token with MCP. Enable it and generate/rotate/revoke the token in Settings. Legacy `NOX_YARD_API_ENABLED=true` with a valid `NOX_YARD_API_KEY` imports the key only on first initialization; later token changes are authoritative in SQLite. Public `/v1/health` and `/v1/info` remain available. Anonymous MCP does not open Control API. Browser sessions/Origin/CSRF remain unchanged. `NOX_YARD_VERSION` optionally overrides the incorporated build version; leave it empty to use the exact Git tag/full-SHA metadata, or `dev` for unversioned builds. `buildSHA` remains separate for self-update.
 
-Outside Docker, `NOX_LISTEN_ADDR` defaults to `127.0.0.1:8080` and `NOX_MCP_LISTEN_ADDR` to `127.0.0.1:8081`. Containers explicitly listen on `:8080` and `:8081`; the host publications decide network exposure. `NOX_DATA_DIR` defaults to `./data`, and `NOX_WEB_DIR` defaults to `./web/dist`. In Compose, these are `/data` and `/srv/nox-yard/web`. The optional `NOX_PUBLIC_URL` must be an exact HTTP(S) origin without a path. Set it to the browser-facing HTTPS origin behind a reverse proxy so sessions use Secure cookies and Origin checks compare against that origin. A separate MCP reverse-proxy origin must respect that same Origin policy.
+Outside Docker, `NOX_LISTEN_ADDR` defaults to `127.0.0.1:8080` and `NOX_MCP_LISTEN_ADDR` to `127.0.0.1:8081`. Containers explicitly listen on `:8080` and `:8081`; the host publications decide network exposure. `NOX_DATA_DIR` defaults to `./data`, and `NOX_WEB_DIR` defaults to `./web/dist`. In Compose, these are `/data` and `/srv/nox-yard/web`. The Compose-required `NOX_PUBLIC_URL` must be an exact HTTP(S) origin without a path. Set it to the browser-facing HTTPS origin behind a reverse proxy so sessions use Secure cookies and Origin checks compare against that origin. A separate MCP reverse-proxy origin must respect that same Origin policy.
 
 `.env.example` and Compose both default to host loopback: Yard 8095→8080 and MCP 8096→8081. `NOX_BIND_ADDRESS`/`NOX_PORT` and `NOX_MCP_BIND_ADDRESS`/`NOX_MCP_PORT` independently control publications. Explicitly choose `0.0.0.0` for LAN/VPN access. MCP starts disabled, including on upgrades; enable it in Settings after configuring its token or explicit anonymous mode. Network Settings persist a desired revision before Apply now launches a separate worker. Supported automatic changes update host Compose/`.env`, use the current image without pull/build, verify health/bindings and attempt recovery; unsupported installations show a manual-configuration explanation. Existing deployments retain observed host bindings as initial desired values. The Compose file mounts `./data` and `/var/run/docker.sock`. Do not commit `.env`, `data/`, credentials, sessions, or host Docker data.
 
@@ -144,13 +144,13 @@ Run `sh scripts/security.sh` to scan Linux amd64 and arm64 call paths with the p
 
 `scripts/fixtures/managed-acceptance.yaml` supplies healthy, unhealthy, one-shot, volume/bind and failed-pull examples. Run only with a unique disposable Compose project name and a copied temporary fixture directory; profiles select intentional failures. A standalone fixture is the same Alpine sleep service created without Compose labels; external Compose fixtures use these definitions outside Yard ownership. Never use an existing user stack as a fixture.
 
-To reset a forgotten password, use an interactive terminal attached to the same data directory:
+Current dashboard access is managed by NoX Auth. The following command only repairs the legacy password used after rollback to an older image:
 
 ```sh
 docker compose exec -it nox-yard nox-yard reset-admin-password
 ```
 
-For a local run, stop the server and run `go run ./cmd/nox-yard reset-admin-password` from the repository root. The command prompts for confirmation and signs out all existing sessions.
+For a local run, stop the server and run `go run ./cmd/nox-yard reset-admin-password` from the repository root. The command updates the retained legacy password for rollback to an older image. Current NoX Login sessions and Google authentication remain managed by Auth.
 
 ## Change workflow
 
@@ -179,7 +179,7 @@ The scheduling fixture uses a disposable registry, application images, named sta
 
 ## Host upgrade and recovery acceptance
 
-See [Host validation](Host-Validation.md) for a fresh native Linux handoff, suite/report and manual UI checklist. `scripts/smoke-upgrade.py --image CURRENT --legacy-image LEGACY` starts from a real v1.0.1 image with disposable application storage, interactive password recovery and a three-part backup/restore; its upgrade assumptions need verification against the retired converter and the supported v1.3.1 intermediate path. `scripts/acceptance.py` runs seven isolated runtime suites and records exact platform/image evidence. Run `smoke-configuration.py`, `smoke-service-recreate.py` and `smoke-machine.py` separately as well; they are not included in the aggregate report. `scripts/smoke-self-update.py` checks independent Yard replacement and failed replacement/SQLite recovery while redirecting only the fixture binary's restore tag; production GHCR discovery/signature admission and pull are separate from that internal worker-protocol fixture. No fixture uses existing user stacks.
+See [Host validation](Host-Validation.md) for a fresh native Linux handoff, suite/report and manual UI checklist. `scripts/smoke-upgrade.py --image CURRENT --legacy-image LEGACY` starts from a real v1.0.1 image with disposable application storage, interactive password recovery and a three-part backup/restore; its upgrade assumptions need verification against the retired converter and the supported v1.3.1 intermediate path. `scripts/acceptance.py --skip-upgrade` runs every current-image suite in `runtime_suites.py`, including configuration, service recreation, machine recovery and NoX Login enrollment/rollback, and records exact platform/image evidence. `scripts/smoke-self-update.py` checks independent Yard replacement and failed replacement/SQLite recovery while redirecting only the fixture binary's restore tag; production GHCR discovery/signature admission and pull are separate from that internal worker-protocol fixture. No fixture uses existing user stacks.
 
 ## File configuration verification
 
@@ -206,3 +206,7 @@ Private control files read by the host after a root runner exits must be created
 Portable cleanup/output regressions run with the shared source checks. On Linux, `acceptance.py` automatically runs the three real Docker ownership/mount/output regressions before any runtime suite and records `fixtureOwnership`; a failure stops acceptance. This includes reproducing an unreadable root-created `0600` file, then checking private output exchange with a non-root host. For standalone diagnostics, run `NOX_CLEANUP_TEST_IMAGE=LOCAL_IMAGE python3 scripts/test_smoke_support.py LinuxFixtureCleanupTests -v`; the Docker daemon must see the same fixture paths. The standalone tests explicitly skip when their Linux/image prerequisites are absent. Docker Desktop's host file-sharing permissions do not validate native Linux ownership.
 
 On Docker Desktop, multi-process SQLite fixtures use a named Linux volume for Yard state; source/app bind mounts still exercise host paths. The dedicated self-update fixture preserves its bind-only requirement by binding the directory of its disposable Linux volume. This avoids filesystem-locking differences of macOS shared SQLite binds without changing production durability/recovery semantics. Desktop alias mount checks compare actual source identities inside read-only network-isolated helpers.
+
+## NoX Login integration
+
+The dashboard now uses [NoX Login](NoX-Login.md), consuming Auth v0.0.1. Update both Compose and environment when deploying this change. The setup component generates/registers client credentials; Google settings remain only in Auth. CI also validates changes to Compose and `.env.example`. Test providers are confined to labelled disposable fixtures and are not included in the production binary/image.

@@ -2,19 +2,15 @@
 
 This file records current behavior. Remaining implementation and validation work is tracked in [Progress](Progress.md).
 
-## First-run administrator and local login
+## NoX Login
 
-- `GET /api/bootstrap` reports whether setup is needed or a valid session exists. The browser displays setup, login, or the dashboard accordingly.
-- `POST /api/setup` creates the only administrator. Username must contain 3–32 ASCII letters, digits, dots, underscores, or hyphens; password must contain 12–128 characters. The database's single administrator row prevents concurrent setup requests from creating two accounts. Setup issues a session on success.
-- `POST /api/login` validates the stored Argon2id password. Five failed attempts from one remote IP block further attempts for 15 minutes in the current server process. A successful login clears that IP's attempts.
-- Session tokens are random, stored only as SHA-256 hashes in SQLite, and expire after seven days. Cookies are HttpOnly and SameSite Strict. `NOX_PUBLIC_URL` with an HTTPS origin enables a Secure `__Host-` cookie. Browser mutations require an exact Origin match; logout also requires the session CSRF token.
-- `POST /api/logout` deletes the session and clears its cookie. `nox-yard reset-admin-password` asks for a new password in an interactive terminal and invalidates all sessions. There is no email or remote password recovery.
+The dashboard uses **NoX Login** through NoX Auth, with no local-password fallback. Google credentials and allowed accounts belong only to Auth. Compose runs a one-shot local enrollment component before Yard; the normal service receives no Auth administration mount. See [NoX Login](NoX-Login.md) for exact routes, configuration and rollback.
 
-Authentication state lives in `data/nox-yard.sqlite`. Keep `data/` persistent and private. The first-run account remains claimable by anyone who can reach the application until setup is completed, so restrict initial network access.
+Sessions and Auth credentials persist server-side in SQLite. Browser cookies contain opaque Yard tokens, use HttpOnly/SameSite=Lax, and use Secure `__Host-` cookies for HTTPS. Origin/CSRF validation remains in place. Sessions last one year, renewable; local admission is revalidated within five minutes without repeated Google login. Local logout removes Yard's session while preserving Auth SSO and other apps. Existing administrator/data records are retained for rollback; `/api/setup` and `/api/login` no longer provide dashboard entry.
 
 ## Application shell
 
-The Go service serves the Vite production build and exposes `/healthz`, which checks SQLite access. The React UI has responsive setup/login screens, a compact dashboard sidebar, and sign-out. UI styles use the semantic tokens in `web/src/styles/tokens.css` and feature CSS Modules.
+The Go service serves the Vite production build and exposes `/healthz`, which checks SQLite access. The React UI has a responsive NoX Login screen, a compact dashboard sidebar, and sign-out. UI styles use the semantic tokens in `web/src/styles/tokens.css` and feature CSS Modules.
 
 Settings prioritizes Yard updates, then Projects directory, then MCP & access in a closed-by-default accordion with a visible enabled/disabled dot and label. The sidebar MCP shortcut opens that accordion directly; the sidebar indicator itself represents local server availability. MCP is opt-in on a separate port, with a single hashed token shared with Control API, explicit anonymous MCP, inspection/write/sensitive-read permissions and a last-ten-events History modal. Token replacement immediately invalidates its predecessor. Separate Yard/MCP host bindings and ports use persisted pending configuration and explicit Apply now, with optional automatic recreation, durable worker verification and runtime/file recovery. NoX Gateway registration/authentication remains deferred. The directory field and Save action share a row when space permits, with separate examples for new Compose files and exported logs. Update status, last checked and current build use compact wrapping columns. Narrow layouts stack controls inside the shared fullscreen mobile drawer.
 

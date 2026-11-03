@@ -20,7 +20,6 @@ async (page) => {
   await page.route('**/api/**',route=>{
     const path=new URL(route.request().url()).pathname;
     if(path==='/api/bootstrap')return route.fulfill({json:{authenticated:true,needsSetup:false,username:'owner',csrfToken:'fixture'}});
-    if(path==='/api/login')return route.fulfill({status:401,json:{error:'Invalid username or password.'}});
     if(path==='/api/projects')return route.fulfill(unauthorized?{status:401,json:{error:'Sign in to continue.'}}:{json:{collectedAt:'2026-10-08T00:00:00Z',projects:[{id:'compose:sample',name:'sample',kind:'managed-compose',state:'running',health:'healthy',cpuPercent:null,memoryBytes:null,networkRxBytes:null,networkTxBytes:null,uptimeSeconds:null,containers:[{id,name:'demo',service:'demo',image:'alpine',state:'running',health:'healthy',terminalAvailable:true,cpuPercent:null,memoryBytes:null,networkRxBytes:null,networkTxBytes:null,uptimeSeconds:null}]}]}});
     if(path.includes('/configuration/')) return route.fulfill({json:{available:false,state:'ready',files:[],variables:[]}});
     if(path.endsWith('/schedule'))return route.fulfill({json:{enabled:false,targetID:'compose:sample',timezone:'Etc/UTC',time:'03:00',eligible:true}});
@@ -48,9 +47,11 @@ async (page) => {
     if(await page.getByRole('dialog').count())throw Error('Protected drawer remains after expiry');
     if(!await page.evaluate(()=>window.fixtureStreams.every(s=>s.readyState===2)&&window.fixtureSockets.every(s=>s.readyState===3)))throw Error('Session expiry did not release streams');
   }
-  await page.getByLabel('Username', {exact:true}).fill('owner');await page.getByLabel('Password',{exact:true}).fill('wrong-password');await page.getByRole('button',{name:'Sign in',exact:true}).click();
-  await page.getByRole('alert').filter({hasText:'Invalid username or password.'}).waitFor();
-  if(await page.getByLabel('Username',{exact:true}).inputValue()!=='owner')throw Error('Failed login reset form');
+  await page.getByRole('button',{name:'NoX Login',exact:true}).waitFor();
+  if(await page.getByLabel('Username',{exact:true}).count() || await page.getByLabel('Password',{exact:true}).count())throw Error('Legacy password form remains visible');
+  await page.route('**/api/bootstrap',route=>route.fulfill({json:{authenticated:false,needsSetup:false,loginAvailable:true}}));
+  await page.goto('http://127.0.0.1:5173/?login_error=denied');
+  await page.getByRole('alert').filter({hasText:'NoX Login could not authorize this session.'}).waitFor();
   for(const width of [1440,768,390,320]){await page.setViewportSize({width,height:1000});if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Login overflow '+width)}
-  console.log('PASS: inventory/log/terminal/HTTP expiry returns to login, closes streams and drawers, failed login retains input, responsive sign-in');
+  console.log('PASS: inventory/log/terminal/HTTP expiry returns to login, closes streams and drawers, NoX Login and denied-account message, no local-password form, responsive sign-in');
 }

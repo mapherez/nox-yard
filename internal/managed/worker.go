@@ -13,6 +13,7 @@ import (
 )
 
 type workerPayload struct {
+	SuiteTargets        []store.SuiteTarget `json:"suiteTargets,omitempty"`
 	Context             ComposeContext
 	NativeAction        string
 	FileJob             *fileDeployment

@@ -20,6 +20,9 @@ export type Bootstrap = {
   authenticated: boolean;
   username?: string;
   csrfToken?: string;
+ loginAvailable?: boolean;
+ loginReason?: string;
+ renewLogin?: boolean;
 };
 
 export type Container = {
@@ -165,10 +168,6 @@ export type ConfigurationEdit = { fingerprint: string; path?: string; content: s
 export function readProjectConfiguration(id: string, csrfToken: string, reveal = false): Promise<ProjectConfiguration> { return request(`/api/projects/${encodeURIComponent(id)}/configuration/read`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ reveal }) }); }
 export function saveProjectConfiguration(id: string, edit: ConfigurationEdit, csrfToken: string): Promise<ProjectConfiguration> { return request(`/api/projects/${encodeURIComponent(id)}/configuration/save`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(edit) }); }
 
-type Credentials = {
-  username: string;
-  password: string;
-};
 
 const localBackendMessage =
   "The local API is not responding on 127.0.0.1:8080. Start Docker Desktop, then run docker compose -f compose.dev.yaml up -d --build from the project root and retry.";
@@ -359,22 +358,6 @@ export function saveSelfUpdateSettings(
     method: "PUT",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify(settings),
-  });
-}
-
-export function createAdministrator(input: Credentials): Promise<Bootstrap> {
-  return request<Bootstrap>("/api/setup", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-}
-
-export function signIn(input: Credentials): Promise<Bootstrap> {
-  return request<Bootstrap>("/api/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
   });
 }
 

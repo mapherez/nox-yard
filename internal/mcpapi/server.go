@@ -278,7 +278,7 @@ func failures(items []lifecycle.Failure) []failure {
 	}
 	return result
 }
-func New(app *application.Service, version string, policies ...machineauth.Policy) (*noxmcp.Runtime, error) {
+func definitions(app *application.Service, version string) ([]noxmcp.Tool, error) {
 	b := &builder{}
 	register(b, "yard_project_override_preview", "Preview Compose override", "Read a source once and review the combined effective Compose configuration. Requires sensitive reads. No files or containers change. Use the returned frozen source and fingerprints when applying.", read, func(ctx context.Context, in overrideInput) (managed.OverridePreview, error) {
 		return app.PreviewProjectOverride(ctx, in.ID, in.OverrideRequest)
@@ -475,6 +475,14 @@ func New(app *application.Service, version string, policies ...machineauth.Polic
 	if b.err != nil {
 		return nil, b.err
 	}
+	return b.tools, nil
+}
+func New(app *application.Service, version string, policies ...machineauth.Policy) (*noxmcp.Runtime, error) {
+	tools, err := definitions(app, version)
+	if err != nil {
+		return nil, err
+	}
+	b := &builder{tools: tools}
 	if len(policies) > 0 {
 		policy := policies[0]
 		allowed := []noxmcp.Tool{}

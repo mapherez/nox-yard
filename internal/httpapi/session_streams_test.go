@@ -42,7 +42,7 @@ func (s *sessionStreamStub) OpenTerminal(context.Context, string, uint, uint) (i
 
 func TestStreamsCloseWhenSessionRevoked(t *testing.T) {
 	for _, kind := range []string{"events", "logs", "terminal"} {
-		for _, revoke := range []string{"logout", "reset", "expiry"} {
+		for _, revoke := range []string{"logout", "auth", "expiry"} {
 			t.Run(kind+"/"+revoke, func(t *testing.T) {
 				data, api := newTestServer(t, t.TempDir(), "")
 				defer data.Close()
@@ -79,10 +79,11 @@ func TestStreamsCloseWhenSessionRevoked(t *testing.T) {
 						if response.Code != 204 {
 							t.Fatal("logout failed")
 						}
-					case "reset":
-						if err := data.ResetAdminPassword("replacement-hash"); err != nil {
-							t.Fatal(err)
-						}
+					case "auth":
+						loginFixtures.Load(api).Deny()
+						api.noxLogin.mu.Lock()
+						clear(api.noxLogin.sessions)
+						api.noxLogin.mu.Unlock()
 					case "expiry":
 						if err := data.DeleteSession(hashToken(cookie.Value)); err != nil {
 							t.Fatal(err)
@@ -193,55 +194,5 @@ func TestTerminalRechecksSessionAfterHandshake(t *testing.T) {
 	_, _, err = conn.Read(ctx)
 	if websocket.CloseStatus(err) != terminalSessionExpired || stub.calls != 0 {
 		t.Fatal("revoked handshake opened Docker shell")
-	}
-}
-
-func TestLoginRateLimitUsesPeerIPAndRecovers(t *testing.T) {
-	data, api := newTestServer(t, t.TempDir(), "")
-	defer data.Close()
-	handler := api.Handler()
-	if setup := postCredentials(handler, "/api/setup", "http://yard.test", "owner", testPassword); setup.Code != 201 {
-		t.Fatal("setup failed")
-	}
-	login := func(ip, password string) *httptest.ResponseRecorder {
-		payload, _ := json.Marshal(credentials{Username: "owner", Password: password})
-		req := httptest.NewRequest("POST", "http://yard.test/api/login", strings.NewReader(string(payload)))
-		req.RemoteAddr = ip + ":1234"
-		req.Header.Set("Origin", "http://yard.test")
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Forwarded-For", "192.0.2.99")
-		result := httptest.NewRecorder()
-		handler.ServeHTTP(result, req)
-		return result
-	}
-	for i := 0; i < 5; i++ {
-		if result := login("192.0.2.1", "wrong password"); result.Code != 401 {
-			t.Fatal("bad credentials not counted")
-		}
-	}
-	if result := login("192.0.2.1", testPassword); result.Code != 429 || result.Header().Get("Retry-After") != "900" {
-		t.Fatal("rate limit missing")
-	}
-	if result := login("192.0.2.2", testPassword); result.Code != 200 {
-		t.Fatal("forwarded header changed limiter identity")
-	}
-	api.limiter.mu.Lock()
-	attempt := api.limiter.entries["192.0.2.1"]
-	attempt.until = time.Now().Add(-time.Second)
-	api.limiter.entries["192.0.2.1"] = attempt
-	api.limiter.mu.Unlock()
-	if result := login("192.0.2.1", testPassword); result.Code != 200 {
-		t.Fatal("expired rate limit did not recover")
-	}
-	for i := 0; i < 4; i++ {
-		login("192.0.2.1", "wrong")
-	}
-	if result := login("192.0.2.1", testPassword); result.Code != 200 {
-		t.Fatal("success rejected")
-	}
-	for i := 0; i < 5; i++ {
-		if result := login("192.0.2.1", "wrong"); result.Code != 401 {
-			t.Fatal("successful login did not clear failures")
-		}
 	}
 }

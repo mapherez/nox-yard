@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/containerd/errdefs"
+	"github.com/mapherez/nox-yard/internal/hosthelper"
 	"github.com/mapherez/nox-yard/internal/imageidentity"
 	"github.com/mapherez/nox-yard/internal/jobs"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
@@ -505,6 +506,7 @@ func (m *Manager) verify(ctx context.Context, state *journal, root string) error
 		}
 		actual := inspected.Container
 		wanted := creation(target, root)
+		actual, wanted.HostConfig = comparisonBindSources(ctx, actual, target.Old.Mounts, wanted.HostConfig, hosthelper.SameSource)
 		if actual.Image != target.TargetImage || actual.Name != target.Old.Name || !equivalent(normalizeConfig(actual), wanted.Config) || !equivalent(normalizeHost(actual.HostConfig), normalizeHost(wanted.HostConfig)) {
 			return preservationError{fmt.Sprintf("Preserved configuration differs (%s; %s).", differing(normalizeConfig(actual), wanted.Config), differing(normalizeHost(actual.HostConfig), normalizeHost(wanted.HostConfig)))}
 		}

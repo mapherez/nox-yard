@@ -81,7 +81,13 @@ func migrate(db *sql.DB) error {
 	if err := ensureFileConfigurationTable(db); err != nil {
 		return err
 	}
-	return ensureMachineTables(db)
+	if err := ensureMachineTables(db); err != nil {
+		return err
+	}
+	if err := ensureSuiteTables(db); err != nil {
+		return err
+	}
+	return ensureNoXLoginTables(db)
 }
 
 func migrateBase(db *sql.DB) error {
@@ -352,11 +358,20 @@ func (s *Store) Session(tokenHash string) (Session, bool, error) {
 }
 
 func (s *Store) DeleteSession(tokenHash string) error {
+	if err := s.DeleteNoXSession(tokenHash); err != nil {
+		return err
+	}
 	_, err := s.db.Exec("DELETE FROM sessions WHERE token_hash = ?", tokenHash)
 	return err
 }
 
 func (s *Store) PruneSessions() error {
+	if _, err := s.db.Exec(`DELETE FROM nox_login_transactions WHERE expires_at<=?`, time.Now().Unix()); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM nox_login_sessions WHERE expires_at<=?`, time.Now().Unix()); err != nil {
+		return err
+	}
 	_, err := s.db.Exec("DELETE FROM sessions WHERE expires_at <= ?", time.Now().Unix())
 	return err
 }

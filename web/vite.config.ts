@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => ({
     strictPort: true,
     proxy: {
       "/api": { target: loadEnv(mode, ".", "NOX_").NOX_API_PROXY_TARGET || "http://127.0.0.1:8080", ws: true },
+      "/auth/nox": { target: loadEnv(mode, ".", "NOX_").NOX_API_PROXY_TARGET || "http://127.0.0.1:8080" },
     },
   },
 }));

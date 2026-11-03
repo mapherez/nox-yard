@@ -1,6 +1,7 @@
 """One runtime-suite inventory for local acceptance and CI."""
 
 SUITES = [
+    ("NoX Login enrollment and previous-image rollback", "smoke-nox-login.py", False),
     ("upgrade/password recovery/backup restore", "smoke-upgrade.py", True),
     ("durable jobs and interruption", "smoke-jobs.py", False),
     ("managed updates and rollback", "smoke-managed.py", False),
@@ -17,7 +18,7 @@ SUITES = [
 # Parallel CI groups share this inventory with the unsharded local runner.
 # The split balances measured suite durations; every current suite runs once.
 CI_GROUPS = {
-    "1": ("smoke-recreate.py", "smoke-schedules.py", "smoke-machine.py"),
+    "1": ("smoke-nox-login.py", "smoke-recreate.py", "smoke-schedules.py", "smoke-machine.py"),
     "2": ("smoke-managed.py", "smoke-mcp.py", "smoke-self-update.py"),
     "3": ("smoke-jobs.py", "smoke-native-parity.py", "smoke-configuration.py", "smoke-service-recreate.py"),
 }

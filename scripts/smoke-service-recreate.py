@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify service-only Recreate and recovery in a disposable local Compose project."""
 from smoke_support import write_text, trace_docker, cleanup_fixture
+from auth_fixture import cleanup_all as cleanup_auth_fixtures
 import argparse
 import json
 import pathlib
@@ -140,7 +141,7 @@ try:
     write_text(base / ".env", "VALUE=initial\nFAIL=0\n", newline="")
     compose("up", "-d", "--no-build", "--pull", "never")
     wait(lambda: urllib.request.urlopen(origin + "/healthz", timeout=3).status == 200, "Yard did not start")
-    _, _, mcp_token = bootstrap_mcp(origin)
+    _, _, mcp_token = bootstrap_mcp(origin, docker=docker)
     rpc("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "service-fixture", "version": "1"}})
     initial_peers = peers()
     initial_runs = (base / "state/init-runs").read_text()
@@ -199,6 +200,7 @@ try:
     assert peers() == initial_peers
     print("PASS: missing Compose files retain service-only Engine fallback without mutating peers", flush=True)
 finally:
+    cleanup_auth_fixtures()
     ids = docker("ps", "-aq", "--filter", "label=nox-yard.acceptance=" + name).splitlines()
     if ids:
         docker("rm", "-f", *ids)

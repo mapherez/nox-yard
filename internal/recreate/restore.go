@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mapherez/nox-yard/internal/hosthelper"
 	"github.com/mapherez/nox-yard/internal/imageidentity"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
@@ -127,6 +128,7 @@ func restoreRuntime(ctx context.Context, name, service string, previous []contai
 			wanted.Config = normalizeConfig(target.Old)
 			wanted.HostConfig = target.Old.HostConfig
 		}
+		actual, wanted.HostConfig = comparisonBindSources(ctx, actual, target.Old.Mounts, wanted.HostConfig, hosthelper.SameSource)
 		if actual.Image != target.Old.Image || !equivalent(normalizeConfig(actual), wanted.Config) || !equivalent(normalizeHost(actual.HostConfig), normalizeHost(wanted.HostConfig)) || !equivalent(mountIdentities(actual), mountIdentities(target.Old)) {
 			return fmt.Errorf("previous container settings could not be verified")
 		}

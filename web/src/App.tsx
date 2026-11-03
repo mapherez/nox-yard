@@ -2,7 +2,6 @@ import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type M
 import { useProjectConfiguration, ComposeConfiguration, EnvironmentValue, type ConfigurationControl } from "./ProjectConfiguration";
 import {
   checkSelfUpdateNow,
-  createAdministrator,
   getBootstrap,
   getContainerInspection,
 	getManagedSettings,
@@ -18,7 +17,6 @@ import {
   runContainerAction,
   runProjectAction,
   runManagedOperation,
-  signIn,
   signOut,
   sessionExpiredEvent,
   type Bootstrap,
@@ -50,22 +48,35 @@ import { useInterfaceUpdates } from "./useInterfaceUpdates";
 
 type View =
   | { kind: "loading" }
-  | { kind: "setup" }
-  | { kind: "login" }
+  | { kind: "login"; available?: boolean; reason?: string }
   | { kind: "dashboard"; username: string; csrfToken: string }
   | { kind: "error"; message: string };
 
 function viewFromBootstrap(result: Bootstrap): View {
-  if (result.needsSetup) return { kind: "setup" };
   if (result.authenticated && result.username && result.csrfToken) {
     return { kind: "dashboard", username: result.username, csrfToken: result.csrfToken };
   }
-  return { kind: "login" };
+  return { kind: "login", available: result.loginAvailable !== false, reason: result.loginReason };
 }
 
 export default function App() {
   const [view, setView] = useState<View>({ kind: "loading" });
   useInterfaceUpdates();
+
+  useEffect(() => {
+    if (view.kind !== "dashboard") return;
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      getBootstrap().then((result) => {
+        if (!result.authenticated) {
+          setView(viewFromBootstrap(result));
+          return;
+        }
+        if (result.renewLogin) window.location.assign(noXLoginURL());
+      }).catch(() => {});
+    }, 60 * 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, [view.kind]);
 
   useEffect(() => {
     if (view.kind !== "dashboard") return;
@@ -77,7 +88,6 @@ export default function App() {
   useEffect(() => {
     const titles: Record<View["kind"], string> = {
       loading: "Loading | Yard",
-      setup: "Create administrator | Yard",
       login: "Sign in | Yard",
       dashboard: "Projects | Yard",
       error: "Unavailable | Yard",
@@ -89,7 +99,13 @@ export default function App() {
     let active = true;
     getBootstrap()
       .then((result) => {
-        if (active) setView(viewFromBootstrap(result));
+        if (active) {
+          if (result.authenticated && result.renewLogin) {
+            window.location.assign(noXLoginURL());
+            return;
+          }
+          setView(viewFromBootstrap(result));
+        }
       })
       .catch((error: unknown) => {
         if (active) {
@@ -130,7 +146,7 @@ export default function App() {
     return <Dashboard username={view.username} csrfToken={view.csrfToken} onSignOut={() => setView({ kind: "login" })} />;
   }
 
-  return <AuthForm mode={view.kind} onAuthenticated={(result) => setView(viewFromBootstrap(result))} />;
+  return <NoXLogin available={view.available !== false} reason={view.reason} />;
 }
 
 function Brand() {
@@ -141,39 +157,15 @@ function Brand() {
   );
 }
 
-function AuthForm({
-  mode,
-  onAuthenticated,
-}: {
-  mode: "setup" | "login";
-  onAuthenticated: (result: Bootstrap) => void;
-}) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmation, setConfirmation] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
-  const isSetup = mode === "setup";
+function noXLoginURL(): string {
+  const query = new URLSearchParams(window.location.search);
+  query.delete("login_error");
+  const returnPath = window.location.pathname + (query.size ? "?" + query.toString() : "");
+  return "/auth/nox/start?return_to=" + encodeURIComponent(returnPath);
+}
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    if (isSetup && password !== confirmation) {
-      setError("Passwords do not match.");
-      return;
-    }
-    setPending(true);
-    try {
-      const result = await (isSetup ? createAdministrator : signIn)({ username, password });
-      onAuthenticated(result);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to continue.");
-    } finally {
-      setPending(false);
-    }
-  }
-
+function NoXLogin({ available, reason }: { available: boolean; reason?: string }) {
+  const denied = new URLSearchParams(window.location.search).has("login_error");
   return (
     <div className={styles.authLayout}>
       <aside className={styles.authAside}>
@@ -186,80 +178,16 @@ function AuthForm({
         </div>
         <p className={styles.authAsideFooter}>SELF-HOSTED · LOCAL CONTROL</p>
       </aside>
-
       <main className={styles.authMain}>
         <div className={styles.authCard}>
           <div className={styles.authMobileBrand}><Brand /></div>
-          <span className={styles.sectionLabel}>{isSetup ? "FIRST-RUN SETUP" : "WELCOME BACK"}</span>
-          <h1>{isSetup ? "Create your admin account" : "Sign in to Yard"}</h1>
-          <p className={styles.authDescription}>
-            {isSetup
-              ? "This account will manage Docker on this host. Choose a strong password to get started."
-              : "Enter your administrator credentials to manage this host."}
-          </p>
-
-          <form action={isSetup ? "/api/setup" : "/api/login"} method="post" onSubmit={handleSubmit} className={styles.authForm}>
-            <div className={styles.field}>
-              <label htmlFor="username">Username</label>
-              <input
-                id="username"
-                name="username"
-                type="text"
-                autoComplete="username"
-                required
-                minLength={isSetup ? 3 : undefined}
-                maxLength={32}
-                pattern={isSetup ? "[A-Za-z0-9._\\-]{3,32}" : undefined}
-                value={username}
-                onChange={(event) => { setUsername(event.target.value); setError(""); }}
-                aria-describedby={isSetup ? "username-hint" : undefined}
-              />
-              {isSetup && <span id="username-hint" className={styles.fieldHint}>3–32 letters, numbers, dots, underscores, or hyphens.</span>}
-            </div>
-
-            <div className={styles.field}>
-              <label htmlFor="password">Password</label>
-              <div className={styles.passwordField}>
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete={isSetup ? "new-password" : "current-password"}
-                  required
-                  minLength={isSetup ? 12 : undefined}
-                  maxLength={128}
-                  value={password}
-                  onChange={(event) => { setPassword(event.target.value); setError(""); }}
-                  aria-describedby={isSetup ? "password-hint" : undefined}
-                />
-                <button type="button" className={styles.revealButton} onClick={() => setShowPassword(!showPassword)}>
-                  {showPassword ? "Hide" : "Show"}
-                </button>
-              </div>
-              {isSetup && <span id="password-hint" className={styles.fieldHint}>At least 12 characters.</span>}
-            </div>
-
-            {isSetup && (
-              <div className={styles.field}>
-                <label htmlFor="confirmation">Confirm password</label>
-                <input
-                  id="confirmation"
-                  name="confirmation"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="new-password"
-                  required
-                  value={confirmation}
-                  onChange={(event) => { setConfirmation(event.target.value); setError(""); }}
-                />
-              </div>
-            )}
-
-            {error && <p className={styles.formError} role="alert">{error}</p>}
-            <button className={styles.primaryButton} type="submit" disabled={pending}>
-              {pending ? "Please wait…" : isSetup ? "Create administrator" : "Sign in"}
-            </button>
-          </form>
-          <p className={styles.authNote}>Access is intended for a trusted local network or VPN.</p>
+          <span className={styles.sectionLabel}>WELCOME BACK</span>
+          <h1>Sign in to Yard</h1>
+          <p className={styles.authDescription}>Use your authorized Google account through NoX Login.</p>
+          {denied && <p className={styles.formError} role="alert">NoX Login could not authorize this session. Try again with an allowed account.</p>}
+          {!available && <p className={styles.formError} role="alert">{reason || "NoX Login is not configured."}</p>}
+          <button className={styles.primaryButton} disabled={!available} onClick={() => window.location.assign(noXLoginURL())}>NoX Login</button>
+          <p className={styles.authNote}>Access is managed by NoX Auth.</p>
         </div>
       </main>
     </div>

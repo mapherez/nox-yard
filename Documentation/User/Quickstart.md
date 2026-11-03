@@ -1,6 +1,6 @@
 # Quickstart
 
-Get from a Docker host to the Yard dashboard in a few minutes. This guide assumes Docker Engine and the Compose plugin are already installed on Linux (`amd64` or `arm64`).
+Get from a Docker host to the Yard dashboard in a few minutes. This guide assumes Docker Engine, Compose and NoX Auth are already running on the same Linux host (`amd64` or `arm64`).
 
 ## 1. Get the Compose configuration
 
@@ -23,11 +23,13 @@ Edit `.env`. For dashboard access over your trusted LAN/VPN, set:
 NOX_BIND_ADDRESS=0.0.0.0
 NOX_PORT=8095
 NOX_TIMEZONE=Europe/Lisbon
+NOX_PUBLIC_URL=http://YOUR_SERVER_IP:8095
+NOX_AUTH_PUBLIC_URL=https://YOUR_AUTH_DOMAIN
 ```
 
 Choose your own timezone and an unused host port. Keep `NOX_BIND_ADDRESS=127.0.0.1` if you want local-only access. MCP stays disabled, with a separate loopback binding.
 
-Using an HTTPS reverse proxy? Set `NOX_PUBLIC_URL` to the exact browser-facing origin. See [configuration](Configuration.md#reverse-proxy).
+Set `NOX_PUBLIC_URL` to the exact Yard address you use in the browser (HTTP private hostname/IP or HTTPS), and `NOX_AUTH_PUBLIC_URL` to your Auth HTTPS origin. Google credentials and allowed emails stay in Auth. See [configuration](Configuration.md#reverse-proxy).
 
 ## 3. Start Yard
 
@@ -35,11 +37,11 @@ Using an HTTPS reverse proxy? Set `NOX_PUBLIC_URL` to the exact browser-facing o
 docker compose up -d
 ```
 
-Compose pulls the published stable image and starts Yard. Application state is stored in `./data`.
+Compose runs the one-shot `auth-setup` component, which automatically registers Yard with Auth, then starts Yard. The setup component ending with exit code 0 is normal. Application state is stored in `./data`; keep that directory when updating.
 
 Open **http://YOUR_SERVER_IP:8095** with the LAN binding, or **http://127.0.0.1:8095** locally. Use your chosen port if you changed it.
 
-Create the administrator account with a password of at least 12 characters. Existing Compose projects and standalone containers appear automatically; no import is required.
+Select **NoX Login**, choose an authorized Google account if needed, and return to Yard. Existing Compose projects and standalone containers appear automatically; no import is required. No separate Yard username/password is created.
 
 ## 4. Explore or deploy
 

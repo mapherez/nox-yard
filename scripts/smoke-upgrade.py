@@ -6,6 +6,7 @@ Creates only random, explicitly tracked fixtures; never uses an existing Yard.
 Runs natively on a Linux Pi 5/amd64 host or through Linux Docker Desktop.
 """
 from smoke_support import trace_docker, cleanup_fixture
+from auth_fixture import cleanup_all as cleanup_auth_fixtures
 import argparse
 import hashlib
 import json
@@ -157,7 +158,10 @@ try:
     helper("import shutil; shutil.copytree('/application','/fixture/backup-application')", ("--mount", "type=volume,source=" + app_volume + ",target=/application,readonly"))
     print("PASS: real v1.0.1 setup/deployment, schema 6, consistent SQLite/source/env/application backup", flush=True)
     current = serve(args.image)
-    assert request("/api/bootstrap")["authenticated"], "Upgrade lost session"
+    assert not request("/api/bootstrap", authenticated=False)["authenticated"], "Legacy password session admitted by current Yard"
+    from auth_fixture import login as fixture_login
+    opener, auth_session = fixture_login(url, docker=docker)
+    csrf = auth_session["csrfToken"]
     assert_data()
     history = until(lambda: next((j for j in request('/api/jobs?target=compose:' + name) if j['id']=='legacy-interrupted' and j['status']=='failed'), None), "interrupted legacy reconciliation")
     assert history["outcome"] == "recovery_required" and history["stage"] == "awaiting_recovery", "Interrupted legacy work was claimed successful"
@@ -196,33 +200,34 @@ try:
   try: output+=os.read(master,4096)
   except OSError: break
  assert secret.encode() not in output, 'Password was echoed'
- assert b'All sessions have been signed out.' in output, 'Reset not confirmed'
+ assert b'Legacy administrator password updated' in output, 'Legacy recovery not confirmed'
 finally:
  if process.poll() is None: process.kill();process.wait()
  os.close(master)
 """
     helper(reset)
-    assert not request("/api/bootstrap")["authenticated"]
-    request("/api/login", {"username": "owner", "password": password}, expected=401, authenticated=False)
-    csrf = request("/api/login", {"username": "owner", "password": replacement}, authenticated=False)["csrfToken"]
+    assert request("/api/bootstrap")["authenticated"], "Changing a legacy password affected NoX Login"
+    request("/api/login", {"username": "owner", "password": password}, expected=405, authenticated=False)
     docker("restart", current)
     port = json.loads(docker("inspect", current))[0]["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostPort"]
     url = "http://127.0.0.1:" + port
     until(lambda: request("/healthz"), "restart after password reset")
     assert request("/api/bootstrap")["authenticated"]
-    print("PASS: actual interactive CLI reset without echo, non-TTY refusal, session revocation and persisted replacement password", flush=True)
+    print("PASS: legacy-password recovery without echo remains separate from NoX Login; local login endpoint unavailable", flush=True)
     docker("stop", current)
+    cleanup_auth_fixtures()
     # Corrupt only our disposable fixture data, then restore all backup parts.
     helper("import pathlib; pathlib.Path('/application/keep').write_text('after-backup'); pathlib.Path('/fixture/projects/" + name + "/files/keep').write_text('after-backup')", ("--mount", "type=volume,source=" + app_volume + ",target=/application",))
     helper("import pathlib,shutil; [p.unlink() for p in pathlib.Path('/data').glob('nox-yard.sqlite*')]; shutil.copy2('/fixture/backup.sqlite','/data/nox-yard.sqlite'); shutil.copytree('/fixture/backup-projects','/fixture/projects',dirs_exist_ok=True); [p.unlink() for p in pathlib.Path('/application').iterdir()]; [shutil.copy2(p,'/application/'+p.name) for p in pathlib.Path('/fixture/backup-application').iterdir()]", ("--mount", "type=volume,source=" + app_volume + ",target=/application",))
     restored = serve(args.image)
-    request("/api/login", {"username": "owner", "password": replacement}, expected=401, authenticated=False)
-    csrf = request("/api/login", {"username": "owner", "password": password}, authenticated=False)["csrfToken"]
+    opener, auth_session = fixture_login(url, docker=docker)
+    csrf = auth_session["csrfToken"]
     assert request("/api/bootstrap")["authenticated"]
     assert_data()
     helper("import sqlite3; db=sqlite3.connect('/data/nox-yard.sqlite'); assert db.execute('PRAGMA user_version').fetchone()[0]==9; assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'; db.close()")
     print("PASS: restore of baseline database, source/env files, relative bind and named-volume data; repeat migration and original credentials", flush=True)
 finally:
+    cleanup_auth_fixtures()
     for identifier in workers:
         subprocess.run(["docker", "rm", "-f", identifier], capture_output=True)
     identifiers = docker("ps", "-aq", "--filter", "label=nox-yard.acceptance=" + name).splitlines()

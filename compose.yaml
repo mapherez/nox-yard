@@ -1,11 +1,29 @@
 name: nox-yard
 
 services:
+  auth-setup:
+    image: ghcr.io/mapherez/nox-yard:latest
+    command: ["nox-yard", "auth-setup"]
+    restart: "no"
+    environment:
+      NOX_DATA_DIR: /data
+      NOX_PUBLIC_URL: ${NOX_PUBLIC_URL:?Set the browser-facing Yard origin}
+      NOX_AUTH_PUBLIC_URL: ${NOX_AUTH_PUBLIC_URL:?Set the NoX Auth HTTPS origin}
+    volumes:
+      - ./data:/data
+      - nox-suite-local:/run/nox-suite
+      - nox-auth-admin:/run/nox-auth-admin
+    security_opt:
+      - no-new-privileges:true
+
   nox-yard:
     image: ghcr.io/mapherez/nox-yard:latest
     container_name: nox-yard
     restart: unless-stopped
     init: true
+    depends_on:
+      auth-setup:
+        condition: service_completed_successfully
     ports:
       - "${NOX_BIND_ADDRESS:-127.0.0.1}:${NOX_PORT:-8095}:8080"
       - "${NOX_MCP_BIND_ADDRESS:-127.0.0.1}:${NOX_MCP_PORT:-8096}:8081"
@@ -15,7 +33,8 @@ services:
       NOX_WEB_DIR: /srv/nox-yard/web
       NOX_LISTEN_ADDR: :8080
       NOX_MCP_LISTEN_ADDR: :8081
-      NOX_PUBLIC_URL: ${NOX_PUBLIC_URL:-}
+      NOX_PUBLIC_URL: ${NOX_PUBLIC_URL:?Set the browser-facing Yard origin}
+      NOX_AUTH_PUBLIC_URL: ${NOX_AUTH_PUBLIC_URL:?Set the NoX Auth HTTPS origin}
       NOX_YARD_API_ENABLED: ${NOX_YARD_API_ENABLED:-false}
       NOX_YARD_API_KEY: ${NOX_YARD_API_KEY:-}
       NOX_YARD_VERSION: ${NOX_YARD_VERSION:-}
@@ -24,6 +43,7 @@ services:
     volumes:
       - ./data:/data
       - /var/run/docker.sock:/var/run/docker.sock
+      - nox-suite-local:/run/nox-suite
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
       interval: 30s
@@ -33,3 +53,11 @@ services:
     security_opt:
       - no-new-privileges:true
     stop_grace_period: 15s
+
+volumes:
+  nox-suite-local:
+    name: ${NOX_SUITE_LOCAL_VOLUME_NAME:-nox-suite-local}
+    driver: local
+  nox-auth-admin:
+    name: ${NOX_AUTH_ADMIN_VOLUME_NAME:-nox-auth-admin}
+    external: true

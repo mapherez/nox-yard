@@ -194,7 +194,7 @@ func insertJob(tx *sql.Tx, job Job) error {
 			return ErrOperationConflict
 		}
 	}
-	return nil
+	return queueSuiteJobTx(tx, job)
 }
 
 func (s *Store) CreateJob(job Job) error {
@@ -338,7 +338,11 @@ func finishJobTx(tx *sql.Tx, id, owner, status, outcome, message, rollback strin
 			return err
 		}
 	}
-	return nil
+	job, err := scanJob(tx.QueryRow("SELECT "+jobColumns+" FROM operation_jobs WHERE id=?", id))
+	if err != nil {
+		return err
+	}
+	return queueSuiteJobTx(tx, job)
 }
 func (s *Store) JobCleanupError(id, message string) error {
 	_, err := s.db.Exec("UPDATE operation_jobs SET cleanup_error=? WHERE id=?", message, id)

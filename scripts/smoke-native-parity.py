@@ -5,6 +5,7 @@ No registry pulls, host pruning or existing workloads are used. The supplied
 Yard image must already exist. Every created resource is recorded and removed.
 """
 from smoke_support import trace_docker, cleanup_fixture
+from auth_fixture import cleanup_all as cleanup_auth_fixtures
 from collections import Counter
 import argparse
 import datetime
@@ -147,7 +148,7 @@ try:
     record()
     docker("start", yard)
     wait(lambda: urllib.request.urlopen(origin + "/healthz", timeout=3).status == 200, "fixture Yard startup")
-    opener, setup, token = bootstrap_mcp(origin)
+    opener, setup, token = bootstrap_mcp(origin, docker=docker)
     target = name + "-yard-workload"
     native = name + "-native-workload"
     source = """services:
@@ -381,6 +382,7 @@ secrets: {token: {file: token.txt}}
     passed("image deletion is opt-in, fingerprint-bound and limited to an unused exclusive image")
     manifest["complete"] = True
 finally:
+    cleanup_auth_fixtures()
     # Clean helpers/workers only if mounted on this exact disposable fixture.
     workers = docker("ps", "-aq", "--filter", "label=nox-yard.role=operation-worker").splitlines()
     for identifier in workers:

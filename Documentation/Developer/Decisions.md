@@ -24,6 +24,8 @@ External projects support safe operations possible through the Docker Engine, in
 
 ## D-005 — First-run administrator setup
 
+**Historical; superseded November 3, 2026 by the owner-approved NoX Login integration.** Current dashboard entry uses NoX Auth only. The original administrator record remains for previous-image rollback. See [NoX Login](NoX-Login.md).
+
 The first browser visit while no administrator exists presents username/password creation. The setup remains available until the first account is atomically committed, then is permanently replaced by login. There is no initial token or time window. The deployment must initially be reachable only by trusted LAN/VPN users.
 
 ## D-006 — URL import and duplicate handling

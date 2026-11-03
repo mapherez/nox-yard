@@ -86,12 +86,12 @@ function workflowTriggers(path) {
 }
 
 for (const [expected, paths] of [
-  [true, ['cmd/nox-yard/main.go', 'internal/store/testdata/input.txt', 'go.mod', 'go.sum', '.nvmrc', 'Dockerfile', 'package.json', '.gitattributes',
+  [true, ['cmd/nox-yard/main.go', 'internal/store/testdata/input.txt', 'go.mod', 'go.sum', '.nvmrc', 'Dockerfile', 'compose.yaml', 'compose.dev.yaml', '.env.example', 'package.json', '.gitattributes',
     'web/src/App.tsx', 'web/public/favicon.svg', 'web/index.html', 'web/package.json', 'web/package-lock.json', 'web/.npmrc',
     'web/vite.config.ts', 'web/tsconfig.json', 'web/tsconfig.node.json', 'scripts/fixtures/managed-acceptance.yaml', 'scripts/ci-policy.mjs',
     '.github/workflows/ci.yml', '.github/workflows/release.yml', 'third_party/cosign/LICENSE']],
   [false, ['Documentation/Developer/Releases.md', 'Documentation/guide.yaml', 'README.md', 'CHANGELOG.md', '.gitignore', '.dockerignore',
-    'compose.yaml', 'compose.dev.yaml', 'examples/compose.yaml', '.env.example', 'web/src/.gitkeep', 'scripts/README.md',
+    'examples/compose.yaml', 'web/src/.gitkeep', 'scripts/README.md',
     'internal/README.txt', 'web/public/CHANGELOG', 'third_party/cosign/README.md', 'LICENSE', '.editorconfig', 'deploy/.gitkeep']],
 ]) {
   for (const path of paths) test(`push filter ${expected ? 'includes' : 'excludes'} ${path}`, () => {

@@ -40,6 +40,8 @@ def cleanup_fixture(base, root, fixture, image, docker_command=None):
         return
     if not stat.S_ISDIR(mode):
         raise ValueError("Fixture cleanup target must be a directory")
+    from auth_fixture import cleanup_source
+    cleanup_source(str(base.resolve()))
     try:
         shutil.rmtree(base)
         return
@@ -150,6 +152,14 @@ def trace_docker(fixture, base, docker_command=None):
         @functools.wraps(fn)
         def invoke(*parts, **kwargs):
             parts = [str(value) for value in parts]
+            if parts[:2] == ["volume", "rm"]:
+                from auth_fixture import cleanup_source
+                for resource in parts[2:]:
+                    if not resource.startswith("-"):
+                        cleanup_source(resource)
+            if "compose" in parts and "down" in parts:
+                from auth_fixture import cleanup_all
+                cleanup_all()
             for index, part in enumerate(parts[:-1]):
                 value = parts[index + 1]
                 if part == "--name":

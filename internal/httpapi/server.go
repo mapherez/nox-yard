@@ -11,39 +11,35 @@ import (
 	"errors"
 	"html"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/mapherez/nox-yard/internal/application"
-	"github.com/mapherez/nox-yard/internal/auth"
 	"github.com/mapherez/nox-yard/internal/inventory"
 	"github.com/mapherez/nox-yard/internal/lifecycle"
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
+	"golang.org/x/time/rate"
 )
 
-const sessionLifetime = 7 * 24 * time.Hour
-
-var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{3,32}$`)
 var containerIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type Server struct {
+	loginStarts          *rate.Limiter
+	noxLogin             noxLoginState
 	application          *application.Service
 	mcp                  http.Handler
 	store                *store.Store
 	webDir               string
 	publicOrigin         string
 	secureCookie         bool
-	limiter              loginLimiter
 	terminal             inventory.TerminalManager
 	changes              *inventory.Notifier
 	control              controlSettings
@@ -55,15 +51,13 @@ type Server struct {
 }
 
 type bootstrapResponse struct {
-	NeedsSetup    bool   `json:"needsSetup"`
-	Authenticated bool   `json:"authenticated"`
-	Username      string `json:"username,omitempty"`
-	CSRFToken     string `json:"csrfToken,omitempty"`
-}
-
-type credentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	NeedsSetup     bool   `json:"needsSetup"`
+	Authenticated  bool   `json:"authenticated"`
+	Username       string `json:"username,omitempty"`
+	CSRFToken      string `json:"csrfToken,omitempty"`
+	LoginAvailable bool   `json:"loginAvailable"`
+	LoginReason    string `json:"loginReason,omitempty"`
+	RenewLogin     bool   `json:"renewLogin,omitempty"`
 }
 
 type errorResponse struct {
@@ -77,7 +71,7 @@ func New(data *store.Store, webDir, publicURL string, shared ...*application.Ser
 	} else {
 		app = application.New(data, inventory.NewNotifier())
 	}
-	s := &Server{store: data, webDir: webDir, limiter: loginLimiter{entries: make(map[string]loginAttempt)}, changes: app.Changes, application: app, sessionCheckInterval: 15 * time.Second}
+	s := &Server{loginStarts: rate.NewLimiter(10, 20), store: data, webDir: webDir, changes: app.Changes, application: app, sessionCheckInterval: 15 * time.Second}
 	if publicURL == "" {
 		return s, nil
 	}
@@ -178,12 +172,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/self-update", s.selfUpdateStatus)
 	mux.HandleFunc("PUT /api/self-update", s.selfUpdateSettings)
 	mux.HandleFunc("POST /api/self-update/check", s.selfUpdateCheck)
-	mux.HandleFunc("POST /api/setup", s.setup)
-	mux.HandleFunc("POST /api/login", s.login)
+	mux.HandleFunc("GET /auth/nox/start", s.noxLoginStart)
+	mux.HandleFunc("GET /auth/nox/callback", s.noxLoginCallback)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.Handle("GET /", s.staticHandler())
 	control := s.controlHandler()
-	return s.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return yardHandler{Handler: s.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/") {
 			writeError(w, 404, "MCP uses its separate port.")
 			return
@@ -193,7 +187,12 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		mux.ServeHTTP(w, r)
-	}))
+	})), server: s}
+}
+
+type yardHandler struct {
+	http.Handler
+	server *Server
 }
 
 type selfUpdateStatusResponse struct {
@@ -441,7 +440,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		// xterm injects runtime CSS for its cursor, dimensions, and colors.
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:")
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/auth/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
@@ -457,102 +456,41 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
-	exists, err := s.store.HasAdmin()
+	_, _, err := s.noXClient()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to read setup status.")
+		writeJSON(w, 200, bootstrapResponse{LoginReason: "NoX Login is not configured. Apply Yard's Auth setup configuration."})
 		return
 	}
-	if !exists {
-		writeJSON(w, http.StatusOK, bootstrapResponse{NeedsSetup: true})
-		return
-	}
-
-	session, _, ok, err := s.currentSession(r)
+	session, hash, ok, err := s.currentSession(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to read session.")
+		writeError(w, 503, "NoX Login is temporarily unavailable. Try again.")
 		return
 	}
 	if !ok {
-		writeJSON(w, http.StatusOK, bootstrapResponse{})
+		writeJSON(w, 200, bootstrapResponse{LoginAvailable: true})
 		return
 	}
-	writeJSON(w, http.StatusOK, bootstrapResponse{
-		Authenticated: true,
-		Username:      session.Username,
-		CSRFToken:     session.CSRFToken,
-	})
-}
-
-func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
-	if !s.checkOrigin(w, r) {
-		return
-	}
-	var input credentials
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	if !usernamePattern.MatchString(input.Username) {
-		writeError(w, http.StatusBadRequest, "Username must be 3–32 characters using letters, numbers, dots, underscores, or hyphens.")
-		return
-	}
-	passwordHash, err := auth.HashPassword(input.Password)
-	if errors.Is(err, auth.ErrInvalidPassword) {
-		writeError(w, http.StatusBadRequest, auth.ErrInvalidPassword.Error())
-		return
-	}
+	_, stored, _, err := s.store.NoXSession(hash)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to create administrator.")
+		writeError(w, 503, "Unable to read session.")
 		return
 	}
-	if err := s.store.CreateAdmin(input.Username, passwordHash); err != nil {
-		if errors.Is(err, store.ErrAdminExists) {
-			writeError(w, http.StatusConflict, "Setup has already been completed.")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "Unable to create administrator.")
-		return
-	}
-	s.issueSession(w, input.Username, http.StatusCreated)
-}
-
-func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	if !s.checkOrigin(w, r) {
-		return
-	}
-	var input credentials
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	key := remoteIP(r.RemoteAddr)
-	if !s.limiter.allowed(key) {
-		w.Header().Set("Retry-After", "900")
-		writeError(w, http.StatusTooManyRequests, "Too many login attempts. Try again later.")
-		return
-	}
-	admin, err := s.store.Admin()
-	if errors.Is(err, store.ErrNoAdmin) {
-		writeError(w, http.StatusConflict, "Create the administrator account first.")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to sign in.")
-		return
-	}
-	valid := auth.VerifyPassword(admin.PasswordHash, input.Password) && strings.EqualFold(input.Username, admin.Username)
-	if !valid {
-		s.limiter.failed(key)
-		writeError(w, http.StatusUnauthorized, "Invalid username or password.")
-		return
-	}
-	s.limiter.clear(key)
-	s.issueSession(w, admin.Username, http.StatusOK)
+	writeJSON(w, 200, bootstrapResponse{Authenticated: true, Username: session.Username, CSRFToken: session.CSRFToken, LoginAvailable: true, RenewLogin: !time.Now().Before(stored.BrowserRenewAt)})
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if !s.checkOrigin(w, r) {
 		return
 	}
-	session, tokenHash, ok, err := s.currentSession(r)
+	// Local sign-out needs the browser's session and CSRF proof, not a fresh
+	// Auth admission. An Auth outage must not prevent removal of this app session.
+	cookie, err := r.Cookie(s.cookieName())
+	if err != nil || cookie.Value == "" {
+		writeError(w, http.StatusUnauthorized, "Sign in to continue.")
+		return
+	}
+	tokenHash := hashToken(cookie.Value)
+	session, credentials, ok, err := s.store.NoXSession(tokenHash)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Unable to sign out.")
 		return
@@ -566,6 +504,12 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "Invalid request token.")
 		return
 	}
+	if client, _, err := s.noXClient(); err == nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		_ = client.Logout(ctx, credentials, false)
+		cancel()
+	}
+	s.forgetNoXSession(tokenHash)
 	if err := s.store.DeleteSession(tokenHash); err != nil {
 		writeError(w, http.StatusInternalServerError, "Unable to sign out.")
 		return
@@ -582,43 +526,8 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) issueSession(w http.ResponseWriter, username string, status int) {
-	token, err := randomToken()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to create session.")
-		return
-	}
-	csrf, err := randomToken()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to create session.")
-		return
-	}
-	expires := time.Now().Add(sessionLifetime)
-	if err := s.store.CreateSession(hashToken(token), csrf, expires); err != nil {
-		writeError(w, http.StatusInternalServerError, "Unable to create session.")
-		return
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     s.cookieName(),
-		Value:    token,
-		Path:     "/",
-		Expires:  expires,
-		MaxAge:   int(sessionLifetime.Seconds()),
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   s.secureCookie,
-	})
-	writeJSON(w, status, bootstrapResponse{Authenticated: true, Username: username, CSRFToken: csrf})
-}
-
 func (s *Server) currentSession(r *http.Request) (store.Session, string, bool, error) {
-	cookie, err := r.Cookie(s.cookieName())
-	if err != nil || cookie.Value == "" {
-		return store.Session{}, "", false, nil
-	}
-	tokenHash := hashToken(cookie.Value)
-	session, ok, err := s.store.Session(tokenHash)
-	return session, tokenHash, ok, err
+	return s.currentNoXSession(r)
 }
 
 func (s *Server) cookieName() string {
@@ -716,50 +625,4 @@ func randomToken() (string, error) {
 func hashToken(token string) string {
 	hash := sha256.Sum256([]byte(token))
 	return base64.RawURLEncoding.EncodeToString(hash[:])
-}
-
-func remoteIP(address string) string {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return address
-	}
-	return host
-}
-
-type loginAttempt struct {
-	count int
-	until time.Time
-}
-
-type loginLimiter struct {
-	mu      sync.Mutex
-	entries map[string]loginAttempt
-}
-
-func (l *loginLimiter) allowed(key string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	attempt := l.entries[key]
-	if time.Now().After(attempt.until) {
-		delete(l.entries, key)
-		return true
-	}
-	return attempt.count < 5
-}
-
-func (l *loginLimiter) failed(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	attempt := l.entries[key]
-	if time.Now().After(attempt.until) {
-		attempt = loginAttempt{until: time.Now().Add(15 * time.Minute)}
-	}
-	attempt.count++
-	l.entries[key] = attempt
-}
-
-func (l *loginLimiter) clear(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.entries, key)
 }

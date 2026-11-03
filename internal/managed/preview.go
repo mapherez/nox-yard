@@ -26,11 +26,12 @@ type Variable struct {
 }
 
 type Service struct {
-	Name     string   `json:"name"`
-	Image    string   `json:"image"`
-	Ports    []string `json:"ports"`
-	Volumes  []string `json:"volumes"`
-	Networks []string `json:"networks"`
+	SuiteProductID string   `json:"suiteProductId,omitempty"`
+	Name           string   `json:"name"`
+	Image          string   `json:"image"`
+	Ports          []string `json:"ports"`
+	Volumes        []string `json:"volumes"`
+	Networks       []string `json:"networks"`
 }
 
 type Preview struct {

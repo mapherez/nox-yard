@@ -1,5 +1,6 @@
 """Disposable real-Docker C2 acceptance; never operates on user stacks."""
 from smoke_support import write_text, trace_docker, cleanup_fixture
+from auth_fixture import cleanup_all as cleanup_auth_fixtures
 import argparse
 import json
 import pathlib
@@ -76,7 +77,7 @@ def address():
     mcp_url = "http://127.0.0.1:" + info["NetworkSettings"]["Ports"]["8081/tcp"][0]["HostPort"]
     until(lambda: request("/healthz"), "Yard health")
     if not mcp_token:
-        _, _, mcp_token = bootstrap_mcp(url)
+        _, _, mcp_token = bootstrap_mcp(url, docker=docker)
 
 def job(identifier):
     job_ids.add(identifier)
@@ -276,6 +277,7 @@ fi''')
     assert "should-not-appear-in-job-history" not in json.dumps(history)
     print("PASS: a live child helper retains ownership after its parent exits; no replacement is replayed", flush=True)
 finally:
+    cleanup_auth_fixtures()
     # Cleanup is restricted to recorded IDs and this random fixture directory.
     for identifier in workers:
         subprocess.run(["docker", "rm", "-f", identifier], capture_output=True)

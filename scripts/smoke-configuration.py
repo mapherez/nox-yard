@@ -4,6 +4,7 @@
 All resources use a generated fixture identity; never contacts a live Yard.
 """
 from smoke_support import write_text, trace_docker, cleanup_fixture
+from auth_fixture import cleanup_all as cleanup_auth_fixtures
 import argparse
 import http.cookiejar
 import json
@@ -137,7 +138,8 @@ try:
     write_text(base / ".env", "FILE_TEST=initial\n", newline="")
     compose("up", "-d", "--pull", "never")
     wait(lambda: api("/api/bootstrap"), "fixture did not start")
-    api("/api/setup", {"username": "fixture", "password": "fixture-password-configuration"})
+    from auth_fixture import login as fixture_login
+    opener, _ = fixture_login(origin, docker=docker)
     csrf = api("/api/bootstrap")["csrfToken"]
     mcp_token = enable_mcp(origin, opener, csrf)
     target = "/api/projects/compose:" + name
@@ -246,6 +248,7 @@ try:
     assert api("/api/bootstrap")["authenticated"]
     print("PASS: failed self-recreation restores previous runtime/database without overwriting manual source edits", flush=True)
 finally:
+    cleanup_auth_fixtures()
     identifiers = docker("ps", "-aq", "--filter", "label=nox-yard.acceptance=" + name).splitlines()
     if identifiers:
         docker("rm", "-f", *identifiers)

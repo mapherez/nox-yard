@@ -3,16 +3,22 @@ package mcpapi_test
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	noxauth "github.com/mapherez/nox-auth/client"
 	noxmcp "github.com/mapherez/nox-mcp/go"
 	"github.com/mapherez/nox-yard/internal/application"
 	"github.com/mapherez/nox-yard/internal/httpapi"
@@ -24,6 +30,7 @@ import (
 	"github.com/mapherez/nox-yard/internal/schedule"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
+	"github.com/mapherez/nox-yard/internal/testauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -435,15 +442,7 @@ func TestMCPUsesHTTPNotifierAndController(t *testing.T) {
 	c := &controller{entered: make(chan struct{}), release: make(chan struct{}), result: lifecycle.Result{Succeeded: 1}}
 	api.SetLifecycle(c)
 	handler := adapterHandler(api)
-	setup := httptest.NewRecorder()
-	request := httptest.NewRequest("POST", "http://yard.test/api/setup", strings.NewReader(`{"username":"owner","password":"correct-horse-battery-staple"}`))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Origin", "http://yard.test")
-	handler.ServeHTTP(setup, request)
-	if setup.Code != 201 {
-		t.Fatal(setup.Body.String())
-	}
-	cookie := setup.Result().Cookies()[0]
+	cookie := fixtureNoXCookie(t, app.Store)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	session := connect(t, server.URL+"/mcp")
@@ -675,15 +674,10 @@ func TestComposeSourceSettingsSchemasAndBrowserLogRegression(t *testing.T) {
 			t.Fatal(text(result))
 		}
 	}
-	req, _ := http.NewRequest("POST", server.URL+"/api/setup", strings.NewReader(`{"username":"owner","password":"correct-horse-battery-staple"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Origin", server.URL)
-	response, err := server.Client().Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cookie := response.Cookies()[0]
-	response.Body.Close()
+	cookie := fixtureNoXCookie(t, app.Store)
+	var response *http.Response
+	var err error
+	var req *http.Request
 	req, _ = http.NewRequest("GET", server.URL+"/api/containers/"+id+"/logs", nil)
 	req.AddCookie(cookie)
 	response, err = server.Client().Do(req)
@@ -711,4 +705,36 @@ func (*schemaManaged) Submit(ctx context.Context, in managed.Request) (store.Man
 func (*schemaManaged) ProjectsBase() (string, error) { return "/projects", nil }
 func (*schemaManaged) SetProjectsBase(ctx context.Context, base string) (string, error) {
 	return base, ctx.Err()
+}
+
+func fixtureNoXCookie(t *testing.T, data *store.Store) *http.Cookie {
+	t.Helper()
+	directory, err := os.MkdirTemp("", "ym")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	socket := filepath.Join(directory, "s")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := testauth.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := noxauth.GenerateSecret()
+	provider.Register("nox-yard", secret)
+	if err = data.SaveNoXLoginConfiguration(store.NoXLoginConfig{Issuer: testauth.Issuer, Origin: "http://yard.test", ClientID: "nox-yard", Secret: secret, SocketPath: socket}); err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: provider.Handler()}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+	raw := noxauth.GenerateSecret()
+	hashed := sha256.Sum256([]byte(raw))
+	if err = data.CreateNoXSession(base64.RawURLEncoding.EncodeToString(hashed[:]), noxauth.GenerateSecret(), provider.Issue("nox-yard", "owner@example.test")); err != nil {
+		t.Fatal(err)
+	}
+	return &http.Cookie{Name: "nox_session", Value: raw}
 }

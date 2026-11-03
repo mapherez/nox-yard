@@ -27,13 +27,13 @@ python3 scripts/acceptance.py \
   --report .tmp/pi5-acceptance-results.json
 ```
 
-Keep the resulting JSON report. It records the host model/kernel, Engine version, exact image IDs and each gate's outcome/duration. `complete` means the isolated runtime gates passed; the manual host checklist below remains separate. The harness refuses images for the wrong Engine architecture and stops on the first failed gate. The suite inventory is shared in `scripts/runtime_suites.py`: ten current-image suites, including configuration, service recreation, machine recovery and native Compose parity, plus the optional legacy upgrade suite. Use `--skip-upgrade` for current-image evidence; this does not count as a legacy upgrade pass. `--suite SCRIPT` selects a diagnostic subset and the report records that selection. CI runs the same current-image inventory once. Repeat an individual script to diagnose a failure, then rerun the suite for a complete report.
+Keep the resulting JSON report. It records the host model/kernel, Engine version, exact image IDs and each gate's outcome/duration. `complete` means the isolated runtime gates passed; the manual host checklist below remains separate. The harness refuses images for the wrong Engine architecture and stops on the first failed gate. The suite inventory is shared in `scripts/runtime_suites.py`: eleven current-image suites, including published Auth enrollment and previous-image rollback, including configuration, service recreation, machine recovery and native Compose parity, plus the optional legacy upgrade suite. Use `--skip-upgrade` for current-image evidence; this does not count as a legacy upgrade pass. `--suite SCRIPT` selects a diagnostic subset and the report records that selection. CI runs the same current-image inventory once. Repeat an individual script to diagnose a failure, then rerun the suite for a complete report.
 
 The suite creates random fixture identities and deletes only its own recorded containers, networks, volumes, helper images and temporary source directories. It does not select an existing Yard or user stack. It exercises:
 
-- Real v1.0.1 initialization/deployment; schema 6→9; preserved account/session, managed source/variables/env files, history and unchanged application containers/data.
+- Real v1.0.1 initialization/deployment; schema 6→9; preserved legacy account with old password sessions rejected, managed source/variables/env files, history and unchanged application containers/data.
 - Interrupted legacy job reconciliation and explicit recovery acknowledgement after inspecting the disposable target; missing host-directory records fail without deploying guessed paths.
-- The actual password-reset CLI through a Linux pseudo-terminal, no password echo, refusal of non-interactive input, revocation and persistence.
+- The actual password-reset CLI through a Linux pseudo-terminal, no password echo, refusal of non-interactive input, and legacy-record persistence for rollback; this no longer manages NoX Login sessions.
 - Three-part backup/restore of SQLite, original source/env/bind files and representative named-volume data, followed by file-configuration and credential verification.
 - Durable jobs/interruption, managed/external/standalone updates and rollback, import/adoption, HTTP/MCP, removal protections and schedules with real independent workers.
 - Successful Yard replacement and failed replacement recovery, including an actually committed incompatible SQLite change, restored administrator/session and failed-image suppression.
@@ -42,7 +42,7 @@ The self-update fixture redirects only its compiled restore-tag constant to a pr
 
 ## Persistent validation instance for browser checks
 
-After the isolated suite passes, create a separate instance with its own state, name and port. The following file is included in the source archive:
+After the isolated suite passes, run NoX Auth on the same Docker host and configure `NOX_AUTH_PUBLIC_URL` (and custom shared/admin volume names if applicable). Create a separate Yard instance with its own state, name and port. Its setup generates a separate OAuth client identity and does not replace another Yard's enrollment. Export `NOX_VALIDATION_PUBLIC_URL` as the exact browser-facing validation origin before running the commands below. The following file is included in the source archive:
 
 ```sh
 mkdir -p .tmp/pi5-ui/data
@@ -52,25 +52,21 @@ NOX_VALIDATION_IMAGE=nox-yard:validation-arm64-20261020 \
 
 The default port is 18096 and the project/container are `nox-yard-c6-validation` / `nox-yard-c6-validation-yard`. The Compose file refuses an unset validation image and uses `.tmp/pi5-ui/data` relative to the source root. If this name or port is already occupied, choose a different validation name/port through the documented variables in that file. The regular production Compose file is not involved. Access is intended for the trusted LAN or VPN.
 
-Keep Yard automatic self-update off while using unpublished validation images; the isolated worker fixture tests replacement, and C7 verifies the official registry path. Open `http://HOST_ADDRESS:18096` in the desktop browser. Create a disposable administrator, then set the projects directory to the absolute host path of a new fixture-only directory, such as `.../nox-yard-c6-source/.tmp/pi5-ui/projects`. Record:
+Keep Yard automatic self-update off while using unpublished validation images; the isolated worker fixture tests replacement, and C7 verifies the official registry path. Open `http://HOST_ADDRESS:18096` in the desktop browser. Select **NoX Login** with an account allowed by Auth, then set the projects directory to the absolute host path of a new fixture-only directory, such as `.../nox-yard-c6-source/.tmp/pi5-ui/projects`. Record:
 
 | Check | Evidence to keep |
 | --- | --- |
-| First run, concurrent setup, login/logout and restart | One account, persisted state and expected sign-in behavior. The automated auth/store regressions also verify concurrency, rate limit, expiry, Origin/CSRF and secure cookies. |
+| NoX Login, SSO, logout and restart | Authorized Google account returns to Yard; a disallowed account is refused. The app session survives restart. Local logout ends only Yard; entering another app through Auth does not require another Google selection while SSO is valid. Automated fixtures do not substitute for this Google acceptance. |
 | Inventory and lifecycle | Running/stopped disposable Compose and standalone targets; health, uptime and metrics; realtime refresh after external changes; unavailable target feedback. |
-| Logs and terminal | Logs in the drawer, lazy shell check, working shell and missing `/bin/sh`; close/reopen and keyboard focus. Reset the validation account while both streams are open: the UI returns to sign-in and releases connections. |
+| Logs and terminal | Logs in the drawer, lazy shell check, working shell and missing `/bin/sh`; close/reopen and keyboard focus. End that Yard session or remove the test account from Auth and apply its configuration: protected streams close within the agreed five-minute admission bound. |
 | Import | `scripts/fixtures/managed-acceptance.yaml` by paste and upload; review variables/env files, named volume and relative bind before deployment. For real public URL intake, host the same fixture at a public HTTPS URL accessible by Yard and record URL copy/sync/cancel separately; injected fixture URL tests do not prove the network path. |
 | Updates/recovery/removal | Review healthy/unchanged and induced rollback outcomes/history from the isolated suite; reload/reopen during a sample job; explicit volume choice, shared resources, stale previews and protected Yard/helpers. |
 | Schedules | Default off, explicit opt-in, displayed `Europe/Lisbon` timezone and next check; real daily operation through a local 03:00 boundary. The isolated scheduler test also supplies times inside the Go test for missed/DST/concurrency/failure cases without a production clock override. |
 | Responsive/accessibility | 1440, 768, 390 and 320 px; keyboard navigation, Escape, focus return, reduced motion and retry/error states. |
 | Docker connectivity | On a dedicated disposable Engine, unavailable Docker and recovery must show an error followed by fresh authoritative inventory. Do not restart/disconnect the host daemon if it would interrupt unrelated user stacks; leave this case pending or use a designated isolated Engine. |
-| HTTPS | If the supported deployment uses a proxy, configure the exact `NOX_PUBLIC_URL` through `NOX_VALIDATION_PUBLIC_URL` and confirm `__Host-nox_session`, Secure/HttpOnly/SameSite=Strict, accepted same-origin mutations and rejected other origins. |
+| HTTPS | If the supported deployment uses a proxy, configure the exact `NOX_PUBLIC_URL` through `NOX_VALIDATION_PUBLIC_URL` and confirm `__Host-nox_session`, Secure/HttpOnly/SameSite=Lax, accepted same-origin mutations and rejected other origins. |
 
-To reset only the validation administrator interactively:
-
-```sh
-docker exec -it nox-yard-c6-validation-yard nox-yard reset-admin-password
-```
+Current NoX Login access is managed by Auth. The retained password-reset command only repairs the legacy account for previous-image rollback; it does not revoke NoX Login sessions.
 
 To stop this validation instance while retaining its data:
 
@@ -93,6 +89,6 @@ Restore into an isolated instance first. Preserve the original host paths, volum
 
 The handoff tool and validation Compose retain historical archive/directory names such as `nox-yard-c6-pi5.tar` and `.tmp/pi5-ui`; these are compatibility filenames, not hardware requirements.
 
-Current Docker labels and saved file locations identify the original directory and ordered Compose filenames. Restore/locate missing source files and validate them through the file editors before applying changes. The one-off configuration migration has been retired; installations with DB-only configuration must finish and verify conversion on v1.3.1 before upgrading to v1.3.2 or later. See [Configuration files](Configuration-Files.md). Restoring SQLite also restores historical password hashes and sessions. After a restore, run the interactive reset if those credentials/sessions should no longer be valid.
+Current Docker labels and saved file locations identify the original directory and ordered Compose filenames. Restore/locate missing source files and validate them through the file editors before applying changes. The one-off configuration migration has been retired; installations with DB-only configuration must finish and verify conversion on v1.3.1 before upgrading to v1.3.2 or later. See [Configuration files](Configuration-Files.md). Restoring SQLite also restores historical authentication records and application credentials. Legacy password recovery affects only the old account. Current NoX Login admission and revocation remain authoritative in Auth; a Yard database backup cannot restore access revoked there.
 
 Keep the image IDs, source archive checksum, host report and completed manual checklist together. C6 remains open until both designated native hosts and the original acceptance cases have evidence; C7 handles CI/publication gates and the formal release.

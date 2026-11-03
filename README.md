@@ -28,13 +28,13 @@ Yard manages **one local Docker host**. Existing workloads appear without import
 
 You need a **Linux host with Docker Engine and the Compose plugin**, on `linux/amd64` or `linux/arm64`. Yard ships as a prebuilt container image.
 
-Save [compose.yaml](compose.yaml) and [.env.example](.env.example) as `compose.yaml` and `.env` in your installation directory. For LAN access, set `NOX_BIND_ADDRESS=0.0.0.0` in `.env`; adjust `NOX_PORT` if needed.
+Run NoX Auth on the same Docker host, then save [compose.yaml](compose.yaml) and [.env.example](.env.example) as `compose.yaml` and `.env` in your installation directory. Configure `NOX_PUBLIC_URL` as Yard's browser origin and `NOX_AUTH_PUBLIC_URL` as Auth's HTTPS origin. For LAN access, set `NOX_BIND_ADDRESS=0.0.0.0` in `.env`; adjust `NOX_PORT` if needed.
 
 ```sh
 docker compose up -d
 ```
 
-Open **http://YOUR_SERVER_IP:8095**, create your administrator account, and your existing Docker workloads appear automatically. The unchanged loopback binding is available at **http://127.0.0.1:8095** on the host.
+Open your configured Yard URL and select **NoX Login** with an authorized Google account; your existing Docker workloads appear automatically. Compose registers the login callback automatically before starting Yard. The unchanged loopback binding is available at **http://127.0.0.1:8095** on the host.
 
 **[Follow the Quickstart →](Documentation/User/Quickstart.md)** for copy-and-paste installation commands and your first deployment.
 
@@ -68,6 +68,7 @@ Application state lives in `./data`. Back up that directory, your Compose/enviro
 | Looking for… | Start here |
 | --- | --- |
 | Installation and first login | [Quickstart](Documentation/User/Quickstart.md) |
+| NoX Login, automatic enrollment and rollback | [NoX Login](Documentation/Developer/NoX-Login.md) |
 | Deployments, logs, terminal, and updates | [User guide](Documentation/User/Guide.md) |
 | Ports, timezone, reverse proxy, and integration access | [Configuration](Documentation/User/Configuration.md) |
 | Changes between versions | [Changelog](CHANGELOG.md) and [GitHub Releases](https://github.com/mapherez/nox-yard/releases) |

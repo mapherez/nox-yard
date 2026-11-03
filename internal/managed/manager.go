@@ -55,6 +55,7 @@ type ProjectPreview struct {
 }
 
 type Manager struct {
+	suiteVolume       string
 	data              *store.Store
 	inventory         inventory.Reader
 	changes           *inventory.Notifier
@@ -69,7 +70,14 @@ type Manager struct {
 func (m *Manager) SetNotifier(changes *inventory.Notifier) { m.changes = changes }
 
 func NewManager(data *store.Store, reader inventory.Reader) (*Manager, error) {
-	return &Manager{data: data, inventory: reader, runtime: readProjectRuntime, imageDefaults: readImageDefaults, adoptionFiles: adoptionFiles, launch: jobs.Launch, loadSource: LoadSource, verifyYardRelease: yardrelease.Trusted}, nil
+	volume := ""
+	if os.Getenv("NOX_YARD_SUITE_SOCKET_DIR") != "" {
+		volume = os.Getenv("NOX_SUITE_LOCAL_VOLUME_NAME")
+		if volume == "" {
+			volume = "nox-suite-local"
+		}
+	}
+	return &Manager{suiteVolume: volume, data: data, inventory: reader, runtime: readProjectRuntime, imageDefaults: readImageDefaults, adoptionFiles: adoptionFiles, launch: jobs.Launch, loadSource: LoadSource, verifyYardRelease: yardrelease.Trusted}, nil
 }
 
 func (m *Manager) ProjectsBase() (string, error) { return m.data.ProjectsBase() }
@@ -169,6 +177,10 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
 	}
+	source.YAML, err = prepareSuiteSource(source.YAML, m.suiteVolume)
+	if err != nil {
+		return ProjectPreview{}, Source{}, err
+	}
 	if input.Mode == "sync" && isManaged {
 		input.Variables, input.EnvFiles, err = syncInputs(storedProject, source.YAML, input.Variables, input.EnvFiles)
 		if err != nil {
@@ -178,6 +190,17 @@ func (m *Manager) Preview(ctx context.Context, input Request) (ProjectPreview, S
 	preview, err := validateWithContext(ctx, input.Name, source, input.Variables, input.EnvFiles, projectDir, ComposeContext{Profiles: profileSelection(input.Profiles), EnvFiles: input.InterpolationFiles})
 	if err != nil {
 		return ProjectPreview{}, Source{}, err
+	}
+	targets, err := suiteTargets(preview, m.suiteVolume)
+	if err != nil {
+		return ProjectPreview{}, Source{}, err
+	}
+	for i := range preview.Services {
+		for _, target := range targets {
+			if target.Service == preview.Services[i].Name {
+				preview.Services[i].SuiteProductID = target.ProductID
+			}
+		}
 	}
 	result := ProjectPreview{Preview: preview, ProjectDir: projectDir, SourceKind: source.Kind, SourceURL: source.URL, Duplicates: []string{}, Changes: []string{}, Mode: input.Mode, ExternalMatch: external, AdoptionDir: adoptDir, runtimeFingerprint: runtimeSignature}
 	if input.Profiles != nil {
@@ -382,7 +405,11 @@ func (m *Manager) Submit(ctx context.Context, input Request) (store.ManagedJob, 
 	envFilesJSON, _ := json.Marshal(preview.envFiles)
 	projectRecord := store.ManagedProject{Name: input.Name, SourceKind: source.Kind, SourceURL: source.URL, Filename: source.Filename,
 		YAML: source.YAML, VariablesJSON: string(variablesJSON), EnvFilesJSON: string(envFilesJSON), ProjectDir: preview.ProjectDir}
-	return m.enqueue(ctx, projectRecord, input.Mode, workerPayload{Project: projectRecord, Context: ComposeContext{Profiles: profileSelection(input.Profiles), EnvFiles: input.InterpolationFiles}, RuntimeFingerprint: preview.runtimeFingerprint, FilesFingerprint: preview.filesFingerprint})
+	targets, err := suiteTargets(preview.Preview, m.suiteVolume)
+	if err != nil {
+		return store.ManagedJob{}, err
+	}
+	return m.enqueue(ctx, projectRecord, input.Mode, workerPayload{SuiteTargets: targets, Project: projectRecord, Context: ComposeContext{Profiles: profileSelection(input.Profiles), EnvFiles: input.InterpolationFiles}, RuntimeFingerprint: preview.runtimeFingerprint, FilesFingerprint: preview.filesFingerprint})
 }
 
 func composeCommand(ctx context.Context, name, content string, variables, envFiles map[string]string, hostProjectDir string, args ...string) error {

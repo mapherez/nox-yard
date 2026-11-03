@@ -133,8 +133,8 @@ func (s *Server) machineToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Confirm token rotation or revocation.")
 		return
 	}
-	admin, err := s.store.Admin()
-	if err != nil {
+	admin, _, valid, err := s.currentSession(r)
+	if err != nil || !valid {
 		writeError(w, 503, "Administrator is unavailable.")
 		return
 	}

@@ -6,6 +6,7 @@ Yard image. Publishes only ephemeral loopback ports. Never targets existing
 containers, projects, volumes or settings; cleanup uses recorded fixture IDs.
 """
 from smoke_support import write_text, trace_docker, cleanup_fixture
+from auth_fixture import cleanup_all as cleanup_auth_fixtures
 import argparse
 import json
 import os
@@ -137,7 +138,7 @@ def serve(image, platform=None, socket=False):
     docker("start", identifier)
     url = address(identifier)
     until(lambda: ready(url), platform + " health")
-    browser, setup, _ = bootstrap_mcp(url, key)
+    browser, setup, _ = bootstrap_mcp(url, key, docker=docker)
     browsers[identifier] = (browser, setup)
     rpc(url, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                            "clientInfo": {"name": "yard-smoke", "version": "1"}})
@@ -477,6 +478,7 @@ try:
         serve(args.arm64_image, platform="linux/arm64")
         print("PASS: ARM64 runtime health and authenticated MCP tool discovery", flush=True)
 finally:
+    cleanup_auth_fixtures()
     if events_response:
         events_response.close()
     for identifier in workers:

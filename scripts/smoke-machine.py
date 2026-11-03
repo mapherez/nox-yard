@@ -5,6 +5,7 @@ Requires a prebuilt image and local Linux Docker Engine/Docker Desktop.
 Never contacts an installed Yard; every resource has a generated fixture name.
 """
 from smoke_support import write_text, trace_docker, cleanup_fixture
+from auth_fixture import cleanup_all as cleanup_auth_fixtures
 import argparse
 import http.cookiejar
 import json
@@ -140,7 +141,8 @@ try:
     assert request(mcp_origin, "/mcp", {})[0] == 503
     assert request(origin, "/mcp", {})[0] == 404
     assert request(mcp_origin, "/api/bootstrap")[0] == 404
-    api("/api/setup", {"username": "fixture", "password": "fixture-password-machine"})
+    from auth_fixture import login as fixture_login
+    opener, _ = fixture_login(origin, docker=docker)
     csrf = api("/api/bootstrap")["csrfToken"]
     assert not api("/api/machine")["settings"]["mcpEnabled"]
     token = api("/api/machine/token", {"confirm": True})["token"]
@@ -208,6 +210,7 @@ try:
     assert len(api("/api/machine/token/history")) == 2
     print("PASS: failed health verification restores runtime/ports, pending settings and secret-free history", flush=True)
 finally:
+    cleanup_auth_fixtures()
     try:
         for container in docker("ps", "-aq", "--filter", "label=nox-yard.role=operation-worker").splitlines():
             # Yard's observer can remove a completed worker after this listing.
