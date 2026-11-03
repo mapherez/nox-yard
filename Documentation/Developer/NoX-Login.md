@@ -17,7 +17,30 @@ The project's `auth-setup` service runs **once before Yard starts**, using the s
 
 Only this setup component mounts `nox-auth-admin`. The ordinary Yard service mounts `nox-suite-local`, its own data and the existing Docker socket; it does not mount Auth's administrative volume. Mounting the admin volume is an explicit deployment capability. This registers Yard's login client, not a Backend deployment grant, and does not let a Yard service token grant itself Backend administration.
 
-The default volume names match the Auth Compose. If Auth uses custom names, set the same `NOX_SUITE_LOCAL_VOLUME_NAME` and `NOX_AUTH_ADMIN_VOLUME_NAME` in Yard. The admin volume is external and must already exist. Auth, Yard and the setup component must use the same host; public token exchange or remote app enrollment is not introduced.
+The default volume names match the Auth Compose. If Auth uses custom names, set the same `NOX_SUITE_LOCAL_VOLUME_NAME` and `NOX_AUTH_ADMIN_VOLUME_NAME` in Yard. Both shared volumes are external in Yard and must already exist. Yard consumes the running Auth/Suite installation's volumes and does not claim them as Yard-owned resources. Auth, Yard and the setup component must use the same host; public token exchange or remote app enrollment is not introduced.
+
+### Applying the shared-volume correction
+
+For an installation already running Yard v1.4.0, use the updated Compose file
+and keep the existing `.env`, data directory and shared-volume names. This fix
+changes Compose ownership of the shared volume; it needs no new Yard executable
+or image release. Apply it from the installation's existing Compose directory:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+The warning that `nox-suite-local` was created for another project is resolved by
+`external: true`. Existing contents and volume ownership labels are preserved;
+Yard neither creates nor removes the installation's shared Auth/Suite volumes.
+If a shared volume is absent, start the installation's Auth service first.
+Do not delete or recreate an existing shared volume to silence that warning.
+
+`unknown command: auth-setup` is a separate issue: a cached image from before
+NoX Login was being used. Pulling the supported image resolves that command
+error. Successful Google login alone does not verify the Compose volume fix;
+the packaged smoke test explicitly checks reuse and preservation of those volumes.
 
 Changing Yard's canonical URL means updating its environment and recreating the setup/service through Compose, so the approved callback is updated together with the browser Origin/cookie policy. An issuer change is not silently accepted as another identity provider. Native development uses the same flow through `compose.dev.yaml`, with Vite's configured origin as the callback origin.
 
@@ -41,7 +64,7 @@ The administrator record/password hash, projects, configuration, jobs, machine s
 
 Retain `./data` and existing project/application storage. To roll back, restore the previous image **and its previous Compose**: that image does not implement the new `auth-setup` command. The old image can then use the original local account. An old installation's existing administrator hash is not rewritten by NoX Login. The retained `reset-admin-password` command updates only that legacy recovery record; it does not change Google credentials or revoke current Auth sessions.
 
-No separate data-import project or database reset is required. The isolated `smoke-nox-login.py` gate tests this with the published previous image v1.3.13 and Auth v0.0.1: it initializes a local account/settings, enrolls and starts current Yard, then reopens the same data in the old image and authenticates the unchanged local account. A very old image with an incompatible schema is not made compatible by these additive tables.
+No separate data-import project or database reset is required. The isolated `smoke-nox-login.py` gate uses the shipped Compose, with overrides limited to disposable image/name/port/data isolation and existing Suite volumes owned by another project. It tests this with the published previous image v1.3.13 and Auth v0.0.1: it initializes a local account/settings, enrolls and starts current Yard, then reopens the same data in the old image and authenticates the unchanged local account. A very old image with an incompatible schema is not made compatible by these additive tables.
 
 ## Verification boundaries
 
@@ -49,6 +72,6 @@ HTTP tests exercise the real released OIDC client against a controlled signed-to
 
 Runtime acceptance uses a separate test-only Go provider, compiled in a helper container that sees only a labelled disposable Yard data mount. Its seed API is protected and loopback-published; it is not included in the Yard image and never provisions an installed Yard. Normal production builds cannot enable those fixture endpoints. Existing Docker/MCP test suites retain their operation and recovery checks.
 
-A real Google-account login on the owner's installation remains a separate acceptance step after publishing/deploying the image. Source fixtures or `/healthz` do not certify that login. Yard's unfinished Suite pairing/registration/lifecycle work remains separate; this login adaptation does not complete correction points 7 and 8.
+The owner confirmed real Google login on November 3, 2026, both with an existing browser session and in incognito. The shared-volume correction was separately validated with the published Yard v1.4.0 image through the actual Compose, including automatic setup, preservation of external volumes and previous-image rollback. Source fixtures or `/healthz` alone do not certify real Google login. Yard's unfinished Suite pairing/registration/lifecycle work remains separate; this login adaptation does not complete correction points 7 and 8.
 
 The Docker regressions also exercise the shared bind-source proof used during restoration. Docker Desktop may report a daemon path alias after recreation. Comparison accepts it only after a read-only device/inode/type proof; failed or empty `stat` results refuse that proof. Mount type, destination, write access and options still compare separately. See [local verification](Progress.md#local-verification-of-nox-login) for exact image/evidence boundaries.

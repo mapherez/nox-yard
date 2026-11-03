@@ -57,7 +57,7 @@ services:
 volumes:
   nox-suite-local:
     name: ${NOX_SUITE_LOCAL_VOLUME_NAME:-nox-suite-local}
-    driver: local
+    external: true
   nox-auth-admin:
     name: ${NOX_AUTH_ADMIN_VOLUME_NAME:-nox-auth-admin}
     external: true
