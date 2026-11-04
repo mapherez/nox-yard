@@ -33,6 +33,7 @@ import styles from "./App.module.css";
 import settingsStyles from "./SettingsDrawer.module.css";
 import { MachineAccessSettings, MCPIndicator } from "./MachineSettings";
 import { getMachineStatus, type MachineStatus } from "./api";
+import { SuiteSettings } from "./SuiteSettings";
 import { useDrawerSwipe } from "./useDrawerSwipe";
 import { TerminalPanel } from "./TerminalPanel";
 import { LogsPanel } from "./LogsPanel";
@@ -1117,6 +1118,7 @@ function SettingsDrawer({ open, csrfToken, onClose, machineStatus, machineError,
           </dl>
           <p className={settingsStyles.hint}>Existing Compose files stay in their current location. Relative bind mounts use that location. Standalone log folders use the container name.</p>
         </section>
+        {open && <SuiteSettings csrfToken={csrfToken} />}
         {open && <MachineAccessSettings status={machineStatus} error={machineError} csrfToken={csrfToken} onRefresh={onMachineRefresh} />}
       </div>
     </div>

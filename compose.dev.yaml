@@ -9,6 +9,8 @@ services:
     command: ["nox-yard", "auth-setup"]
     restart: "no"
     environment:
+      NOX_YARD_SUITE_SOCKET_DIR: /run/nox-suite
+      NOX_SUITE_LOCAL_VOLUME_NAME: ${NOX_SUITE_LOCAL_VOLUME_NAME:-nox-suite-local}
       NOX_DATA_DIR: /data
       NOX_PUBLIC_URL: http://127.0.0.1:5173
       NOX_AUTH_PUBLIC_URL: ${NOX_AUTH_PUBLIC_URL:?Set the local NoX Auth HTTPS origin}
@@ -30,6 +32,8 @@ services:
       - "127.0.0.1:8081:8081"
     environment:
       TZ: ${NOX_TIMEZONE:-Etc/UTC}
+      NOX_YARD_SUITE_SOCKET_DIR: /run/nox-suite
+      NOX_SUITE_LOCAL_VOLUME_NAME: ${NOX_SUITE_LOCAL_VOLUME_NAME:-nox-suite-local}
       NOX_DATA_DIR: /data
       NOX_LISTEN_ADDR: :8080
       NOX_MCP_LISTEN_ADDR: :8081

@@ -2,6 +2,8 @@ package managed
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -9,6 +11,7 @@ import (
 
 	noxmcp "github.com/mapherez/nox-mcp/go"
 	"github.com/mapherez/nox-yard/internal/store"
+	"github.com/mapherez/nox-yard/internal/suite"
 	"gopkg.in/yaml.v3"
 )
 
@@ -189,4 +192,51 @@ func suiteTargets(preview Preview, volume string) ([]store.SuiteTarget, error) {
 		out = append(out, store.SuiteTarget{ProductID: product, Service: name})
 	}
 	return out, nil
+}
+
+// Inspect reuses the existing Docker inspection source. Labels select the exact
+// participating service; a web URL or another container is not product identity.
+func (m *Manager) Inspect(ctx context.Context, projectID, service, product string) (suite.Deployment, error) {
+	var out suite.Deployment
+	project, ok := strings.CutPrefix(projectID, "compose:")
+	if !ok || project == "" {
+		return out, errors.New("invalid Suite deployment project")
+	}
+	containers, err := m.runtime(ctx, project)
+	if err != nil {
+		return out, err
+	}
+	for _, item := range containers {
+		if item.Config == nil || item.Config.Labels["com.docker.compose.service"] != service || item.Config.Labels[suiteProductLabel] != product {
+			continue
+		}
+		if out.Present {
+			return suite.Deployment{}, errors.New("Suite service has multiple containers")
+		}
+		out.Present = true
+		out.ContainerIDs = []string{item.ID}
+		out.State = "unknown"
+		if item.State != nil {
+			switch {
+			case item.State.Restarting:
+				out.State = "starting"
+			case item.State.Paused:
+				out.State = "stopped"
+			case item.State.Running:
+				out.State = "running"
+			default:
+				out.State = "stopped"
+			}
+		}
+	}
+	return out, nil
+}
+
+// ConfigureSuiteVolume is called once at process startup after the actual local
+// channel is resolved. Ordinary standalone managers keep Suite preparation off.
+func (m *Manager) ConfigureSuiteVolume(volume string) {
+	if volume == "" {
+		volume = "nox-suite-local"
+	}
+	m.suiteVolume = volume
 }

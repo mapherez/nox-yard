@@ -48,6 +48,7 @@ type Controller struct {
 	trust       *trust.Engine
 	declaration json.RawMessage
 	mu          sync.RWMutex
+	reconcileMu sync.Mutex
 	registry    registryState
 	ready       bool
 	inventory   Runtime

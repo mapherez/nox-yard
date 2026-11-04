@@ -21,7 +21,7 @@ func (m *Manager) RemovalSource(ctx context.Context, name string) (lifecycle.Rem
 		source.Fingerprint = "source-inaccessible"
 		return source, nil
 	}
-	source.Fingerprint = snapshot.Fingerprint
+	source.Fingerprint = removalSourceFingerprint(snapshot)
 	if snapshot.Problem != "" {
 		return source, nil
 	}
@@ -40,4 +40,13 @@ func (m *Manager) RemovalSource(ctx context.Context, name string) (lifecycle.Rem
 		}
 	}
 	return source, nil
+}
+
+// ObservedLabels is bookkeeping for detecting external source selection. An
+// active worker freezes that observation, so including it makes accepting the
+// removal job itself invalidate its preview. File paths, content and semantic
+// Compose context remain bound, and the Engine separately binds actual IDs.
+func removalSourceFingerprint(snapshot FileSnapshot) string {
+	snapshot.Context.ObservedLabels = ""
+	return fileFingerprint(snapshot)
 }

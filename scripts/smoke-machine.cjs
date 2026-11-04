@@ -1,12 +1,17 @@
 async (page) => {
   let settings = {revision:1,mcpEnabled:false,apiEnabled:false,authMode:'token',write:false,secrets:false,autoApply:false,hasToken:false,tokenCreatedAt:0,network:{yard:{bind:'127.0.0.1',port:8095},mcp:{bind:'127.0.0.1',port:8096}}};
   const applied=structuredClone(settings.network); let generations=0,applies=0,historyReads=0;
-  const history=[];
+  const history=[]; let suiteRetries=0;
   await page.route('**/api/**',async route=>{
     const request=route.request(),path=new URL(request.url()).pathname,method=request.method();
     if(path==='/api/bootstrap')return route.fulfill({json:{needsSetup:false,authenticated:true,username:'owner',csrfToken:'fixture-csrf'}});
     if(path==='/api/projects')return route.fulfill({json:{collectedAt:new Date().toISOString(),projects:[]}});
     if(path==='/api/projects/events')return route.fulfill({contentType:'text/event-stream',body:': fixture\n\n'});
+    if(path==='/api/suite')return route.fulfill({json:{status:'ready',ready:true,deployments:[{id:'deployment-fixture',productId:'future-product',projectId:'compose:fixture',service:'api',state:suiteRetries?'registered':'integration_pending',message:suiteRetries?'':'Suite integration is pending; the Docker deployment has not been repeated.',revision:7}]}});
+    if(path==='/api/suite/deployments/deployment-fixture/retry'){
+      if(method!=='POST'||request.headers()['x-csrf-token']!=='fixture-csrf'||request.postDataJSON().revision!==7)throw Error('Suite retry lost session/revision binding');
+      suiteRetries++;return route.fulfill({json:{ok:true}});
+    }
     if(path==='/api/machine'){
       if(method==='PUT'){const body=request.postDataJSON();if(request.headers()['x-csrf-token']!=='fixture-csrf')throw Error('missing CSRF');settings={...body,revision:settings.revision+1,hasToken:settings.hasToken,tokenCreatedAt:settings.tokenCreatedAt};return route.fulfill({json:{settings}});}
       return route.fulfill({json:{settings,operational:settings.mcpEnabled,networkStatus:{available:true,pending:JSON.stringify(applied)!==JSON.stringify(settings.network),applied}}});
@@ -30,6 +35,10 @@ async (page) => {
   const drawer=page.getByRole('dialog',{name:'Settings',exact:true});await drawer.waitFor();
   await drawer.getByRole('heading',{name:'MCP & access'}).waitFor();
   if(historyReads)throw Error('history fetched before requested');
+  await drawer.getByText('future-product',{exact:true}).waitFor();
+  await drawer.getByRole('button',{name:'Retry integration',exact:true}).click();
+  await drawer.getByText('registered',{exact:true}).waitFor();
+  if(suiteRetries!==1)throw Error('Suite retry not submitted exactly once');
   await drawer.getByRole('button',{name:'Generate new token',exact:true}).click();
   const confirm=page.getByRole('dialog',{name:'Generate a new Yard token?',exact:true});await confirm.waitFor();
   await confirm.getByRole('button',{name:'Cancel',exact:true}).click();if(generations)throw Error('cancel rotated token');

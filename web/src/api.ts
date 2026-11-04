@@ -384,3 +384,19 @@ export function applyProjectOverride(id:string,input:OverrideRequest,csrfToken:s
 export type DockerLogEvent={stream:"stdout"|"stderr"|"combined";text:string;timestamp?:string;continuation?:boolean;lineEnd?:boolean};
 export type DockerLogPage={lines:DockerLogEvent[];next?:string;until:string;retention:string};
 export function loadDockerLogHistory(id:string,query:{since?:string;until?:string;cursor?:string},signal?:AbortSignal):Promise<DockerLogPage>{const params=new URLSearchParams();for(const [key,value]of Object.entries(query))if(value)params.set(key,value);return request(`/api/containers/${encodeURIComponent(id)}/logs/history?${params}`,{signal});}
+
+export type SuiteStatus = {
+  status: string;
+  ready: boolean;
+  deployments: { id: string; projectId: string; productId: string; service: string; state: string; message?: string; revision: number }[];
+};
+export async function getSuiteStatus(): Promise<SuiteStatus> {
+  const value = await request<SuiteStatus>("/api/suite");
+  if (typeof value.status !== "string" || typeof value.ready !== "boolean" || !Array.isArray(value.deployments)) throw new Error("Suite status is unavailable.");
+  return value;
+}
+export function retrySuiteDeployment(id: string, revision: number, csrfToken: string): Promise<{ ok: boolean }> {
+  return request(`/api/suite/deployments/${encodeURIComponent(id)}/retry`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ revision }),
+  });
+}

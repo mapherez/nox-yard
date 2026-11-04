@@ -29,6 +29,7 @@ type SuiteBinding struct {
 type SuiteOperation struct {
 	Sequence   int64    `json:"sequence"`
 	JobID      string   `json:"jobId"`
+	TargetID   string   `json:"targetId"`
 	Operation  string   `json:"operation"`
 	Status     string   `json:"status"`
 	Outcome    string   `json:"outcome"`
@@ -74,7 +75,9 @@ const suiteBindingColumns = `id,project_id,service,product_id,state,message,upda
 
 func scanSuiteBinding(row interface{ Scan(...any) error }) (SuiteBinding, error) {
 	var b SuiteBinding
-	err := row.Scan(&b.ID, &b.ProjectID, &b.Service, &b.ProductID, &b.State, &b.Message, &b.UpdatedAt, &b.Revision, &b.Private)
+	var private []byte
+	err := row.Scan(&b.ID, &b.ProjectID, &b.Service, &b.ProductID, &b.State, &b.Message, &b.UpdatedAt, &b.Revision, &private)
+	b.Private = json.RawMessage(private)
 	return b, err
 }
 func (s *Store) SuiteBindings(ctx context.Context) ([]SuiteBinding, error) {
@@ -139,6 +142,39 @@ func queueSuiteJobTx(tx *sql.Tx, job Job) error {
 	}
 	_ = json.Unmarshal([]byte(job.Payload), &payload)
 	if job.Status == "succeeded" && job.Domain == "managed" && (job.Operation == "new" || job.Operation == "copy" || job.Operation == "adopt" || job.Operation == "sync") {
+		// Retire changed/removed participant labels before inserting their
+		// replacements. Ordinary image/start/stop jobs are not full source edits.
+		rows, err := tx.Query(`SELECT id,service,product_id FROM suite_bindings WHERE project_id=? AND state NOT IN ('removing','removed')`, job.TargetID)
+		if err != nil {
+			return err
+		}
+		retire := []string{}
+		for rows.Next() {
+			var id, service, product string
+			if err = rows.Scan(&id, &service, &product); err != nil {
+				rows.Close()
+				return err
+			}
+			found := false
+			for _, target := range payload.SuiteTargets {
+				if target.Service == service && target.ProductID == product {
+					found = true
+				}
+			}
+			if !found {
+				retire = append(retire, id)
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		for _, id := range retire {
+			if _, err = tx.Exec(`UPDATE suite_bindings SET state='removing',revision=revision+1,updated_at=? WHERE id=?`, time.Now().Unix(), id); err != nil {
+				return err
+			}
+		}
 		for _, t := range payload.SuiteTargets {
 			if t.ProductID == "" || t.Service == "" {
 				continue
@@ -177,7 +213,7 @@ func queueSuiteJobTx(tx *sql.Tx, job Job) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	e := SuiteOperation{JobID: job.ID, Operation: job.Operation, Status: job.Status, Outcome: job.Outcome, Bindings: ids, OccurredAt: time.Now().Unix()}
+	e := SuiteOperation{JobID: job.ID, TargetID: job.TargetID, Operation: job.Operation, Status: job.Status, Outcome: job.Outcome, Bindings: ids, OccurredAt: time.Now().Unix()}
 	raw, err := json.Marshal(e)
 	if err != nil {
 		return err
@@ -187,7 +223,7 @@ func queueSuiteJobTx(tx *sql.Tx, job Job) error {
 	}
 	if job.Operation == "remove" && job.Status == "succeeded" && job.Outcome != "recovery_required" {
 		for _, id := range ids {
-			if _, err = tx.Exec(`UPDATE suite_bindings SET state='removing',message='Deployment removed; Backend cleanup is pending.',revision=revision+1,updated_at=? WHERE id=?`, time.Now().Unix(), id); err != nil {
+			if _, err = tx.Exec(`UPDATE suite_bindings SET state='removing',message='Deployment removed; Backend cleanup is pending.',revision=revision+1,updated_at=? WHERE id=? AND project_id=?`, time.Now().Unix(), id, job.TargetID); err != nil {
 				return err
 			}
 		}

@@ -1,6 +1,41 @@
 # NoX Login update — November 3, 2026
 
-The working tree now replaces dashboard password entry with NoX Login, consuming Auth v0.0.1. It preserves existing data/legacy administrator records in additive tables, uses an automatic one-shot enrollment component with a separate admin mount, and retains independent direct MCP/Control API behavior. See [NoX Login](NoX-Login.md). Real installed Google/Yard acceptance remains pending publication/deployment; source tests are not that acceptance. Earlier unfinished Suite pairing/lifecycle changes remain unfinished and are preserved in the same working tree. No release or commit is performed by this work.
+The working tree now replaces dashboard password entry with NoX Login, consuming Auth v0.0.1. It preserves existing data/legacy administrator records in additive tables, uses an automatic one-shot enrollment component with a separate admin mount, and retains independent direct MCP/Control API behavior. See [NoX Login](NoX-Login.md). Real installed Google/Yard acceptance remains pending publication/deployment; source tests are not that acceptance. Suite pairing/lifecycle work was subsequently resumed; see the current checkpoint below. No release or commit is performed by this work.
+
+## Same-host Suite points 7 + 8 — November 4, 2026
+
+The adapter now starts Yard's private listener, completes foundation pairing,
+prepares marked services through existing deployment previews, and reconciles
+registration/lifecycle/removal from existing durable jobs. Settings exposes safe
+integration state and retry. Backend's corresponding change delegates only an
+enrolled installer's own canonical local deployment associations; it conveys no
+personal token or account/key administration. See [Suite integration](Suite-Integration.md).
+
+Local real-service acceptance passed installation/ACK/registration, volume
+isolation, stop/start, declaration refresh, controller restart, removal/reinstall,
+and installation during Backend outage with recovery and no Docker-job replay.
+The tests also exposed and corrected SQLite private-state scanning and a removal
+confirmation fingerprint that changed when the worker froze observation metadata.
+Native removal still binds actual resources, files and semantic source context.
+
+Backend vet/full Go race tests passed. Yard source/race, frontend build, ten browser
+regressions (including Suite status/retry), workflow/Compose/Python and CI/release
+tooling checks passed. Final packaged lifecycle acceptance also passed on Linux ARM64/Docker Desktop
+using Yard image `sha256:6e696408105fea734ff5cc2891ab9c3d46f5e041b1aca3507c2768bc1b23c822`
+and Backend candidate `sha256:b2796141c86c016f46a512fb5d927dd4a0ce7e03757909b92f5729d58bd597a3`.
+The same Yard image passed foundation pairing against published Backend v1.2.0
+and Auth v0.0.2 through the shared runtime inventory; evidence is
+`.tmp/suite-foundation-final.json`. Its preceding image passed published Auth
+Compose enrollment/rollback and the complete existing managed-deployment fixture.
+Only the final active-job Suite reconciliation guard changed afterward; its
+regressions and final real-service lifecycle test passed. The final lifecycle
+fixture also recovers a committed registration from its pre-response journal.
+Auth v0.0.2/SDK v0.7.2 are unchanged. Backend must be published/updated first.
+Foundation pairing with published dependencies remains in the shared runtime CI
+inventory; full lifecycle acceptance uses the updated Backend candidate image.
+No remote CI, release, installed product adaptation, CLI or point-12 acceptance is
+claimed. The owner already confirmed Google login/global logout on installed apps.
+
 
 ## Local verification of NoX Login
 

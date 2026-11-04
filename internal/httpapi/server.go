@@ -26,12 +26,14 @@ import (
 	"github.com/mapherez/nox-yard/internal/managed"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
+	"github.com/mapherez/nox-yard/internal/suite"
 	"golang.org/x/time/rate"
 )
 
 var containerIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type Server struct {
+	suite                *suite.Controller
 	loginStarts          *rate.Limiter
 	noxLogin             noxLoginState
 	application          *application.Service
@@ -130,6 +132,10 @@ func (s *Server) ConfigureMachineAccess(status func(context.Context) (any, error
 func (s *Server) SetMCPListening(ready bool) { s.mcpListening.Store(ready) }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /nox/integration", s.suiteDeclaration)
+	mux.HandleFunc("GET /api/suite", s.suiteState)
+	mux.HandleFunc("POST /api/suite/deployments/{id}/retry", s.suiteRetry)
+
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /api/machine", s.machineSettingsGet)
 	mux.HandleFunc("PUT /api/machine", s.machineSettingsPut)

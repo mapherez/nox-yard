@@ -17,23 +17,25 @@ import (
 )
 
 type recovery struct {
-	InstallerID     string                          `json:"installerId"`
-	Keys            map[string]string               `json:"keys"`
-	GrantRevision   string                          `json:"grantRevision"`
-	Intent          *noxmcp.SuitePairingIntent      `json:"intent,omitempty"`
-	PairingID       string                          `json:"pairingId"`
-	DeliveryStarted bool                            `json:"deliveryStarted"`
-	DeliveryRetry   bool                            `json:"deliveryRetry"`
-	Record          *noxmcp.SuiteRegistrationRecord `json:"record,omitempty"`
-	Fingerprint     string                          `json:"fingerprint"`
-	Epoch           string                          `json:"epoch"`
-	Sequence        string                          `json:"sequence"`
-	EpochKey        string                          `json:"epochKey"`
-	Lifecycle       string                          `json:"lifecycle"`
-	ContainerIDs    []string                        `json:"containerIds"`
-	NextAttempt     int64                           `json:"nextAttempt"`
-	Attempts        int                             `json:"attempts"`
-	Blocked         bool                            `json:"blocked"`
+	InstallerID        string                          `json:"installerId"`
+	Keys               map[string]string               `json:"keys"`
+	TrustRevision      string                          `json:"trustRevision"`
+	PendingFingerprint string                          `json:"pendingFingerprint"`
+	GrantRevision      string                          `json:"grantRevision"`
+	Intent             *noxmcp.SuitePairingIntent      `json:"intent,omitempty"`
+	PairingID          string                          `json:"pairingId"`
+	DeliveryStarted    bool                            `json:"deliveryStarted"`
+	DeliveryRetry      bool                            `json:"deliveryRetry"`
+	Record             *noxmcp.SuiteRegistrationRecord `json:"record,omitempty"`
+	Fingerprint        string                          `json:"fingerprint"`
+	Epoch              string                          `json:"epoch"`
+	Sequence           string                          `json:"sequence"`
+	EpochKey           string                          `json:"epochKey"`
+	Lifecycle          string                          `json:"lifecycle"`
+	ContainerIDs       []string                        `json:"containerIds"`
+	NextAttempt        int64                           `json:"nextAttempt"`
+	Attempts           int                             `json:"attempts"`
+	Blocked            bool                            `json:"blocked"`
 }
 
 func loadRecovery(b store.SuiteBinding) (recovery, error) {
@@ -88,6 +90,7 @@ func (c *Controller) deployment(ctx context.Context, b *store.SuiteBinding, j *r
 	if j.InstallerID != p.Service.ServiceID {
 		j.InstallerID = p.Service.ServiceID
 		j.GrantRevision = ""
+		j.TrustRevision = ""
 		j.Keys["grant"] = ""
 		j.Epoch = ""
 		j.EpochKey = ""
@@ -99,23 +102,46 @@ func (c *Controller) deployment(ctx context.Context, b *store.SuiteBinding, j *r
 	if j.GrantRevision != "" {
 		return nil
 	}
+	raw, _, err := c.request(ctx, "GET", "/api/nox/services/"+backend.Resource(j.InstallerID)+"/deployments", "", "", nil)
+	if err != nil {
+		return err
+	}
+	var grants []struct {
+		DeploymentID  string `json:"deploymentId"`
+		ProductID     string `json:"productId"`
+		BaseURL       string `json:"baseUrl"`
+		Revision      string `json:"revision"`
+		TrustRevision string `json:"trustRevision"`
+	}
+	if err = json.Unmarshal(raw, &grants); err != nil {
+		return err
+	}
+	for _, grant := range grants {
+		if grant.DeploymentID == b.ID && grant.ProductID == b.ProductID && grant.BaseURL == local.Origin(b.ProductID) && grant.Revision != "" {
+			j.GrantRevision = grant.Revision
+			j.TrustRevision = grant.TrustRevision
+			return c.save(b, *j)
+		}
+	}
 	key, err := c.key(b, j, "grant")
 	if err != nil {
 		return err
 	}
-	raw, _, err := c.request(ctx, "PUT", "/api/nox/services/"+backend.Resource(j.InstallerID)+"/deployments/"+backend.Resource(b.ID), key, "*", map[string]string{"productId": b.ProductID, "baseUrl": local.Origin(b.ProductID)})
+	raw, _, err = c.request(ctx, "PUT", "/api/nox/services/"+backend.Resource(j.InstallerID)+"/deployments/"+backend.Resource(b.ID), key, "*", map[string]string{"productId": b.ProductID, "baseUrl": local.Origin(b.ProductID)})
 	if err != nil {
 		return err
 	}
-	var out struct {
-		Revision     string `json:"revision"`
-		ProductID    string `json:"productId"`
-		DeploymentID string `json:"deploymentId"`
+	var grant struct {
+		Revision      string `json:"revision"`
+		ProductID     string `json:"productId"`
+		DeploymentID  string `json:"deploymentId"`
+		TrustRevision string `json:"trustRevision"`
 	}
-	if json.Unmarshal(raw, &out) != nil || out.Revision == "" || out.ProductID != b.ProductID || out.DeploymentID != b.ID {
-		return errors.New("invalid deployment authorization")
+	if json.Unmarshal(raw, &grant) != nil || grant.Revision == "" || grant.ProductID != b.ProductID || grant.DeploymentID != b.ID {
+		return errors.New("invalid deployment association")
 	}
-	j.GrantRevision = out.Revision
+	j.GrantRevision = grant.Revision
+	j.TrustRevision = grant.TrustRevision
 	return c.save(b, *j)
 }
 func (c *Controller) declarationFor(ctx context.Context, product string) (json.RawMessage, error) {
@@ -176,22 +202,40 @@ func (c *Controller) deliver(ctx context.Context, b store.SuiteBinding, intent n
 	}
 	return nil
 }
-func (c *Controller) pair(ctx context.Context, b *store.SuiteBinding, j *recovery) error {
+func (c *Controller) pair(ctx context.Context, b *store.SuiteBinding, j *recovery, declaration json.RawMessage) error {
 	// An acknowledged association from a lost registration response can be reused.
 	if current, _, err := c.readRecord(ctx, b.ProductID); err == nil {
 		if !owned(current, *b) {
 			return &backend.Failure{Code: "REGISTRATION_CONFLICT"}
 		}
+		previous := j.Record
 		j.Record = &current
-		j.Intent = nil
-		return c.save(b, *j)
+		existing, _ := noxmcp.ParseSuiteJSON(mustJSON(current.Declaration))
+		actual, _ := noxmcp.ParseSuiteJSON(declaration)
+		existingFP, _ := noxmcp.Fingerprint(existing)
+		actualFP, _ := noxmcp.Fingerprint(actual)
+		if existingFP == actualFP {
+			// A registration response may have been lost after Backend committed.
+			// Adopt that accepted result instead of reusing the old mutation key
+			// with a changed If-Match precondition.
+			if previous == nil || previous.Revision != current.Revision {
+				j.Epoch = ""
+				j.EpochKey = ""
+				j.Sequence = "0"
+			}
+			j.Intent = nil
+			j.Fingerprint = actualFP
+			j.PendingFingerprint = ""
+			b.State = "registered"
+			return c.save(b, *j)
+		}
 	}
 	if j.PairingID == "" {
 		key, err := c.key(b, j, "pairing")
 		if err != nil {
 			return err
 		}
-		raw, _, err := c.request(ctx, "POST", "/api/nox/pairings", key, "*", map[string]any{"contractVersion": "1.0", "productId": b.ProductID, "purpose": "product", "baseUrl": local.Origin(b.ProductID), "managedBy": map[string]string{"productId": "nox-yard", "deploymentId": b.ID}})
+		raw, _, err := c.request(ctx, "POST", "/api/nox/pairings", key, pairingRevision(j.TrustRevision), map[string]any{"contractVersion": "1.0", "productId": b.ProductID, "purpose": "product", "baseUrl": local.Origin(b.ProductID), "managedBy": map[string]string{"productId": "nox-yard", "deploymentId": b.ID}})
 		if err != nil {
 			return err
 		}
@@ -311,6 +355,7 @@ func (c *Controller) register(ctx context.Context, b *store.SuiteBinding, j *rec
 	}
 	j.Record = &record
 	j.Fingerprint = fingerprint
+	j.PendingFingerprint = ""
 	b.State = "registered"
 	b.Message = ""
 	return c.save(b, *j)
@@ -410,14 +455,76 @@ func (c *Controller) remove(ctx context.Context, b *store.SuiteBinding, j *recov
 		}
 		_, status, err := c.request(ctx, "DELETE", "/api/nox/services/"+backend.Resource(j.InstallerID)+"/deployments/"+backend.Resource(b.ID), key, j.GrantRevision, nil)
 		if err != nil && status != 404 {
-			return err
+			if status != 412 {
+				return err
+			}
+			raw, _, readErr := c.request(ctx, "GET", "/api/nox/services/"+backend.Resource(j.InstallerID)+"/deployments", "", "", nil)
+			if readErr != nil {
+				return readErr
+			}
+			var grants []struct{ DeploymentID, ProductID, BaseURL, Revision string }
+			if json.Unmarshal(raw, &grants) != nil {
+				return errors.New("invalid deployment list")
+			}
+			for _, grant := range grants {
+				if grant.DeploymentID != b.ID {
+					continue
+				}
+				if grant.ProductID != b.ProductID || grant.BaseURL != local.Origin(b.ProductID) {
+					return errors.New("deployment removal ownership changed")
+				}
+				j.GrantRevision = grant.Revision
+				j.Keys["remove-grant"] = ""
+				return c.save(b, *j)
+			}
+			// The original delete committed but its response/replay window was
+			// lost. Absence from this installer's own list confirms retirement.
 		}
 		j.GrantRevision = ""
 		if err = c.save(b, *j); err != nil {
 			return err
 		}
 	}
+
 	b.State = "removed"
 	b.Message = ""
 	return c.save(b, recovery{Keys: map[string]string{}})
+}
+
+func pairingRevision(revision string) string {
+	if revision == "" {
+		return "*"
+	}
+	return revision
+}
+func mustJSON(value any) []byte { raw, _ := json.Marshal(value); return raw }
+
+func (c *Controller) resetPairing(ctx context.Context, b *store.SuiteBinding, j *recovery) error {
+	if j.PairingID != "" && j.Intent != nil {
+		raw, _, err := c.request(ctx, "GET", "/api/nox/pairings/"+backend.Resource(j.PairingID), "", "", nil)
+		if err != nil {
+			return err
+		}
+		var state struct{ State, Revision string }
+		if json.Unmarshal(raw, &state) != nil {
+			return errors.New("invalid pairing state")
+		}
+		if state.State != "acknowledged" && state.State != "cancelled" {
+			key, err := c.key(b, j, "cancel:"+j.PairingID)
+			if err != nil {
+				return err
+			}
+			if _, _, err = c.request(ctx, "DELETE", "/api/nox/pairings/"+backend.Resource(j.PairingID), key, state.Revision, nil); err != nil {
+				return err
+			}
+		}
+	}
+	j.PairingID = ""
+	j.Intent = nil
+	j.DeliveryStarted = false
+	j.DeliveryRetry = true
+	for _, name := range []string{"pairing", "delivery", "cancel-pairing"} {
+		j.Keys[name] = ""
+	}
+	return nil
 }

@@ -29,6 +29,8 @@ import (
 	"github.com/mapherez/nox-yard/internal/schedule"
 	"github.com/mapherez/nox-yard/internal/selfupdate"
 	"github.com/mapherez/nox-yard/internal/store"
+	"github.com/mapherez/nox-yard/internal/suite"
+	"github.com/mapherez/nox-yard/internal/suite/local"
 	"golang.org/x/term"
 )
 
@@ -141,6 +143,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	suiteDirectory := os.Getenv("NOX_YARD_SUITE_SOCKET_DIR")
+	if suiteDirectory == "" {
+		if _, configured, _ := data.NoXLoginConfiguration(); configured && local.Directory("/run/nox-suite") == nil {
+			suiteDirectory = "/run/nox-suite"
+		}
+	}
+	if suiteDirectory != "" {
+		managedProjects.ConfigureSuiteVolume(os.Getenv("NOX_SUITE_LOCAL_VOLUME_NAME"))
+	}
 	api.SetManaged(managedProjects)
 	api.ConfigureMachineAccess(managedProjects.MachineNetworkStatus, managedProjects.ApplyMachineNetwork)
 	api.SetLogs(dockerInventory)
@@ -206,6 +217,22 @@ func run() error {
 		return err
 	}
 	api.SetMCPHandler(mcpHandler)
+	suiteController, err := suite.New(suite.Config{Directory: suiteDirectory, VolumeName: os.Getenv("NOX_SUITE_LOCAL_VOLUME_NAME")}, data, control.Version, managedProjects)
+	if err != nil {
+		return err
+	}
+	defer suiteController.Close()
+	suiteMCP, err := mcpapi.NewSuiteHandler(app, control.Version, suiteController.Admit)
+	if err != nil {
+		return err
+	}
+	stopSuite, err := suiteController.Start(ctx, suiteMCP)
+	if err != nil {
+		return err
+	}
+	defer stopSuite()
+	api.SetSuite(suiteController)
+
 	server := &http.Server{
 		Addr:              environment("NOX_LISTEN_ADDR", "127.0.0.1:8080"),
 		Handler:           api.Handler(),

@@ -21,6 +21,7 @@ Start here:
 | [External updates](External-Updates.md) | Assessed Engine fallback, replacement, removal and recovery limits. |
 | [Project schedules](Project-Schedules.md) | Daily project/Yard updates, timezone and failed-image suppression. |
 | [Self-update](Self-Update.md) | Yard image trust, installation, health checks and SQLite/runtime recovery. |
+| [Suite integration](Suite-Integration.md) | Same-host pairing, participating services, scoped deployment registration, lifecycle and recovery. |
 | [MCP](MCP.md) | Direct access, authorization, tools and shared-library maintenance. |
 | [Control API](Control-API.md) | Versioned machine endpoints, Bearer access and response contracts. |
 | [Design system](Design-System.md) | UI conventions, tokens, responsive behavior and visual QA. |
