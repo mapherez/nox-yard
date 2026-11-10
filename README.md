@@ -2,50 +2,58 @@
 
 Your Docker homelab, in view.
 
-NoX Yard is a self-hosted dashboard for managing Docker containers and Compose projects. It brings running workloads, configuration, logs and updates into one interface, so you can see what is happening and act without switching between separate Docker commands.
+NoX Yard is a browser dashboard for managing the Docker containers and Compose projects on your server. See what is running, inspect logs, change configuration and apply updates without switching between Docker commands.
 
-Yard discovers existing workloads directly from Docker. You do not have to move or redeploy them just to see them in the dashboard.
+Existing workloads appear automatically. You do not need to move or redeploy them to use Yard.
 
-## What you can do
+- Browse projects and containers, with health, resource usage and uptime.
+- Start, stop and restart workloads.
+- Read logs and open available container terminals.
+- Deploy projects from a Compose file, pasted YAML or a supported URL.
+- Edit Compose and environment files, preview changes and apply them.
+- Pull images, recreate services and inspect operation history.
+- Choose manual updates or opt-in update schedules.
 
-| Capability | What it provides |
-| --- | --- |
-| View your host | Browse Compose projects and standalone containers with status, health, resource usage and uptime. |
-| Find workloads | Search, switch between grid and table views, and arrange projects in your preferred order. |
-| Manage containers | Start, stop, restart, pull images and recreate supported workloads. |
-| Deploy projects | Paste Compose YAML, upload a file or supply a supported source URL, then review the deployment. |
-| Edit configuration | Work with host Compose and environment files, review changes and apply them explicitly. |
-| Investigate problems | Read and search logs, export a snapshot or open an available container terminal. |
-| Manage updates | Choose manual updates or opt-in schedules, inspect operation history and update Yard itself. |
+Yard also installs participating NoX Suite products and reports their deployment state to Backend. It remains useful for ordinary Docker workloads; Backend and Gateway are not required for everyday Docker management.
 
-Pulling an image, recreating a container and restarting a service are separate actions. Yard shows previews and operation results, and preserves supported recovery state when an operation fails. Container recovery does not undo changes an application has written to persistent data.
+## What you need
 
-## How it fits into NoX Suite
+- A Linux Docker host with Docker Compose, on Intel/AMD or ARM64.
+- [NoX Auth](https://github.com/mapherez/nox-auth) running on the same host, with your Google account allowed to sign in.
+- Browser access to your server through your trusted network or VPN.
 
-Yard manages one local Docker host. It remains useful for ordinary workloads that do not participate in NoX Suite.
+Yard controls Docker on that host. Keep access private. Its own browser address can use HTTP; you do not need a separate Google login configuration or certificate for Yard.
 
-For participating products, Yard reuses its deployment workflow to prepare the local communication channel, initiate registration with Backend and report lifecycle changes. Gateway and CLI discover the products through the shared contracts; Yard does not maintain a fixed list of supported NoX applications.
+## Help
 
-Dashboard sign-in uses **NoX Login** through Auth. Direct MCP and the HTTP Control API are optional interfaces with their own access settings. Native Docker management does not require Backend or Gateway.
+[Quickstart](Documentation/User/Quickstart.md) · [User guide](Documentation/User/Guide.md) · [Configuration](Documentation/User/Configuration.md)
 
-## Documentation
-
-- [Quickstart](Documentation/User/Quickstart.md)
-- [Everyday use](Documentation/User/Guide.md)
-- [Configuration and access](Documentation/User/Configuration.md)
-- [NoX Login](Documentation/Developer/NoX-Login.md)
-- [Suite integration](Documentation/Developer/Suite-Integration.md)
-- [MCP tools](Documentation/Developer/MCP.md)
-- [HTTP Control API](Documentation/Developer/Control-API.md)
-- [Technical reference](Documentation/Developer/Architecture.md)
-- [Developer documentation](Documentation/Developer/README.md)
-- [Changelog](CHANGELOG.md)
+For integrations and contributors: [MCP tools](Documentation/Developer/MCP.md) · [Suite integration](Documentation/Developer/Suite-Integration.md) · [Technical reference](Documentation/Developer/Architecture.md)
 
 ## Usage
 
-Run NoX Auth on the same Docker host. Save [compose.yaml](compose.yaml) and [.env.example](.env.example) in a deployment directory, naming the environment file `.env`.
+### Install
 
-Configure your browser-facing Yard address, Auth origin, host binding and any host ports you want to use. The [Quickstart](Documentation/User/Quickstart.md) explains those settings; no address from another installation is required.
+On your Docker server, download the deployment files into a new folder:
+
+```sh
+mkdir nox-yard
+cd nox-yard
+curl -fsSLo compose.yaml https://raw.githubusercontent.com/mapherez/nox-yard/master/compose.yaml
+curl -fsSLo .env https://raw.githubusercontent.com/mapherez/nox-yard/master/.env.example
+```
+
+Open `.env` in a text editor. For browser access from your private network, configure:
+
+| Setting | What to enter |
+| --- | --- |
+| `NOX_BIND_ADDRESS` | `0.0.0.0` for LAN/VPN access, or keep `127.0.0.1` for access from the server itself. |
+| `NOX_PORT` | An unused host port; the supplied default is **8095**. |
+| `NOX_PUBLIC_URL` | The exact Yard address you will open in your browser, including its port when needed. |
+| `NOX_AUTH_PUBLIC_URL` | The HTTPS address of your running NoX Auth service. |
+| `NOX_TIMEZONE` | Your server's IANA timezone for scheduled updates. |
+
+Google credentials and allowed accounts stay in Auth. Other settings can keep their defaults for a new installation using Auth's default volume names.
 
 Start Yard:
 
@@ -54,11 +62,26 @@ docker compose pull
 docker compose up -d
 ```
 
-Open your configured Yard address and choose **NoX Login**. Existing Compose projects and standalone containers appear automatically. To deploy a new project, configure the host projects directory in Settings, supply a Compose definition, and review the preview before confirming.
+Open your configured Yard address and choose **NoX Login**. Sign in with your allowed Google account. Your existing projects and containers appear automatically. The `auth-setup` container exiting successfully is normal.
 
-Use **Pull → Recreate** to apply an image update. Automatic updates are opt-in. Optional direct MCP and Control API access are configured under **Settings → MCP & access**.
+### Manage or deploy a project
 
-Yard controls the Docker host, so keep it on trusted networks or private VPN access. Back up Yard's data, host Compose/environment files and application data separately. See the [user guide](Documentation/User/Guide.md) for update and recovery behavior.
+Select a project to view its details, logs and available actions. **Pull** downloads an image; **Recreate** applies it to the running workload. Restarting alone does not apply a newly downloaded image.
+
+To deploy a new project, set **Projects directory** in Settings to an existing directory on the Docker host. Choose **New Project**, provide its Compose definition, fill in any required environment values, then select **Validate and preview** before confirming.
+
+To connect Yard to NoX Suite, add its address under **Service connections** in Backend, verify it and confirm the connection. Optional direct MCP and HTTP Control API access have separate settings under **Settings → MCP & access**.
+
+### Update and preserve data
+
+Use Yard's update controls, or run these commands from its installation folder:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+Keep the `data/` directory. Back up host Compose/environment files and each application's data separately. Rolling back a container does not undo writes that application made to its data. See the [user guide](Documentation/User/Guide.md) for details.
 
 ## License & Attribution
 
