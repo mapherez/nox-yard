@@ -93,6 +93,11 @@ Interactive terminal and continuous log/event subscriptions remain in their nati
 
 ## Human menus through NoX discovery
 
+**Owner review, November 10, 2026:** descriptors are implemented, but the current
+human interaction design was not accepted. Some flows still require manual IDs,
+action strings or JSON, as detailed below. Further menu work is deferred; the
+presence of descriptors is not a claim of a finished human interface.
+
 Every canonical tool has a version `1.0` descriptor in the Suite NoX definitions.
 The descriptor supplies an EN-US label, ordering and grouping on the existing
 paths: health/status/metrics, projects, containers, Compose, recreation, jobs,

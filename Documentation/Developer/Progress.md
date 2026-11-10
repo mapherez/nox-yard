@@ -13,9 +13,11 @@ real Auth v0.0.2 / Backend v1.2.2 / candidate Yard+Gateway acceptance. The route
 check exercises definitions, status and guarded removal of a disposable container.
 No installed host, personal credential, commit or release was operated by this work.
 The ten frontend browser regressions, 172 CI/release tooling tests and Python
-fixture regressions also passed. Published images and owner validation of the
-updated CLI menus remain separate.
-The optional Gateway/lifecycle gates are not claimed as default CI coverage.
+fixture regressions also passed. The owner subsequently rejected the current CLI interaction design because some
+operations still require manual IDs/action strings and JSON. Menu work is deferred
+at the owner's direction; these local checks do not constitute owner acceptance.
+The optional Gateway/lifecycle fixtures remain optional; no additional CI/release
+gates or full-Suite test round are scheduled by this documentation update.
 
 ## Historical checkpoints
 
