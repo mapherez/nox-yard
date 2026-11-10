@@ -2,7 +2,28 @@
 
 User-facing changes in Yard. Entries summarize tagged source changes; [GitHub Releases](https://github.com/mapherez/nox-yard/releases) is the record of published images and signatures.
 
-## Unreleased
+## 1.4.2
+
+- Consume NoX MCP 0.7.3 and publish existing tools through Suite NoX discovery while preserving their execution contracts and independent direct MCP access.
+
+## 1.4.1
+
+- Add same-host Suite pairing, automatic participating-deployment registration and lifecycle reporting through the existing Yard workers.
+- Persist integration recovery independently of Docker jobs, with status and retry in Settings.
+- Reuse Auth/Suite volumes as external resources rather than claiming project ownership.
+
+## 1.4.0
+
+- Replace dashboard username/password entry with shared NoX Login.
+- Enroll the application's callback automatically through a one-shot setup service and keep Google credentials/account admission in NoX Auth.
+- Preserve existing Yard data and legacy administrator records for supported previous-image rollback.
+
+## 1.3.13
+
+- Reuse matching CI approval for version-only release requests instead of repeating source/runtime checks.
+- Preserve worker cleanup and self-update process barriers.
+
+## 1.3.12
 
 - Add reviewed Compose overrides without rewriting original files; retain explicit file order, profile and interpolation-file selections.
 - Resolve interpolation, local includes and file dependencies through Compose, support published images alongside development build definitions, and preserve full resolved configuration.

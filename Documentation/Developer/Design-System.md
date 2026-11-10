@@ -106,7 +106,7 @@ Verify desktop, tablet, mobile, keyboard traversal, focus return, contrast, redu
 
 For styling changes, review the dashboard with running, partial, and stopped projects, long names, and missing metric values. Check the expanded and collapsed sidebar, project/settings/new-project drawers, and authentication screens. Include narrow layouts down to 320px and ensure content stays within the viewport. Inspect normal, hovered, focused, selected, and disabled controls; check contrast using the rendered foreground and background colors. Preserve status text, visible keyboard focus, and system forced-color support.
 
-Use isolated API fixtures for visual review when a live Docker host is unavailable. Keep fixture data and screenshots out of production code, and distinguish visual validation from real Docker-operation testing. Record completed validation in [Progress](Progress.md).
+Use isolated API fixtures for visual review when a live Docker host is unavailable. Keep fixture data and screenshots out of production code, and distinguish visual validation from real Docker-operation testing. Keep validation evidence tied to the exact source revision and selected checks; see [isolated validation](Architecture.md#reusable-isolated-validation).
 
 ## Compose review and Docker history
 

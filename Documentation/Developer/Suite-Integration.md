@@ -83,7 +83,7 @@ Native routes: `GET /nox/integration`, authenticated `GET /api/suite`, and
 session/CSRF-protected `POST /api/suite/deployments/{id}/retry` with
 `{"revision": <current revision>}`. A stale revision returns 409.
 
-## Verification and release order
+## Verification and compatible dependencies
 
 `python3 scripts/smoke-suite.py --image <yard-image>` runs real foundation pairing,
 ACK, registration, native boundary and restart against published Backend v1.2.0
@@ -107,10 +107,10 @@ containers, volumes, networks and runner image are cleaned; it does not deploy a
 user stack or contact Google. Existing browser/native regression and full source
 checks remain required. Real Google/global logout was separately owner-accepted.
 
-Use compatible Backend/yard releases for scoped installer management. The menu
-adapter consumes published SDK v0.7.3; it does not require another Auth release,
-new Compose settings or an additional service. The separate Gateway acceptance
-uses an image with SDK 0.7.3 and the point-2 response/error corrections:
+Use compatible Backend/Yard releases for scoped installer management. Backend
+v1.2.2 includes that support and its own MCP publication. Yard consumes SDK
+v0.7.3; Gateway v0.0.2 consumes the same SDK and preserves result-number precision
+and MCP error envelopes. The separate Gateway verification can use those images:
 
 ```sh
 python3 scripts/smoke-suite.py --image <yard-image> --backend-image ghcr.io/mapherez/nox-backend:v1.2.2 --gateway-image <gateway-image>

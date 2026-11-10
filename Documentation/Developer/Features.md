@@ -1,6 +1,6 @@
 # Implemented features
 
-This file records current behavior. Remaining implementation and validation work is tracked in [Progress](Progress.md).
+This file records current behavior. Architecture, limits and reusable checks are documented in the [technical reference](Architecture.md).
 
 ## NoX Login
 

@@ -1,4 +1,6 @@
-# Architecture
+# Yard technical reference
+
+This is the maintained reference for Yard architecture, operating constraints and reusable validation procedures. It consolidates current decisions without retaining development checkpoints, superseded policies or dated test reports. Start with the [product README](../../README.md) for normal use.
 
 ## System boundary
 
@@ -17,9 +19,9 @@ Local Docker Engine ---- containers, images, networks, volumes
   | temporary job container (Compose and self-update operations)
 ```
 
-The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go builder stages run on BuildKit's build platform. The Go compiler receives the target OS and architecture, and the build checks the resulting binary's `GOARCH` before copying it into the target-platform Alpine image. Every branch push runs source checks, both architecture builds and an ARM64 smoke test. A validated script-requested release commit/tag allows that same pipeline to call the reusable GHCR publisher; tag pushes alone do not publish. Only stable releases update `latest`. See [Releases](Releases.md). The host's Docker Compose installation pulls the image and does not build locally. The `./data:/data` mount holds SQLite metadata, accounts, settings, job records and sensitive private recovery snapshots. Active Compose/env configuration lives in the original host project directory; successful deploy/adopt/Sync jobs commit location-only metadata directly. The Docker Unix socket is mounted for local inventory access. The backend serves the built frontend, so production does not need a separate web server.
+The multi-stage Dockerfile targets Linux `arm64` and `amd64`. Frontend and Go builder stages run on BuildKit's build platform. The Go compiler receives the target OS and architecture, and the build checks the resulting binary's `GOARCH` before copying it into the target-platform Alpine image. Source changes selected by the CI path policy run validation and image checks. A marked version-only release request reuses matching existing CI approval before calling the reusable publisher; it does not repeat the full source/runtime suite. Tag pushes alone do not publish. Only stable releases update `latest`. See [Releases](Releases.md). The host's Docker Compose installation pulls the image and does not build locally. The `./data:/data` mount holds SQLite metadata, accounts, settings, job records and sensitive private recovery snapshots. Active Compose/env configuration lives in the original host project directory; successful deploy/adopt/Sync jobs commit location-only metadata directly. The Docker Unix socket is mounted for local inventory access. The backend serves the built frontend, so production does not need a separate web server.
 
-CI requires the current runtime-suite inventory through three groups using the same immutable AMD64 candidate image, plus ARM64 smoke and signature-verifier startup checks. The Suite foundation fixture is in that inventory; optional full lifecycle and Gateway/menu acceptance require the explicit candidate-image arguments documented in [Suite integration](Suite-Integration.md). [Progress](Progress.md) distinguishes those local checks from published/installed evidence. Release signing and updater trust policy are specified in [Releases](Releases.md) and [Self-update](Self-Update.md).
+CI requires the current runtime-suite inventory through three groups using the same immutable AMD64 candidate image, plus ARM64 smoke and signature-verifier startup checks. The Suite foundation fixture is in that inventory; optional full lifecycle and Gateway/menu acceptance require the explicit candidate-image arguments documented in [Suite integration](Suite-Integration.md). Those fixture checks do not establish another installed deployment or publication result. Release signing and updater trust policy are specified in [Releases](Releases.md) and [Self-update](Self-Update.md).
 
 ## Backend boundaries
 
@@ -32,7 +34,7 @@ CI requires the current runtime-suite inventory through three groups using the s
 - **Compose adapter:** source intake, validation, adoption and current host-file operations, including external Compose projects without adoption. Active YAML/environment configuration is persisted in host files; locations and private recovery snapshots remain in SQLite. Managed replacement uses immutable images/platforms and a complete resolved definition; private snapshots, verified file/metadata commit and bounded rollback preserve the old version on ordinary failure. See [Managed updates](Managed-Updates.md).
 - **Jobs:** durable operation records and atomic resource reservations coordinate managed, Engine and Yard mutations across adapters. Managed Compose and self-restart use independent workers; startup observes live workers/helpers and verifies completed work or retains uncertain reservations for host review. Self-update keeps its dedicated snapshot/rollback protocol and mirrors progress/results into history. See [Durable operations](Operation-Jobs.md).
 - **Project scheduler:** per-project daily server-clock slots, schema 9 opt-in settings/occurrences, one automatic worker globally and durable skipped/deferred results. Admission consumes an occurrence atomically with its existing update job/reservations; replacement remains in the managed/Engine managers.
-- **Storage:** SQLite for the initial administrator, hashed sessions, managed-project metadata, URL sources, update settings, and job history. Active Compose/environment configuration lives in host files; private native job snapshots and application metadata remain in SQLite.
+- **Storage:** SQLite for NoX Login enrollment, browser-bound transactions and sessions, managed-project metadata, URL sources, machine-access settings, update settings and job history. Active Compose/environment configuration lives in host files; private native job snapshots and application metadata remain in SQLite.
 
 New Go packages under `internal/` should follow these boundaries. Keep Docker SDK types out of public HTTP responses; map them to stable application models.
 
@@ -42,7 +44,7 @@ The inventory exposes a common `Project` view with identity, kind (`managed-comp
 
 External Compose projects require no host file mounts or adoption for Engine actions: container and group start/stop/restart, logs, inspect, terminal, image pull, assessed update/recreation and confirmed removal. Per-project opt-in auto-update uses these same verified update paths; see [Project schedules](Project-Schedules.md). Editing Compose and environment files uses the original host paths discovered through Docker labels; no adoption is required. See [Configuration files](Configuration-Files.md).
 
-C4 snapshots Engine-visible configuration, preserves assessed mounts/networks/ports/environment/labels and resource/security settings, verifies immutable replacements and retains original containers until success. Unsupported configurations are blocked before mutation. Dependency-aware rollback restores original IDs/names and running/stopped state; standalone history follows old/new identities. Explicit volume choice defaults off and shared resources remain protected across Engine and managed removal. See [External updates](External-Updates.md) for supported fields, bounds and recovery. Writable container layers are not persistent data. Managed projects use Docker Compose followed by bounded Docker runtime verification. Active replicas must remain running for five seconds and configured healthchecks must be healthy; declared one-shot services must exit zero. C3 snapshots supported prior configuration and restores old immutable images/configuration and running/stopped state after ordinary update/sync failure; uncertain restoration retains reservations for review.
+External replacement snapshots Engine-visible configuration, preserves assessed mounts/networks/ports/environment/labels and resource/security settings, verifies immutable replacements and retains original containers until success. Unsupported configurations are blocked before mutation. Dependency-aware rollback restores original IDs/names and running/stopped state; standalone history follows old/new identities. Explicit volume choice defaults off and shared resources remain protected across Engine and managed removal. See [External updates](External-Updates.md) for supported fields, bounds and recovery. Writable container layers are not persistent data. Managed projects use Docker Compose followed by bounded Docker runtime verification. Active replicas must remain running for five seconds and configured healthchecks must be healthy; declared one-shot services must exit zero. Managed replacement snapshots supported prior configuration and restores old immutable images/configuration and running/stopped state after ordinary update/sync failure; uncertain restoration retains reservations for review.
 
 Yard appears in the normal inventory. Its restart or update runs through an independent temporary job container, because the web service may stop mid-operation. Stop and remove actions for Yard are unavailable in the UI.
 
@@ -90,7 +92,7 @@ Browser mutations retain exact Origin/CSRF checks. Active inventory/log SSE and 
 
 If Docker is unavailable, show the inventory as unavailable instead of stale success. Jobs must report partial failure, preserve enough state to retry or roll back, and never claim an update succeeded solely because the web request returned. SQLite and managed source files require persistent storage across restarts.
 
-## References
+## Component references
 
 - [Docker Engine API and SDK compatibility](https://docs.docker.com/reference/api/engine/)
 - [Compose project and service labels](https://docs.docker.com/reference/compose-file/services/)
@@ -99,4 +101,56 @@ If Docker is unavailable, show the inventory as unavailable instead of stale suc
 
 ## Native Compose resolution context
 
-`internal/managed/compose_context.go` extends the existing managed/file protocol. It stages a bounded snapshot of the explicit ordered Compose sources and local dependencies, asks native Compose to resolve interpolation/profiles/selection, and retains the complete JSON execution document. Private transformations pin images and paths without round-tripping through the reduced inspection model. Browser, HTTP and MCP reach it through `internal/application`; schedules and independent workers persist/recheck the same context. Source selection edits use the existing durable operation journal/reservations. Individual containers and source-unavailable assessed fallbacks remain Engine operations. This is not a separate orchestration layer; see [configuration](Configuration-Files.md) and [parity audit](Docker-Compose-Parity.md).
+`internal/managed/compose_context.go` extends the existing managed/file protocol. It stages a bounded snapshot of the explicit ordered Compose sources and local dependencies, asks native Compose to resolve interpolation/profiles/selection, and retains the complete JSON execution document. Private transformations pin images and paths without round-tripping through the reduced inspection model. Browser, HTTP and MCP reach it through `internal/application`; schedules and independent workers persist/recheck the same context. Source selection edits use the existing durable operation journal/reservations. Individual containers and source-unavailable assessed fallbacks remain Engine operations. This is not a separate orchestration layer; see [configuration](Configuration-Files.md) and [operation contract](#operation-contract).
+
+
+## Operation contract
+
+Docker Engine is runtime truth; persisted Yard metadata does not override observed containers. Compose owns source resolution and source-backed project operations. Existing applications remain visible without adoption; file editing uses the original host project paths.
+
+| Operation | Current behavior |
+| --- | --- |
+| Save / Add override | Validate and save only. Keep original source bytes; use a separate ordered override rather than silently rewriting the source. |
+| Pull | Download the selected configuration's images without building or recreating containers. |
+| Recreate | Apply saved configuration using local immutable images, without pulling/building; preserve previously stopped services and unrelated orphans. |
+| Service Recreate | Apply only the selected service and its replicas; do not mutate or recover unselected dependencies. |
+| Start / Stop / Restart | Use the saved Compose context when available; individual container operations use Engine. Restart can start stopped services and rerun declared initializers. |
+| Remove | Show the actual selected resources. Keep images/volumes unless separately selected; preserve shared, external and unverified resources. |
+
+The context binds the original directory, ordered Compose/dependency bytes, interpolation inputs, active profiles/services and source/runtime revisions. Preview and execution must agree on those inputs. Source changes and relevant runtime/image changes invalidate the previous review. Identical images do not trigger unnecessary replacement. Private transformations preserve the full resolved Compose document rather than reducing it to an inspection DTO.
+
+A service with both `image` and `build` can use the published image; build-only deployment is unsupported. Unsupported observable Engine configuration is rejected before replacement instead of omitted. No broad orphan deletion or force-removal fallback is used. A container's writable layer is not persistent application storage.
+
+Replacement retains the original runtime/configuration until readiness is established. Bounded verification checks the intended replicas, running stability and configured healthchecks. Declared one-shot initializers must exit successfully. Recovery can restore prior runtime settings and stopped/running state; it does not undo application-data writes. Unknown recovery/journal completion retains reservations for explicit inspection rather than claiming a rollback or replaying the operation.
+
+## Current access and security decisions
+
+All interface text, errors, comments and documentation use EN-US. The React UI uses the shared dark-theme design system. Browser mutations enforce the existing session, Origin and CSRF controls. NoX Auth owns Google login and account admission; Yard has no active local-password dashboard fallback. Retained legacy recovery records are not current login authority.
+
+The browser never receives the Docker socket. Direct MCP and Control API are opt-in and use the active Yard token/permission settings; Suite MCP uses Backend-issued delegations on the private local channel. Login-client setup alone does not grant deployment authority. See [NoX Login](NoX-Login.md), [MCP](MCP.md), [Control API](Control-API.md) and [Suite integration](Suite-Integration.md).
+
+Source URL intake accepts public HTTPS with bounded content and destination validation; it is not a way to fetch arbitrary host-local services. File access, edits and exports remain confined by the operation's known paths, selected resources, permissions and fingerprints. Compose/environment secrets are hidden by default and require explicit reveal. Terminal access retains the existing authentication and shell-presence checks; arbitrary shell-command execution is not added by a tool result or source string.
+
+Official Yard self-updates verify the image signature against the expected signing identity and immutable manifest before execution. Release signing, image trust and publication/retry behavior live in [Releases](Releases.md) and [Self-update](Self-Update.md). A newer image, a successful pull or Compose exit status alone does not prove runtime readiness.
+
+## Backup and recovery
+
+Back up three distinct sets consistently: Yard's SQLite/private state; the original host Compose/environment files; and application named-volume/bind data. Preserve actual mount names/paths, project identity and image references. Copying Yard's data alone does not back up deployed applications or host configuration.
+
+Restore matching application state and host source context before resuming management. Do not edit migration records, recreate empty volumes or clear an uncertain reservation to force a successful appearance. Use the documented recovery acknowledgement only after inspecting the operation's actual resources. Application schema/data rollback is separate from container replacement. Current procedures are in [Configuration files](Configuration-Files.md), [Durable operations](Operation-Jobs.md), [Managed updates](Managed-Updates.md) and [External updates](External-Updates.md).
+
+## Reusable isolated validation
+
+The repository's existing scripts validate their selected scopes using disposable resources. This is an operator/developer reference, not an additional release gate or a requirement to rerun every product in the installation.
+
+- Build matching source and candidate images for the Docker Engine architecture being exercised. Record the source revision, image IDs, Engine/Compose versions and selected scripts in the report; cross-compilation or emulation is not native-host runtime evidence.
+- Use a new disposable project and data directory, independent of installed Yard/Auth and real workloads. Configure matching private Auth/runtime volumes for the fixture. Do not disconnect a shared Docker daemon or reuse live application data as a failure test.
+- Run current-image verification through `python3 scripts/acceptance.py --image CANDIDATE_IMAGE --skip-upgrade --report REPORT_PATH`. The selected inventory is maintained in `scripts/runtime_suites.py`. Optional diagnostic subsets are reported as subsets, not as complete coverage.
+- `scripts/smoke-native-parity.py` compares separate native Compose and Yard projects: effective configuration, profiles, dependencies, replica/state preservation, overrides, orphan safety, mount contents, log history and removal choices. Normalize fixture identities, not real configuration differences.
+- `scripts/smoke-self-update.py` exercises the independent worker and SQLite/runtime recovery with disposable images. Production registry discovery, signature admission and actual publication are separate paths described in the release/update guides.
+- For browser checks, exercise project/container navigation, configuration drafts and conflicts, logs/export, terminal access, settings, operation history and responsive keyboard interaction against the isolated instance. Verify that private values are absent before explicit reveal and operation results reflect real resources.
+- For backup recovery, restore Yard state, host sources and representative application data into a separate isolated deployment, then compare ownership, file contents and operation state. Do not restore a writable test copy over installed data.
+
+Fixture cleanup uses only recorded task containers, networks, volumes, images and temporary paths. Never use a global prune or remove installed resources to clean a test. Root-created output must remain readable to the host through the existing fixture-output helper; do not loosen unrelated application-data permissions. Existing CI jobs, fixture inventory and execution details are documented in [Development](Development.md).
+
+Historical handoff archives, private `.tmp` reports and phase identifiers are not reusable evidence for another revision. Upgrade scenarios must follow the actual supported path in the [user guide](../User/Guide.md#updates-and-maintenance); the old direct-upgrade fixture is not proof for a deployment that skipped a required intermediate conversion.
