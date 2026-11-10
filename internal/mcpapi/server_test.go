@@ -304,16 +304,12 @@ func TestHTTPCatalogSchemasAndAnnotations(t *testing.T) {
 		writes[name] = true
 	}
 	for _, tool := range list.Tools {
-		if tool.Meta == nil {
-			t.Fatalf("missing _meta for %s", tool.Name)
+		if _, exposed := tool.Meta["cli"]; exposed {
+			t.Fatalf("CLI metadata leaked into conventional tools/list: %s", tool.Name)
 		}
-		cli, ok := tool.Meta["cli"].(string)
-		if !ok || strings.TrimSpace(cli) == "" {
-			t.Fatalf("missing or invalid _meta.cli for %s: %#v", tool.Name, tool.Meta["cli"])
-		}
-		expected, ok := expectedCLIPaths[tool.Name]
-		if !ok || cli != expected {
-			t.Fatalf("wrong _meta.cli for %s: got %q, want %q", tool.Name, cli, expected)
+		cli, ok := expectedCLIPaths[tool.Name]
+		if !ok || cli == "" {
+			t.Fatalf("unexpected canonical tool %s", tool.Name)
 		}
 		if strings.HasPrefix(cli, "yard ") {
 			t.Fatalf("_meta.cli includes app prefix for %s: %q", tool.Name, cli)

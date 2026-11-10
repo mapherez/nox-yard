@@ -44,7 +44,7 @@ The default MCP endpoint is `http://127.0.0.1:8096/mcp`. Configure the client wi
 
 There is one active Yard token shared by MCP and the Control API. Generating a replacement immediately invalidates the previous token for both interfaces, as does revocation. Tokens are stored as hashes; the **History** modal shows the latest ten token events.
 
-MCP can explicitly allow anonymous access with the selected permissions. The Control API always requires the Yard token. The sidebar's MCP indicator reports the local server's operational state, not client connections or Gateway registration. NoX Gateway integration is not implemented yet.
+MCP can explicitly allow anonymous access with the selected permissions. The Control API always requires the Yard token. The sidebar's MCP indicator reports the local server's operational state, not client connections or Gateway registration. Suite MCP is a separate, same-host path authenticated by Backend delegations; it is not enabled or disabled by this direct MCP switch. See [Suite setup](../Developer/Suite-Integration.md).
 
 ### Apply network changes from Settings
 
@@ -53,3 +53,22 @@ Saving a binding or port change marks it **pending**. Select **Apply now** to re
 If this changes the browser-facing Yard origin, update `NOX_PUBLIC_URL` and recreate the Auth setup/service with Compose so the approved callback matches. A reverse proxy can keep the canonical browser URL unchanged while the upstream port changes. Reconnect at the configured canonical address. This operation changes networking; it does not upgrade Yard.
 
 For tool and endpoint contracts, see [MCP](../Developer/MCP.md) and [Control API](../Developer/Control-API.md).
+
+## NoX Suite and CLI menus
+
+Run Auth, Backend, Yard and Gateway on the same Docker host with the matching
+local runtime volume. In Backend, save Yard's native HTTP/HTTPS origin, **Verify**,
+then **Connect**. No certificate copying, per-app Google secrets or manual pairing
+files are required. Private HTTP product origins are supported.
+
+The local `/mcp/suite` endpoint exposes Yard's existing 38 tools with Backend's
+scope checks. Gateway is the client entry point; the CLI uses its private LAN/VPN
+address and the user's Backend API key. The direct port 8096 and Yard token remain
+independent. Do not send a personal Backend key directly to `/mcp/suite`.
+
+After updating Yard, refresh the CLI catalog. Human menu descriptors are delivered
+only through negotiated NoX discovery. Project selectors, read-only previews,
+fingerprints and local confirmations use the existing operations; they do not
+change tool arguments, grant permissions or replay writes. See [MCP](../Developer/MCP.md#human-menus-through-nox-discovery)
+for supported inputs and [Suite integration](../Developer/Suite-Integration.md)
+for deployment recovery. This SDK/menu update adds no Compose or environment setting.

@@ -1,3 +1,28 @@
+# Current Yard checkpoint — November 10, 2026
+
+The current source consumes NoX MCP 0.7.3 and publishes EN-US human-menu descriptors
+through Suite NoX discovery. The 38 existing tool contracts are unchanged; ordinary
+`tools/list` omits CLI metadata. Native management uses NoX Login; direct MCP,
+Control API and scoped Suite delegation remain independent. See [MCP](MCP.md),
+[NoX Login](NoX-Login.md) and [Suite setup](Suite-Integration.md).
+
+Local validation passed the full Go race suite, format/vet/workflow/Compose checks,
+Linux ARM64 image build and Linux AMD64 cross-build, all 38 forms in the actual CLI interaction engine, configuration/override
+revision and frozen-source bindings with masked variable reviews, and
+real Auth v0.0.2 / Backend v1.2.2 / candidate Yard+Gateway acceptance. The routed
+check exercises definitions, status and guarded removal of a disposable container.
+No installed host, personal credential, commit or release was operated by this work.
+The ten frontend browser regressions, 172 CI/release tooling tests and Python
+fixture regressions also passed. Published images and owner validation of the
+updated CLI menus remain separate.
+The optional Gateway/lifecycle gates are not claimed as default CI coverage.
+
+## Historical checkpoints
+
+The dated records below preserve earlier evidence and pending work as of those
+checkpoints. They are not current setup instructions or a claim that older SDK,
+login or CI descriptions still apply. Current procedures live in the linked guides.
+
 # NoX Login update — November 3, 2026
 
 The working tree now replaces dashboard password entry with NoX Login, consuming Auth v0.0.1. It preserves existing data/legacy administrator records in additive tables, uses an automatic one-shot enrollment component with a separate admin mount, and retains independent direct MCP/Control API behavior. See [NoX Login](NoX-Login.md). Real installed Google/Yard acceptance remains pending publication/deployment; source tests are not that acceptance. Suite pairing/lifecycle work was subsequently resumed; see the current checkpoint below. No release or commit is performed by this work.
@@ -49,7 +74,7 @@ Real Google-account acceptance on the installed Yard remains pending deployment.
 
 The records below describe earlier delivered work and its identified verification, not a claim that all newly changed Auth paths were included in those historical runs.
 
-# Current checkpoint
+# Historical checkpoint — October 29, 2026
 
 **Reviewed:** 2026-10-29. The parity implementation began on `96ec730` (v1.3.11); subsequent source commits are `712518f`, cleanup correction `058ca18` and fingerprint correction `3512b7d`. The current fixture-output and SQLite startup corrections are uncommitted working-tree changes. No commit, push, release or production deployment was performed by this follow-up.
 

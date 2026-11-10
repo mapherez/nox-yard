@@ -79,7 +79,7 @@ func NewSuiteHandler(app *application.Service, version string, admit SuiteAdmiss
 				return nil, nil
 			},
 			IsActive: func(id *noxmcp.VerifiedSuiteIdentity) bool { _, _, err := admit(id.AccessToken()); return err == nil },
-		})
+		}, cliDiscovery(tools))
 		if err != nil {
 			failure(503, "INTEGRATION_UNAVAILABLE")
 			return

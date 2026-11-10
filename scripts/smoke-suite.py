@@ -20,6 +20,7 @@ import urllib.request
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--image',required=True)
 parser.add_argument('--backend-image',default='ghcr.io/mapherez/nox-backend:v1.2.0')
+parser.add_argument('--gateway-image', help='Also validate routed menus and guarded execution using this local/public Gateway image')
 parser.add_argument('--lifecycle', action='store_true', help='Also run actual managed product lifecycle; requires a Backend image with scoped installer deployment management')
 parser.add_argument('--auth-image',default='ghcr.io/mapherez/nox-auth:v0.0.2')
 args=parser.parse_args()
@@ -109,6 +110,47 @@ try:
         time.sleep(.25)
     else:raise AssertionError('Yard restart changed registration identity')
     print('PASS: native HTTP remains available, forged network claims rejected, identity retained after restart',flush=True)
+    if args.gateway_image:
+        gateway=run('gateway',args.gateway_image,'-p','127.0.0.1::8080','--tmpfs','/data:uid=10002,gid=10001,mode=0700','-v',runtime+':/run/nox-suite')
+        gateway_origin='http://'+docker('port',gateway,'8080/tcp');ready(gateway_origin,'/healthz')
+        status,saved=request(backend_origin,'/api/admin/connections/gateway',{'origin':'http://gateway.example.test'},'PUT',{'If-None-Match':'*'});assert status==200,(status,saved)
+        status,verified=request(backend_origin,'/api/admin/connections/gateway/verify',{'revision':saved['revision']},'POST');assert status==200,(status,verified)
+        status,connected=request(backend_origin,'/api/admin/connections/gateway/connect',{'attemptId':verified['attemptId']},'POST');assert status==200 and connected['state']=='completed',(status,connected)
+        ready(gateway_origin,'/readyz')
+        def rpc(method,params):
+            params={**params,'_meta':{'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientCapabilities':{'extensions':{'nox/discovery':{'version':'1.0'}}}}}
+            headers={'Accept':'application/json, text/event-stream','MCP-Protocol-Version':'2026-07-28','Mcp-Method':method}
+            if 'name' in params:headers['Mcp-Name']=params['name']
+            status,value=request(gateway_origin,'/mcp',{'jsonrpc':'2.0','id':1,'method':method,'params':params},'POST',headers)
+            assert status==200 and 'result' in value and 'error' not in value,(method,status,value)
+            return value['result']
+        standard=rpc('tools/list',{})
+        yard_tools=[tool for tool in standard['tools'] if tool['name'].startswith('nox-yard__')]
+        assert len(yard_tools)==38
+        assert all('cli' not in tool.get('_meta',{}) for tool in yard_tools),'Menu paths leaked into conventional listing'
+        catalog=rpc('nox/tools/catalog',{})
+        refs=[{'name':tool['name'],'fingerprint':tool['fingerprint']} for tool in catalog['tools'] if tool['name'].startswith('nox-yard__')]
+        definitions=rpc('nox/tools/definitions',{'catalog':catalog['catalog'],'tools':refs})['definitions']
+        assert len(definitions)==38 and all(d['cli']['version']=='1.0' and d['tool']['_meta']['cli'] for d in definitions)
+        remove=next(d for d in definitions if d['tool']['name']=='nox-yard__yard_container_remove')
+        assert remove['cli']['preview']['tool']=='nox-yard__yard_container_remove_preview'
+        assert remove['cli']['confirmation']['bindPointer']=='/confirm'
+        status_result=rpc('tools/call',{'name':'nox-yard__yard_status','arguments':{}})
+        assert not status_result.get('isError') and status_result['structuredContent']['service']=='nox-yard'
+        # A uniquely labeled disposable target, never an existing host workload.
+        target_name=name+'-menu-target';containers.append(target_name)
+        target=docker('run','-d','--name',target_name,'--label','nox-yard.acceptance='+name,'alpine:3.23','sleep','300')
+        assert docker('inspect','--format','{{ index .Config.Labels "nox-yard.acceptance" }}',target)==name
+        preview=rpc('tools/call',{'name':remove['cli']['preview']['tool'],'arguments':{'id':target,'removeVolumes':False,'removeImages':False}})
+        assert not preview.get('isError'),preview
+        fingerprint=preview['structuredContent']['fingerprint']
+        rejected=rpc('tools/call',{'name':remove['tool']['name'],'arguments':{'id':target,'fingerprint':fingerprint,'confirm':False}})
+        assert rejected.get('isError') and 'structuredContent' not in rejected
+        assert docker('inspect','--format','{{.Id}}',target)==target,'Unconfirmed removal changed the target'
+        removed=rpc('tools/call',{'name':remove['tool']['name'],'arguments':{'id':target,'fingerprint':fingerprint,'confirm':True,'removeVolumes':False,'removeImages':False}})
+        assert not removed.get('isError'),removed
+        assert not docker('ps','-aq','--filter','id='+target),'Confirmed target was not removed'
+        print('PASS: actual Gateway exposes 38 private Yard menu definitions, executes status, and enforces preview/confirmation before removing only the disposable target',flush=True)
     if args.lifecycle:
         docker('stop',yard)
         projects=base/'projects';projects.mkdir()

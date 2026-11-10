@@ -5,7 +5,7 @@
 
 Yard is a self-hosted dashboard for managing Docker containers and Compose projects. See what's running, find a failing service, deploy a stack, and manage updates from one place.
 
-Part of the NoX environment, Yard also works independently with its own local account. No external account or service is required.
+Yard manages Docker directly and does not require Backend or Gateway for native workload management. Dashboard sign-in uses NoX Login through the shared NoX Auth service; Google credentials and allowed accounts are configured only in Auth.
 
 **Self-hosted · Docker-native · Source-available · Linux AMD64 & ARM64**
 
@@ -55,7 +55,12 @@ Enable them in **Settings → MCP & access**, generate a Yard token, and choose 
 - [MCP setup and tool reference](Documentation/Developer/MCP.md)
 - [Control API reference](Documentation/Developer/Control-API.md)
 
-NoX Gateway integration is planned; it is not required to use Yard or its direct MCP endpoint.
+For NoX Suite, connect Yard from Backend's **Service connections** using its native
+HTTP/HTTPS origin. Backend verifies the same-host Unix channel and handles pairing
+and registration. Suite MCP uses Backend-issued delegations independently of the
+direct MCP switch/token. The CLI receives human menus through Gateway; ordinary
+`tools/list` excludes menu metadata. See [Suite integration](Documentation/Developer/Suite-Integration.md)
+and [MCP menus](Documentation/Developer/MCP.md#human-menus-through-nox-discovery).
 
 ## Your host, your data
 

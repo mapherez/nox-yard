@@ -47,7 +47,7 @@ resolve to the same writable named volume. Ordinary unmarked services/companions
 are left untouched. IDs must be SDK-valid and unique per project; the participant
 service must have exactly one replica. The product image must implement its own
 local listener, declaration and idempotent pairing receiver. A marker cannot make
-an unadapted image integrated, grant trust, or replace the future product MCP work.
+an unadapted image integrated, grant trust, or supply MCP tools that the product does not implement.
 The convention works for any conforming product, not a fixed product list.
 
 ## Durable registration and lifecycle
@@ -107,9 +107,20 @@ containers, volumes, networks and runner image are cleaned; it does not deploy a
 user stack or contact Google. Existing browser/native regression and full source
 checks remain required. Real Google/global logout was separately owner-accepted.
 
-Publish/update the Backend implementation with scoped installer management before
-installing this Yard adapter. Auth v0.0.2 and SDK v0.7.2 need no new release for
-this change. The lifecycle candidate-image test is an additional local gate;
-the default published-dependency CI fixture covers foundation pairing. Neither
-local result claims a remote CI run, new publication, point 10 tool/menu adaptation,
-CLI delivery, or the final multi-product acceptance of point 12.
+Use compatible Backend/yard releases for scoped installer management. The menu
+adapter consumes published SDK v0.7.3; it does not require another Auth release,
+new Compose settings or an additional service. The separate Gateway acceptance
+uses an image with SDK 0.7.3 and the point-2 response/error corrections:
+
+```sh
+python3 scripts/smoke-suite.py --image <yard-image> --backend-image ghcr.io/mapherez/nox-backend:v1.2.2 --gateway-image <gateway-image>
+```
+
+That optional gate verifies 38 canonical Yard menu definitions through the actual
+Gateway, omission of menu paths from ordinary listing, status execution and
+preview/confirmation on a uniquely created disposable container. It checks that
+a rejected confirmation leaves it intact before confirming that target's removal.
+No installed workload or personal credential is used. Definition/permission and
+pre-menu tool-contract regressions are in the required Go suite. Gateway/full
+lifecycle image coverage remains distinct from the default foundation CI fixture;
+passing a local candidate is not a claim about publication or the full Suite.

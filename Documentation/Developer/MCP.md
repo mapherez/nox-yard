@@ -4,7 +4,7 @@ Yard exposes an opt-in Streamable HTTP MCP endpoint at `http://127.0.0.1:8096/mc
 
 MCP starts disabled. Administrator Settings enable it with either a Yard Bearer token (the default authentication mode) or explicitly selected anonymous access. Only one local token is active across MCP and Control API. Rotation/revocation is transactional and checked on each HTTP request; cookies, query parameters and browser credentials never authenticate MCP. The UI displays a new random 256-bit token once; SQLite stores its SHA-256 digest and the latest ten token events. An invalid supplied token never downgrades to anonymous access. When a request includes Origin, it must match `NOX_PUBLIC_URL`, or the direct request origin when that setting is empty. There is no additional CORS policy. Static local Bearer tokens do not implement the MCP OAuth authorization/discovery flow.
 
-Browser authentication and `/api/*` retain session/Origin/CSRF protection. `/v1/*` uses the shared local token with its own enable switch and remains authenticated even in anonymous MCP mode. `/healthz` keeps its SQLite readiness contract. Unknown MCP paths return JSON errors. MCP exposes neither a stdio service nor the NoX desktop bridge. NoX Backend/Gateway registration and delegated identity are deferred until their shared contract is available; no arbitrary NoX key or claimed identity header is accepted.
+Browser authentication and `/api/*` retain session/Origin/CSRF protection. `/v1/*` uses the shared local token with its own enable switch and remains authenticated even in anonymous MCP mode. `/healthz` keeps its SQLite readiness contract. Unknown MCP paths return JSON errors. MCP exposes neither a stdio service nor the NoX desktop bridge. The independent [Suite adapter](Suite-Integration.md) is available on the local Unix channel and accepts verified Backend delegations, not the direct Yard token, browser cookie or caller-supplied identity headers.
 
 ## Enforced permissions
 
@@ -22,7 +22,13 @@ Facade operations accept the adapter's context, introduce no deadlines and do no
 
 ## Tools
 
-The `yard_*` names remain the canonical MCP identifiers. Each tool also exposes `_meta.cli` through `tools/list` as additional metadata for human-facing clients; generic MCP clients may ignore it. The CLI paths below are local to the application. The future CLI is responsible for adding the `yard` prefix (for example, `container logs` becomes `yard container logs`); that prefix is not part of the metadata.
+The same 38 `yard_*` tools remain canonical. Yard uses the published NoX MCP
+`v0.7.3` module. Conventional `tools/list` contains names, descriptions, schemas
+and annotations, with no `_meta.cli` or human menu descriptors. The direct endpoint
+does not enable NoX discovery. On the Suite path, `nox/tools/definitions` retains
+canonical `_meta.cli` paths and separate rich `cli` descriptors for human clients.
+Gateway translates their references without changing tool semantics. Paths are
+app-local; the product hierarchy is provided by Gateway/CLI, not by renaming tools.
 
 IDs must be copied from inventory: containers use full 64-character lowercase hexadecimal IDs; projects use `container:<id>` or `compose:<name>`. Configuration tools require `compose:<name>`, including external projects and Yard itself. Legacy managed Compose operations take the saved project name instead.
 
@@ -35,7 +41,7 @@ IDs must be copied from inventory: containers use full 64-character lowercase he
 | `yard_container_inspect` | `container inspect` | `id`. Ports, mounts, networks and environment names, without values. |
 | `yard_container_environment` | `container env` | `id`. Explicitly returns potentially sensitive environment values. |
 | `yard_container_logs` | `container logs` | `id`. Last 20 decoded records, without following the stream. |
-| `yard_container_log_history` | `container logs history` | `id`, optional RFC3339 `since`, `until`, opaque `cursor`. Sensitive read. At most 1,000 events / 4 MiB; next cursor preserves repeated timestamps. Reads Docker retention only. |
+| `yard_container_log_history` | `container log history` | `id`, optional RFC3339 `since`, `until`, opaque `cursor`. Sensitive read. At most 1,000 events / 4 MiB; next cursor preserves repeated timestamps. Reads Docker retention only. |
 | `yard_container_action` | `container action` | `id`, `action`: `start`, `stop`, `restart`. Shared Engine lifecycle. |
 | `yard_project_action` | `project action` | `id`, `action`: `start`, `stop`, `restart`. Native Compose with accessible source and active selection; assessed Engine fallback for absent source. Restart includes stopped services and can rerun initializers. |
 | `yard_container_pull` | `container pull` | `id`. For a Compose member, pull only its service image using current host files; otherwise use runtime configuration. No container changes or build. |
@@ -67,7 +73,7 @@ IDs must be copied from inventory: containers use full 64-character lowercase he
 | `yard_self_update_settings` | `update settings` | Compatibility inputs `automatic`, `intervalMinutes` (5, 15, 30, 60 or 360). Synchronizes daily on/off, preserving the chosen time; the interval no longer drives a timer and saving does not trigger a check. Prefer `yard_project_schedule_set` for Yard's daily time. |
 | `yard_self_update_check_and_update` | `update now` | No inputs. Queue a manual check which can install an update and restart Yard **even when automatic updates are disabled**. Observe progress with `yard_self_update_status`. |
 
-Required fields and output shapes are available through `tools/list`. Normal results use structured content plus a JSON text representation. Errors use `IsError` and a code/message envelope; operation errors retain counters and partial results under `details.result`. Accepted jobs and queued restart helpers are not reported as completed operations.
+Required fields and output shapes are available through `tools/list`. Normal results use structured content plus a JSON text representation. Errors use `isError: true`, JSON text content and no success `structuredContent`; operation errors retain counters and partial results under `details.result`. Accepted jobs and queued restart helpers are not reported as completed operations.
 
 The configuration flow is **read → save file or set variable → preview Recreate → submit Recreate**. Read the fingerprint before each edit; a terminal edit or another save invalidates it. Conflicts require rereading and reviewing the current contents, never a blind retry. File paths are relative to the returned project directory; ordered Compose names and nested env-file paths remain unchanged. Writes share browser validation, resource reservations and secret-safe job history. Saving never pulls, builds or recreates. Start/Stop/Restart operate existing containers; Restart does not apply new configuration. Read saved configuration through the new tools; `yard_container_environment` still inspects runtime values.
 
@@ -77,24 +83,70 @@ All tools explicitly declare ReadOnly, Destructive and Idempotent through NoX MC
 
 ## Limits and continuous features
 
-The Yard configures the NoX MCP runtime with a global **60-second timeout**, 32 concurrent requests and an 8 MiB payload limit. Existing Compose source limits still apply. Neither the server's 130-second WriteTimeout nor the NoX MCP library's default timeout is changed.
+Yard configures a **60-second timeout** and 32 concurrent requests. Direct MCP has an 8 MiB payload limit; Suite uses the shared 2 MiB frame bound and its request-budget controls. Existing Compose source limits still apply. Neither the server's 130-second WriteTimeout nor the NoX MCP library's default timeout is changed.
 
 The complete catalog contains 38 tools; clients see the subset allowed by their active permission profile. Managed Compose, external update/recreate and Yard restart use independent durable workers; self-update retains its dedicated worker. Query job/history/status tools rather than treating an accepted response as completion. Pulls and configuration reads/writes remain synchronous and share the MCP timeout. Interrupted Engine responses persist recovery-required outcomes and hold resource reservations until reviewed. There are no automatic mutation retries. See [Durable operations](Operation-Jobs.md) for the additive fields and recovery procedure, and [External updates](External-Updates.md) for configuration limits and removal compatibility. Omitted volume choice now retains volumes, correcting the former Engine default.
 
 Container log snapshots share Docker opening and stdout/stderr/TTY decoding with browser SSE. The browser retains its 200-record initial tail and continuous stream. Long lines retain the existing 16 KiB segmentation, and snapshots keep at most 20 decoded records.
 
-Interactive terminal, continuous log/event subscriptions, administrator setup/login/logout and password recovery remain in their existing interfaces. MCP does not provide an alternate command-execution implementation.
+Interactive terminal and continuous log/event subscriptions remain in their native interfaces. Dashboard entry uses NoX Login; the retained password-recovery command is only for compatible older-image rollback, not current login. MCP does not provide an alternate command-execution implementation.
+
+## Human menus through NoX discovery
+
+Every canonical tool has a version `1.0` descriptor in the Suite NoX definitions.
+The descriptor supplies an EN-US label, ordering and grouping on the existing
+paths: health/status/metrics, projects, containers, Compose, recreation, jobs,
+settings and Yard updates. Normal AI tool discovery/execution is independent.
+
+- Project targets and job-history targets select opaque IDs from `yard_projects`.
+  Duplicate names remain separate IDs; no names are converted into IDs.
+- Container IDs stay explicit because `yard_projects` nests containers inside
+  projects and the current generic selector consumes a flat array. Managed-project
+  names, service names and action/mode strings also retain explicit inputs; no
+  wildcard projection, guessed enum or additional tool is introduced.
+- Configuration save selects a returned file path. Source YAML/file contents use
+  multiline input; maps/arrays use schema-driven JSON. Variables, env-file maps,
+  override file maps and individual variable values use masked input and are
+  hidden in the client review. Authorized source/override results can still be
+  sensitive; metadata does not change their existing read permissions.
+- Removal, recreation and deployment call their existing read-only preview before
+  confirmation. The current fingerprint is bound into the unchanged mutation;
+  removal/recreation also bind the existing `confirm` flag after a matching typed
+  target confirmation. Resource-removal choices and service scope are forwarded.
+- File/variable edits and override workflows first capture configuration metadata,
+  then collect the edits. Their final write keeps that earlier fingerprint rather
+  than silently rebinding changed files. Override application uses the preview's
+  frozen source, destination and candidate fingerprint. Containers are not changed
+  by a configuration save.
+- Recovery acknowledgment reads the existing job revision and requires explicit
+  host review and typed confirmation. Self-update warns that it can restart Yard
+  even when automatic updates are disabled. Accepted jobs are not shown as finished.
+
+A missing/unauthorized reference, empty required choice, failed preview, stale
+fingerprint or canceled confirmation must stop the flow. Descriptors grant no
+permissions, bypass no native checks and never cause automatic mutation retries.
+The CLI validates required `dynamic-options`, `preview`, `confirmation` and
+`workflow` features. These are existing NoX descriptor features, not new methods.
+
+The generic configuration-save menu is a file-edit flow; context-only
+profiles/interpolation edits remain available through the existing tool's explicit
+API arguments. The generic Compose operation is a compatibility operation with
+explicit inputs; use the preview-backed recreation/removal menus for guided flows.
+No UI metadata is added to ordinary `tools/list` to support these interactions.
 
 ## Updating the library
 
-Use normal Go module resolution; do not manually select commits or add a local checkout replacement:
+Consume a published release through Go modules, not a local checkout replacement:
 
 ```sh
-go get github.com/mapherez/nox-mcp@latest
+go get github.com/mapherez/nox-mcp@v0.7.3
 go mod tidy
 ```
 
-Commit the resolved `go.mod`/`go.sum` updates and run the existing repository checks, including MCP integration tests and multi-architecture builds. Go may resolve a pseudo-version when no release tag exists; that version is generated by Go and does not require manual SHA management.
+Commit the resolved dependency/checksum changes and run the repository checks.
+Updates must preserve ordinary tool contracts and validate canonical definitions,
+authorized references and real client interactions. The pre-menu tool-contract
+hash fixture covers the existing names, schemas, descriptions and annotations.
 
 ## Validation
 

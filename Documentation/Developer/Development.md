@@ -103,7 +103,7 @@ npx --yes --package @playwright/cli playwright-cli -s=history run-code --filenam
 npx --yes --package @playwright/cli playwright-cli -s=history close
 ```
 
-The scripts mock API responses in the test browser only; they check reload/reopening, action blocking, keyboard acknowledgement/conflict/retry/focus, rollback/cleanup details and responsive layouts down to 320px. Screenshots go to ignored `output/playwright/`. The mandatory runner covers the browser fixtures: history, recreate, schedules, session expiry, file configuration, dashboard, drawers and MCP/access settings. Real Docker interruption remains the jobs fixture's responsibility. CI runs all ten current-image Docker suites and the ARM64 runtime smoke; broader host/platform acceptance gaps remain recorded in [Progress](Progress.md#remaining-implementation-and-acceptance).
+The scripts mock API responses in the test browser only; they check reload/reopening, action blocking, keyboard acknowledgement/conflict/retry/focus, rollback/cleanup details and responsive layouts down to 320px. Screenshots go to ignored `output/playwright/`. The mandatory runner covers the browser fixtures: history, recreate, schedules, session expiry, file configuration, dashboard, drawers and MCP/access settings. Real Docker interruption remains the jobs fixture's responsibility. CI runs the twelve current-image runtime suites and the ARM64 runtime smoke; broader host/platform acceptance gaps remain recorded in [Progress](Progress.md#remaining-acceptance-outside-this-local-environment).
 
 ## GitHub CI and image publication
 

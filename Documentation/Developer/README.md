@@ -7,7 +7,7 @@ Start here:
 - [Development](Development.md) — toolchains, local workflow, checks and recovery.
 - [Architecture](Architecture.md) — boundaries and data flow.
 - [Features](Features.md) — implemented behavior and supported limits.
-- [Progress](Progress.md) — current review, verification boundaries and remaining work.
+- [Progress](Progress.md) — current verification boundaries, followed by clearly dated historical checkpoints.
 - [Releases](Releases.md) — publication, signatures, verification and failed-release recovery.
 
 ## Technical references
@@ -22,7 +22,7 @@ Start here:
 | [Project schedules](Project-Schedules.md) | Daily project/Yard updates, timezone and failed-image suppression. |
 | [Self-update](Self-Update.md) | Yard image trust, installation, health checks and SQLite/runtime recovery. |
 | [Suite integration](Suite-Integration.md) | Same-host pairing, participating services, scoped deployment registration, lifecycle and recovery. |
-| [MCP](MCP.md) | Direct access, authorization, tools and shared-library maintenance. |
+| [MCP](MCP.md) | Direct/Suite access, unchanged tools, private human menus and shared-library maintenance. |
 | [Control API](Control-API.md) | Versioned machine endpoints, Bearer access and response contracts. |
 | [Design system](Design-System.md) | UI conventions, tokens, responsive behavior and visual QA. |
 | [Decisions](Decisions.md) | Architectural decisions and explicit supersession of earlier choices. |

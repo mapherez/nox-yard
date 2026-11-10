@@ -36,6 +36,26 @@ To add an override, open **Compose and environment files → Add override**, pro
 
 **Terminal** opens an interactive `/bin/sh` in the selected running container. The container must provide that shell. Leaving the terminal view closes the session.
 
+## NoX Suite and terminal access
+
+Connect Yard from Backend's **Service connections** after installing the services
+on the same host with their normal runtime-volume mounts. Yard remains the Docker
+deployment manager; Backend owns membership/authorization and Gateway routes tools.
+Use the existing **Settings → NoX Suite** view for connection/deployment state and
+**Retry integration** for its journal. Retrying integration does not repeat the
+Docker installation.
+
+In the NoX CLI, refresh the catalog, open **Apps → NoX Yard** and navigate the
+published menus. Project actions use inventory IDs rather than displayed names;
+removal and recreation obtain a current preview before local confirmation. Jobs
+remain asynchronous: use job status/history to inspect completion.
+
+Container IDs, managed-project names, action/mode strings and complex Compose data
+remain explicit inputs where the existing result/schema cannot supply a selector.
+Use inventory/read tools for these values; never substitute a label for an ID.
+MCP clients such as AI agents use the same tools directly without receiving human
+menus in `tools/list`. See the [MCP reference](../Developer/MCP.md).
+
 ## Updates and maintenance
 
 ### Update a workload manually
