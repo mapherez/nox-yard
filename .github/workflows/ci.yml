@@ -26,6 +26,7 @@ on:
       - 'package.json'
       - 'scripts/**'
       - '.github/workflows/**'
+      - '.githooks/**'
       - '.gitattributes'
       - 'third_party/cosign/LICENSE'
       - '!**/*.md'

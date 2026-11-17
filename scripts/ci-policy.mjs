@@ -13,7 +13,7 @@ export const requiredJobs = [
 export function triggersCI(path) {
   if (/(^|\/)(?:README[^/]*|CHANGELOG[^/]*)$/i.test(path) ||
       /\.(?:md|mdx|rst)$/i.test(path) || /(^|\/)\.gitkeep$/.test(path)) return false;
-  return /^(?:cmd\/|internal\/|scripts\/|web\/(?:src\/|public\/|package(?:-lock)?\.json$|\.npmrc$|index\.html$|vite\.config\.[^/]+$|tsconfig[^/]*\.json$)|\.github\/workflows\/)/.test(path) ||
+  return /^(?:cmd\/|internal\/|scripts\/|\.githooks\/|web\/(?:src\/|public\/|package(?:-lock)?\.json$|\.npmrc$|index\.html$|vite\.config\.[^/]+$|tsconfig[^/]*\.json$)|\.github\/workflows\/)/.test(path) ||
     ['go.mod', 'go.sum', '.nvmrc', 'Dockerfile', 'compose.yaml', 'compose.dev.yaml', '.env.example', 'package.json', 'third_party/cosign/LICENSE', '.gitattributes'].includes(path);
 }
 

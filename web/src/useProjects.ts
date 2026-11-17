@@ -1,19 +1,44 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getProjects, getMetrics, notifySessionExpired, type Project, type ContainerMetrics } from "./api";
-import { operationState, subscribeInventoryActions, type InventoryAction } from "./inventoryUpdates";
+import {
+  getProjects,
+  getMetrics,
+  notifySessionExpired,
+  type Project,
+  type ContainerMetrics,
+} from "./api";
+import {
+  operationState,
+  subscribeInventoryActions,
+  type InventoryAction,
+} from "./inventoryUpdates";
 import { notifyServerConnected } from "./useInterfaceUpdates";
 
-export function mergeMetrics(projects: Project[], samples: Record<string, ContainerMetrics>): Project[] {
-  return projects.map(project => {
-    const containers = project.containers.map(container => {
+export function mergeMetrics(
+  projects: Project[],
+  samples: Record<string, ContainerMetrics>,
+): Project[] {
+  return projects.map((project) => {
+    const containers = project.containers.map((container) => {
       const sample = samples[container.id];
       return container.state === "running" && sample ? { ...container, ...sample } : container;
     });
-    const running = containers.filter(container => container.state === "running");
-    const total = (key: "cpuPercent" | "memoryBytes" | "networkRxBytes" | "networkTxBytes") => running.length && running.every(container => container[key] !== null)
-      ? running.reduce((sum, container) => sum + (container[key] ?? 0), 0) : null;
-    const uptimes = running.flatMap(container => container.uptimeSeconds === null ? [] : [container.uptimeSeconds]);
-    return { ...project, containers, cpuPercent: total("cpuPercent"), memoryBytes: total("memoryBytes"), networkRxBytes: total("networkRxBytes"), networkTxBytes: total("networkTxBytes"), uptimeSeconds: uptimes.length ? Math.min(...uptimes) : null };
+    const running = containers.filter((container) => container.state === "running");
+    const total = (key: "cpuPercent" | "memoryBytes" | "networkRxBytes" | "networkTxBytes") =>
+      running.length && running.every((container) => container[key] !== null)
+        ? running.reduce((sum, container) => sum + (container[key] ?? 0), 0)
+        : null;
+    const uptimes = running.flatMap((container) =>
+      container.uptimeSeconds === null ? [] : [container.uptimeSeconds],
+    );
+    return {
+      ...project,
+      containers,
+      cpuPercent: total("cpuPercent"),
+      memoryBytes: total("memoryBytes"),
+      networkRxBytes: total("networkRxBytes"),
+      networkTxBytes: total("networkTxBytes"),
+      uptimeSeconds: uptimes.length ? Math.min(...uptimes) : null,
+    };
   });
 }
 
@@ -42,7 +67,10 @@ export function useProjects() {
     async function refreshInventory() {
       if (!active || !visible()) return;
       revision++;
-      if (busy) { dirty = true; return; }
+      if (busy) {
+        dirty = true;
+        return;
+      }
       busy = true;
       setRefreshing(true);
       try {
@@ -56,7 +84,10 @@ export function useProjects() {
           lastRefresh = Date.now();
         } while (dirty && active && visible());
       } catch (cause) {
-        if (active) setInventoryError(cause instanceof Error ? cause.message : "Unable to load Docker projects.");
+        if (active)
+          setInventoryError(
+            cause instanceof Error ? cause.message : "Unable to load Docker projects.",
+          );
       } finally {
         busy = false;
         if (active) {
@@ -69,20 +100,28 @@ export function useProjects() {
 
     function scheduleRefresh() {
       if (scheduled !== undefined) return;
-      scheduled = window.setTimeout(() => { scheduled = undefined; void refreshInventory(); }, 100);
+      scheduled = window.setTimeout(() => {
+        scheduled = undefined;
+        void refreshInventory();
+      }, 100);
     }
 
     async function refreshMetrics() {
       if (!active || document.visibilityState === "hidden") return;
-      if (metricsBusy) { metricsDirty = true; return; }
+      if (metricsBusy) {
+        metricsDirty = true;
+        return;
+      }
       metricsBusy = true;
       metricsDirty = false;
       const startedRevision = revision;
       try {
         const samples = await getMetrics(controller.signal);
-        if (active && !busy && revision === startedRevision) setInventory(current => current && mergeMetrics(current, samples));
-      } catch { /* Metrics failure must not hide or block inventory. */ }
-      finally {
+        if (active && !busy && revision === startedRevision)
+          setInventory((current) => current && mergeMetrics(current, samples));
+      } catch {
+        /* Metrics failure must not hide or block inventory. */
+      } finally {
         metricsBusy = false;
         if (active && metricsDirty) void refreshMetrics();
       }
@@ -94,30 +133,43 @@ export function useProjects() {
       if (!active || document.visibilityState === "hidden") return;
       source = new EventSource("/api/projects/events");
       source.addEventListener("open", notifyServerConnected);
-      source.addEventListener("change", event => {
+      source.addEventListener("change", (event) => {
         try {
-          const change = JSON.parse((event as MessageEvent<string>).data) as { inventory?: boolean; metrics?: boolean };
+          const change = JSON.parse((event as MessageEvent<string>).data) as {
+            inventory?: boolean;
+            metrics?: boolean;
+          };
           if (change.inventory) scheduleRefresh();
           if (change.metrics) void refreshMetrics();
-        } catch { scheduleRefresh(); }
+        } catch {
+          scheduleRefresh();
+        }
       });
       source.addEventListener("session-expired", () => {
         source?.close();
         notifySessionExpired();
       });
-      source.onerror = () => { void refreshInventory(); };
+      source.onerror = () => {
+        void refreshInventory();
+      };
     }
 
-    refreshRef.current = () => { void refreshInventory(); };
-    const unsubscribe = subscribeInventoryActions(action => {
-      setActions(current => {
+    refreshRef.current = () => {
+      void refreshInventory();
+    };
+    const unsubscribe = subscribeInventoryActions((action) => {
+      setActions((current) => {
         const next = { ...current };
-        if (action.finished) delete next[action.id]; else next[action.id] = action;
+        if (action.finished) delete next[action.id];
+        else next[action.id] = action;
         return next;
       });
       if (action.finished) void refreshInventory();
     });
-    function onVisible() { connect(); if (document.visibilityState === "visible") void refreshInventory(); }
+    function onVisible() {
+      connect();
+      if (document.visibilityState === "visible") void refreshInventory();
+    }
     connect();
     void refreshInventory();
     // Live events are primary. Poll only for disconnected fallback or a slower
@@ -142,14 +194,26 @@ export function useProjects() {
 
   const projects = useMemo(() => {
     const pending = Object.values(actions);
-    return inventory?.map(project => {
-      const projectAction = pending.find(action => action.target === project.id);
-      const containers = project.containers.map(container => {
-        const action = pending.find(item => item.target === `container:${container.id}`) || projectAction;
-        return action ? { ...container, operation: operationState(action.operation) || container.operation } : container;
-      });
-      return { ...project, containers, operation: (projectAction && operationState(projectAction.operation)) || project.operation || containers.find(container => container.operation)?.operation };
-    }) ?? null;
+    return (
+      inventory?.map((project) => {
+        const projectAction = pending.find((action) => action.target === project.id);
+        const containers = project.containers.map((container) => {
+          const action =
+            pending.find((item) => item.target === `container:${container.id}`) || projectAction;
+          return action
+            ? { ...container, operation: operationState(action.operation) || container.operation }
+            : container;
+        });
+        return {
+          ...project,
+          containers,
+          operation:
+            (projectAction && operationState(projectAction.operation)) ||
+            project.operation ||
+            containers.find((container) => container.operation)?.operation,
+        };
+      }) ?? null
+    );
   }, [inventory, actions]);
   return { projects, inventoryError, collectedAt, refreshing, refresh };
 }

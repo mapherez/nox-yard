@@ -7,9 +7,15 @@ export function notifyServerConnected() {
 }
 
 function interfaceRevision(page: Document): string | null {
-  const scripts = Array.from(page.querySelectorAll<HTMLScriptElement>('script[type="module"][src]'), script => script.getAttribute("src"));
+  const scripts = Array.from(
+    page.querySelectorAll<HTMLScriptElement>('script[type="module"][src]'),
+    (script) => script.getAttribute("src"),
+  );
   if (!scripts.length) return null;
-  const styles = Array.from(page.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"][href]'), link => link.getAttribute("href"));
+  const styles = Array.from(
+    page.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"][href]'),
+    (link) => link.getAttribute("href"),
+  );
   const version = page.querySelector<HTMLMetaElement>('meta[name="yard-version"]')?.content ?? "";
   return JSON.stringify({ version, scripts, styles });
 }
@@ -25,7 +31,7 @@ export function useInterfaceUpdates() {
     let pending = false;
     let reloading = false;
     let request: AbortController | null = null;
-    const editing = () => Boolean(document.querySelector('dialog[open], form:focus-within'));
+    const editing = () => Boolean(document.querySelector("dialog[open], form:focus-within"));
 
     async function check() {
       if (!active || reloading || request || document.visibilityState === "hidden") return;
@@ -33,26 +39,42 @@ export function useInterfaceUpdates() {
       request = controller;
       const timeout = window.setTimeout(() => controller.abort(), 8000);
       try {
-        const response = await fetch(window.location.href, { cache: "no-store", credentials: "same-origin", signal: controller.signal });
+        const response = await fetch(window.location.href, {
+          cache: "no-store",
+          credentials: "same-origin",
+          signal: controller.signal,
+        });
         if (!response.ok || !response.headers.get("Content-Type")?.includes("text/html")) return;
-        const next = interfaceRevision(new DOMParser().parseFromString(await response.text(), "text/html"));
+        const next = interfaceRevision(
+          new DOMParser().parseFromString(await response.text(), "text/html"),
+        );
         if (!active || !next) return;
         pending = next !== loaded;
         if (pending && !editing()) {
           reloading = true;
           window.location.reload();
         }
-      } catch { /* Keep the current interface usable during server restarts. */ }
-      finally {
+      } catch {
+        /* Keep the current interface usable during server restarts. */
+      } finally {
         window.clearTimeout(timeout);
         if (request === controller) request = null;
       }
     }
 
-    const checkPending = () => { if (pending && !editing()) void check(); };
-    const checkNow = () => { void check(); };
+    const checkPending = () => {
+      if (pending && !editing()) void check();
+    };
+    const checkNow = () => {
+      void check();
+    };
     const observer = new MutationObserver(checkPending);
-    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["open"] });
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["open"],
+    });
     const interval = window.setInterval(checkNow, 15_000);
     document.addEventListener("visibilitychange", checkNow);
     document.addEventListener("focusout", checkPending);

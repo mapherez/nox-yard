@@ -7,16 +7,30 @@ import styles from "./App.module.css";
 
 type TerminalStatus = "connecting" | "connected" | "exited" | "error";
 
-export function TerminalPanel({ project, preferredContainerID, csrfToken, onSelectContainer }: {
+export function TerminalPanel({
+  project,
+  preferredContainerID,
+  csrfToken,
+  onSelectContainer,
+}: {
   project: Project;
   preferredContainerID?: string;
   csrfToken: string;
   onSelectContainer: (id: string) => void;
 }) {
   const [selectedID, setSelectedID] = useState(
-    project.containers.find((item) => item.id === preferredContainerID && item.state === "running" && item.terminalAvailable !== false)?.id
-    || project.containers.find((item) => item.state === "running" && item.terminalAvailable !== false)?.id
-    || preferredContainerID || project.containers[0]?.id || "",
+    project.containers.find(
+      (item) =>
+        item.id === preferredContainerID &&
+        item.state === "running" &&
+        item.terminalAvailable !== false,
+    )?.id ||
+      project.containers.find(
+        (item) => item.state === "running" && item.terminalAvailable !== false,
+      )?.id ||
+      preferredContainerID ||
+      project.containers[0]?.id ||
+      "",
   );
   const [retryKey, setRetryKey] = useState(0);
   const [status, setStatus] = useState<TerminalStatus>("connecting");
@@ -25,7 +39,13 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
   const container = project.containers.find((item) => item.id === selectedID);
 
   useEffect(() => {
-    if (!container || container.state !== "running" || container.terminalAvailable === false || !surfaceRef.current) return;
+    if (
+      !container ||
+      container.state !== "running" ||
+      container.terminalAvailable === false ||
+      !surfaceRef.current
+    )
+      return;
     const surface = surfaceRef.current;
     const palette = getComputedStyle(surface);
     const terminal = new Terminal({
@@ -64,17 +84,21 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
     setStatus("connecting");
     setMessage("");
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${protocol}//${location.host}/api/containers/${container.id}/terminal`);
+    const socket = new WebSocket(
+      `${protocol}//${location.host}/api/containers/${container.id}/terminal`,
+    );
     socket.binaryType = "arraybuffer";
     const encoder = new TextEncoder();
     const resize = () => {
       fit.fit();
       if (ready && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-          type: "resize",
-          cols: Math.max(20, Math.min(500, terminal.cols)),
-          rows: Math.max(5, Math.min(200, terminal.rows)),
-        }));
+        socket.send(
+          JSON.stringify({
+            type: "resize",
+            cols: Math.max(20, Math.min(500, terminal.cols)),
+            rows: Math.max(5, Math.min(200, terminal.rows)),
+          }),
+        );
       }
     };
     const observer = new ResizeObserver(resize);
@@ -85,11 +109,14 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
 
     socket.onopen = () => {
       fit.fit();
-      socket.send(JSON.stringify({
-        type: "open", csrfToken,
-        cols: Math.max(20, Math.min(500, terminal.cols)),
-        rows: Math.max(5, Math.min(200, terminal.rows)),
-      }));
+      socket.send(
+        JSON.stringify({
+          type: "open",
+          csrfToken,
+          cols: Math.max(20, Math.min(500, terminal.cols)),
+          rows: Math.max(5, Math.min(200, terminal.rows)),
+        }),
+      );
     };
     socket.onmessage = (event) => {
       if (!active) return;
@@ -98,7 +125,11 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
         return;
       }
       try {
-        const response = JSON.parse(event.data as string) as { type: string; code?: number; error?: string };
+        const response = JSON.parse(event.data as string) as {
+          type: string;
+          code?: number;
+          error?: string;
+        };
         if (response.type === "ready") {
           ready = true;
           setStatus("connected");
@@ -154,31 +185,91 @@ export function TerminalPanel({ project, preferredContainerID, csrfToken, onSele
     };
   }, [selectedID, retryKey, csrfToken, container?.state, container?.terminalAvailable]);
 
-  if (!container) return <p className={styles.detailSummary}>No containers are available for a terminal.</p>;
+  if (!container)
+    return <p className={styles.detailSummary}>No containers are available for a terminal.</p>;
 
-  return <section className={styles.terminalPanel} aria-label="Container terminal">
-    <div className={styles.logsToolbar}>
-      {project.containers.length > 1
-        ? <label className={styles.logsSelector}>Container
-            <select value={container.id} onChange={(event) => {
-              setStatus("connecting");
-              setMessage("");
-              setSelectedID(event.target.value);
-              onSelectContainer(event.target.value);
-            }}>
-              {project.containers.map((item) => <option key={item.id} value={item.id} disabled={item.terminalAvailable === false}>{item.service ? `${item.service} · ${item.name}` : item.name}{item.terminalAvailable === false ? " (no /bin/sh)" : item.state === "running" ? "" : " (stopped)"}</option>)}
+  return (
+    <section className={styles.terminalPanel} aria-label="Container terminal">
+      <div className={styles.logsToolbar}>
+        {project.containers.length > 1 ? (
+          <label className={styles.logsSelector}>
+            Container
+            <select
+              value={container.id}
+              onChange={(event) => {
+                setStatus("connecting");
+                setMessage("");
+                setSelectedID(event.target.value);
+                onSelectContainer(event.target.value);
+              }}
+            >
+              {project.containers.map((item) => (
+                <option key={item.id} value={item.id} disabled={item.terminalAvailable === false}>
+                  {item.service ? `${item.service} · ${item.name}` : item.name}
+                  {item.terminalAvailable === false
+                    ? " (no /bin/sh)"
+                    : item.state === "running"
+                      ? ""
+                      : " (stopped)"}
+                </option>
+              ))}
             </select>
           </label>
-        : <strong className={styles.logsContainerName}>{container.service || container.name}</strong>}
-      <button type="button" className={`${styles.inspectButton} ${styles.iconAction}`} aria-label="Reconnect terminal" title="Reconnect terminal" disabled={container.state !== "running" || container.terminalAvailable === false} onClick={() => setRetryKey((key) => key + 1)}><i className="ph-bold ph-arrows-clockwise" aria-hidden="true" /></button>
-    </div>
-    {container.state !== "running" && <p className={styles.detailSummary}>Start this container before opening a terminal.</p>}
-    {container.state === "running" && container.terminalAvailable === false && <p className={styles.detailSummary}>Terminal unavailable: this container has no /bin/sh shell.</p>}
-    {container.state === "running" && container.terminalAvailable !== false && <>
-      <p className={styles.logStatus} role="status">{status === "connecting" ? "Connecting…" : status === "connected" ? "Connected" : status === "exited" ? "Session ended" : "Disconnected"}</p>
-      {message && <p className={status === "error" ? styles.inventoryError : styles.detailSummary} role={status === "error" ? "alert" : "status"}>{message}</p>}
-      <div ref={surfaceRef} className={styles.terminalSurface} data-drawer-swipe-ignore aria-label={`${container.service || container.name} interactive terminal`} />
-    </>}
-    <p className={styles.terminalHint}>Commands run inside the selected container as its configured user. This session is not saved.</p>
-  </section>;
+        ) : (
+          <strong className={styles.logsContainerName}>
+            {container.service || container.name}
+          </strong>
+        )}
+        <button
+          type="button"
+          className={`${styles.inspectButton} ${styles.iconAction}`}
+          aria-label="Reconnect terminal"
+          title="Reconnect terminal"
+          disabled={container.state !== "running" || container.terminalAvailable === false}
+          onClick={() => setRetryKey((key) => key + 1)}
+        >
+          <i className="ph-bold ph-arrows-clockwise" aria-hidden="true" />
+        </button>
+      </div>
+      {container.state !== "running" && (
+        <p className={styles.detailSummary}>Start this container before opening a terminal.</p>
+      )}
+      {container.state === "running" && container.terminalAvailable === false && (
+        <p className={styles.detailSummary}>
+          Terminal unavailable: this container has no /bin/sh shell.
+        </p>
+      )}
+      {container.state === "running" && container.terminalAvailable !== false && (
+        <>
+          <p className={styles.logStatus} role="status">
+            {status === "connecting"
+              ? "Connecting…"
+              : status === "connected"
+                ? "Connected"
+                : status === "exited"
+                  ? "Session ended"
+                  : "Disconnected"}
+          </p>
+          {message && (
+            <p
+              className={status === "error" ? styles.inventoryError : styles.detailSummary}
+              role={status === "error" ? "alert" : "status"}
+            >
+              {message}
+            </p>
+          )}
+          <div
+            ref={surfaceRef}
+            className={styles.terminalSurface}
+            data-drawer-swipe-ignore
+            aria-label={`${container.service || container.name} interactive terminal`}
+          />
+        </>
+      )}
+      <p className={styles.terminalHint}>
+        Commands run inside the selected container as its configured user. This session is not
+        saved.
+      </p>
+    </section>
+  );
 }

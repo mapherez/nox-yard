@@ -42,3 +42,9 @@ output/playwright/
 Thumbs.db
 .idea/
 .vscode/
+
+# Shared Vite+ editor configuration.
+!web/.vscode/
+web/.vscode/*
+!web/.vscode/settings.json
+!web/.vscode/extensions.json

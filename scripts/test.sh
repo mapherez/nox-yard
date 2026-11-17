@@ -16,6 +16,7 @@ if [ ! -d web/node_modules ]; then
 fi
 
 cd web
+run_check 'Frontend format, lint and types' npm run check:code
 run_check 'Frontend typecheck and build' npm run build
 
 run_check 'Frontend state regressions' npm test

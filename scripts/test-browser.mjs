@@ -36,7 +36,7 @@ try {
  await mkdir(temp, {recursive: true});
  await mkdir(path.join(root, "output/playwright"), {recursive: true});
  await readFile(path.join(root, "web/dist/index.html"));
- preview = spawn(process.execPath, [path.join(root, "web/node_modules/vite/bin/vite.js"), "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {cwd: path.join(root, "web"), stdio: "ignore"});
+ preview = spawn(process.execPath, [path.join(root, "web/node_modules/vite-plus/bin/vp"), "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {cwd: path.join(root, "web"), stdio: "ignore"});
  for (let attempt = 0; ; attempt++) {
   try { if ((await fetch(url)).ok) break; } catch {}
   if (attempt >= 100 || preview.exitCode !== null) throw new Error("Frontend preview did not become ready");

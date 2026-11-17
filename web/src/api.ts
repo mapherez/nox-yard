@@ -1,14 +1,60 @@
 import { trackInventoryAction } from "./inventoryUpdates";
 
 export type NetworkEndpoint = { bind: "127.0.0.1" | "0.0.0.0"; port: number };
-export type MachineSettings = { revision: number; mcpEnabled: boolean; apiEnabled: boolean; authMode: "token" | "anonymous"; write: boolean; secrets: boolean; autoApply: boolean; network: { yard: NetworkEndpoint; mcp: NetworkEndpoint }; hasToken: boolean; tokenCreatedAt: number };
-export type MachineStatus = { settings: MachineSettings; operational: boolean; networkStatus: { available: boolean; pending?: boolean; applied?: MachineSettings["network"]; reason?: string; job?: ManagedJob } | null };
+export type MachineSettings = {
+  revision: number;
+  mcpEnabled: boolean;
+  apiEnabled: boolean;
+  authMode: "token" | "anonymous";
+  write: boolean;
+  secrets: boolean;
+  autoApply: boolean;
+  network: { yard: NetworkEndpoint; mcp: NetworkEndpoint };
+  hasToken: boolean;
+  tokenCreatedAt: number;
+};
+export type MachineStatus = {
+  settings: MachineSettings;
+  operational: boolean;
+  networkStatus: {
+    available: boolean;
+    pending?: boolean;
+    applied?: MachineSettings["network"];
+    reason?: string;
+    job?: ManagedJob;
+  } | null;
+};
 export type TokenEvent = { id: number; action: string; actor: string; createdAt: number };
-export function getMachineStatus(signal?: AbortSignal): Promise<MachineStatus> { return request("/api/machine", { signal }); }
-export function saveMachineSettings(settings: MachineSettings, csrfToken: string): Promise<{ settings: MachineSettings; applyError?: string }> { return request("/api/machine", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(settings) }); }
-export function rotateMachineToken(revoke: boolean, csrfToken: string): Promise<{ token: string }> { return request("/api/machine/token", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ revoke, confirm: true }) }); }
-export function getMachineTokenHistory(): Promise<TokenEvent[]> { return request("/api/machine/token/history"); }
-export function applyMachineNetwork(revision: number, csrfToken: string): Promise<ManagedJob> { return request("/api/machine/apply", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ revision, confirm: true }) }); }
+export function getMachineStatus(signal?: AbortSignal): Promise<MachineStatus> {
+  return request("/api/machine", { signal });
+}
+export function saveMachineSettings(
+  settings: MachineSettings,
+  csrfToken: string,
+): Promise<{ settings: MachineSettings; applyError?: string }> {
+  return request("/api/machine", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify(settings),
+  });
+}
+export function rotateMachineToken(revoke: boolean, csrfToken: string): Promise<{ token: string }> {
+  return request("/api/machine/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ revoke, confirm: true }),
+  });
+}
+export function getMachineTokenHistory(): Promise<TokenEvent[]> {
+  return request("/api/machine/token/history");
+}
+export function applyMachineNetwork(revision: number, csrfToken: string): Promise<ManagedJob> {
+  return request("/api/machine/apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ revision, confirm: true }),
+  });
+}
 
 export const sessionExpiredEvent = "nox:session-expired";
 export function notifySessionExpired() {
@@ -20,9 +66,9 @@ export type Bootstrap = {
   authenticated: boolean;
   username?: string;
   csrfToken?: string;
- loginAvailable?: boolean;
- loginReason?: string;
- renewLogin?: boolean;
+  loginAvailable?: boolean;
+  loginReason?: string;
+  renewLogin?: boolean;
 };
 
 export type Container = {
@@ -62,7 +108,10 @@ export type Inventory = {
   projects: Project[];
 };
 
-export type ContainerMetrics = Pick<Container, "cpuPercent" | "memoryBytes" | "networkRxBytes" | "networkTxBytes" | "uptimeSeconds"> & { collectedAt: string };
+export type ContainerMetrics = Pick<
+  Container,
+  "cpuPercent" | "memoryBytes" | "networkRxBytes" | "networkTxBytes" | "uptimeSeconds"
+> & { collectedAt: string };
 
 export function getMetrics(signal?: AbortSignal): Promise<Record<string, ContainerMetrics>> {
   return request<Record<string, ContainerMetrics>>("/api/metrics", { signal, priority: "low" });
@@ -86,13 +135,27 @@ export type ManagedSource = {
 };
 
 export type ManagedRequest = {
- interpolationFiles?:string[];
- profiles?:string[]; name: string; source: ManagedSourceInput; variables: Record<string, string>; envFiles: Record<string, string>; mode: "new" | "copy" | "sync" | "adopt"; fingerprint?: string; projectDir?: string };
+  interpolationFiles?: string[];
+  profiles?: string[];
+  name: string;
+  source: ManagedSourceInput;
+  variables: Record<string, string>;
+  envFiles: Record<string, string>;
+  mode: "new" | "copy" | "sync" | "adopt";
+  fingerprint?: string;
+  projectDir?: string;
+};
 export type ManagedPreview = {
   name: string;
-	projectDir: string;
+  projectDir: string;
   adoptionDir?: string;
-  services: { name: string; image: string; ports: string[]; volumes: string[]; networks: string[] }[];
+  services: {
+    name: string;
+    image: string;
+    ports: string[];
+    volumes: string[];
+    networks: string[];
+  }[];
   volumes: string[];
   networks: string[];
   envFiles: string[];
@@ -102,21 +165,85 @@ export type ManagedPreview = {
   mode: ManagedRequest["mode"];
   fingerprint: string;
 };
-export type ImageIdentity = { service?: string; containerID?: string; imageID: string; platform?: string; startedAt?: string; previousContainerID?: string; outcome?: string; state?: string };
+export type ImageIdentity = {
+  service?: string;
+  containerID?: string;
+  imageID: string;
+  platform?: string;
+  startedAt?: string;
+  previousContainerID?: string;
+  outcome?: string;
+  state?: string;
+};
 
-export type RecreatePreview = { fingerprint: string; items: { id: string; name: string; service?: string; image: string; imageID: string; running: boolean; preserved: string[]; environment: string[] }[]; order: string[] };
-export function previewRecreate(id: string, operation: "update" | "recreate", csrfToken: string, service?: string): Promise<RecreatePreview> {
-  return request<RecreatePreview>("/api/recreate/preview", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ id, operation, service }) });
+export type RecreatePreview = {
+  fingerprint: string;
+  items: {
+    id: string;
+    name: string;
+    service?: string;
+    image: string;
+    imageID: string;
+    running: boolean;
+    preserved: string[];
+    environment: string[];
+  }[];
+  order: string[];
+};
+export function previewRecreate(
+  id: string,
+  operation: "update" | "recreate",
+  csrfToken: string,
+  service?: string,
+): Promise<RecreatePreview> {
+  return request<RecreatePreview>("/api/recreate/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ id, operation, service }),
+  });
 }
-export function submitRecreate(id: string, operation: "update" | "recreate", fingerprint: string, csrfToken: string, service?: string): Promise<ManagedJob> {
-  return trackInventoryAction(id, operation, () => request<ManagedJob>("/api/recreate/submit", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ id, operation, service, fingerprint, confirm: true }) }));
+export function submitRecreate(
+  id: string,
+  operation: "update" | "recreate",
+  fingerprint: string,
+  csrfToken: string,
+  service?: string,
+): Promise<ManagedJob> {
+  return trackInventoryAction(id, operation, () =>
+    request<ManagedJob>("/api/recreate/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      body: JSON.stringify({ id, operation, service, fingerprint, confirm: true }),
+    }),
+  );
 }
-export type ManagedJob = { id: string; projectName: string; targetID: string; domain: string; operation: string; status: "running" | "succeeded" | "failed"; stage: string; outcome?: string; scheduledFor?: number; error?: string; cleanupError?: string; rollback?: string; createdAt: number; startedAt?: number; completedAt?: number; updatedAt: number; deadlineAt?: number; workerID?: string; sourceImages?: ImageIdentity[]; targetImages?: ImageIdentity[] };
+export type ManagedJob = {
+  id: string;
+  projectName: string;
+  targetID: string;
+  domain: string;
+  operation: string;
+  status: "running" | "succeeded" | "failed";
+  stage: string;
+  outcome?: string;
+  scheduledFor?: number;
+  error?: string;
+  cleanupError?: string;
+  rollback?: string;
+  createdAt: number;
+  startedAt?: number;
+  completedAt?: number;
+  updatedAt: number;
+  deadlineAt?: number;
+  workerID?: string;
+  sourceImages?: ImageIdentity[];
+  targetImages?: ImageIdentity[];
+};
 
 export type LifecycleAction = "start" | "stop" | "restart";
 
 export type LifecycleResult = {
- warnings?:string[];
+  warnings?: string[];
   action: LifecycleAction;
   succeeded: number;
   skipped: number;
@@ -141,7 +268,9 @@ export type RemovalItem = {
 };
 
 export type RemovalPlan = { fingerprint: string; items: RemovalItem[] };
-export type RemovalReport = { items: (RemovalItem & { status: "removed" | "retained" | "failed" })[] };
+export type RemovalReport = {
+  items: (RemovalItem & { status: "removed" | "retained" | "failed" })[];
+};
 
 export type ContainerInspection = {
   id: string;
@@ -163,11 +292,50 @@ export type SelfUpdateStatus = {
 
 export type ManagedSettings = { projectsBase: string };
 
-export type ProjectConfiguration = { contextRevision?:number; interpolationFiles?:string[]; composeFiles?:string[]; profiles?:string[]; availableProfiles?:string[]; available: boolean; error?: string; directory?: string; fingerprint: string; files: { path: string; content: string; compose: boolean; missing?:boolean }[]; variables: { name: string; service: string; value?: string; pending: boolean }[] };
-export type ConfigurationEdit = { fingerprint: string; path?: string; content: string; service?: string; variable?: string; interpolationFiles?:string[]; profiles?:string[] };
-export function readProjectConfiguration(id: string, csrfToken: string, reveal = false): Promise<ProjectConfiguration> { return request(`/api/projects/${encodeURIComponent(id)}/configuration/read`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ reveal }) }); }
-export function saveProjectConfiguration(id: string, edit: ConfigurationEdit, csrfToken: string): Promise<ProjectConfiguration> { return request(`/api/projects/${encodeURIComponent(id)}/configuration/save`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(edit) }); }
-
+export type ProjectConfiguration = {
+  contextRevision?: number;
+  interpolationFiles?: string[];
+  composeFiles?: string[];
+  profiles?: string[];
+  availableProfiles?: string[];
+  available: boolean;
+  error?: string;
+  directory?: string;
+  fingerprint: string;
+  files: { path: string; content: string; compose: boolean; missing?: boolean }[];
+  variables: { name: string; service: string; value?: string; pending: boolean }[];
+};
+export type ConfigurationEdit = {
+  fingerprint: string;
+  path?: string;
+  content: string;
+  service?: string;
+  variable?: string;
+  interpolationFiles?: string[];
+  profiles?: string[];
+};
+export function readProjectConfiguration(
+  id: string,
+  csrfToken: string,
+  reveal = false,
+): Promise<ProjectConfiguration> {
+  return request(`/api/projects/${encodeURIComponent(id)}/configuration/read`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ reveal }),
+  });
+}
+export function saveProjectConfiguration(
+  id: string,
+  edit: ConfigurationEdit,
+  csrfToken: string,
+): Promise<ProjectConfiguration> {
+  return request(`/api/projects/${encodeURIComponent(id)}/configuration/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify(edit),
+  });
+}
 
 const localBackendMessage =
   "The local API is not responding on 127.0.0.1:8080. Start Docker Desktop, then run docker compose -f compose.dev.yaml up -d --build from the project root and retry.";
@@ -218,7 +386,10 @@ export function getProjects(signal?: AbortSignal): Promise<Inventory> {
   return request<Inventory>("/api/projects", { signal });
 }
 
-export function loadManagedSource(input: ManagedSourceInput, csrfToken: string): Promise<ManagedSource> {
+export function loadManagedSource(
+  input: ManagedSourceInput,
+  csrfToken: string,
+): Promise<ManagedSource> {
   return request<ManagedSource>("/api/managed/source", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
@@ -230,7 +401,10 @@ export function getManagedSettings(): Promise<ManagedSettings> {
   return request<ManagedSettings>("/api/managed/settings");
 }
 
-export function saveManagedSettings(projectsBase: string, csrfToken: string): Promise<ManagedSettings> {
+export function saveManagedSettings(
+  projectsBase: string,
+  csrfToken: string,
+): Promise<ManagedSettings> {
   return request<ManagedSettings>("/api/managed/settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
@@ -239,11 +413,21 @@ export function saveManagedSettings(projectsBase: string, csrfToken: string): Pr
 }
 
 export function previewManaged(input: ManagedRequest, csrfToken: string): Promise<ManagedPreview> {
-  return request<ManagedPreview>("/api/managed/preview", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(input) });
+  return request<ManagedPreview>("/api/managed/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify(input),
+  });
 }
 
 export function deployManaged(input: ManagedRequest, csrfToken: string): Promise<ManagedJob> {
-  return trackInventoryAction(`compose:${input.name}`, input.mode, () => request<ManagedJob>("/api/managed/deploy", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(input) }));
+  return trackInventoryAction(`compose:${input.name}`, input.mode, () =>
+    request<ManagedJob>("/api/managed/deploy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      body: JSON.stringify(input),
+    }),
+  );
 }
 
 export function getManagedJob(id: string): Promise<ManagedJob> {
@@ -254,14 +438,34 @@ export function getJobHistory(target: string): Promise<ManagedJob[]> {
   return request<ManagedJob[]>(`/api/jobs?target=${encodeURIComponent(target)}`);
 }
 export function acknowledgeJobRecovery(job: ManagedJob, csrfToken: string): Promise<ManagedJob> {
-  return request<ManagedJob>(`/api/jobs/${encodeURIComponent(job.id)}/recovery`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ confirm: true, updatedAt: job.updatedAt }) });
+  return request<ManagedJob>(`/api/jobs/${encodeURIComponent(job.id)}/recovery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ confirm: true, updatedAt: job.updatedAt }),
+  });
 }
 
-export function runManagedOperation(name: string, operation: "start" | "stop" | "restart" | "pull" | "update" | "remove", removeVolumes: boolean, csrfToken: string, fingerprint?: string,removeImages=false): Promise<ManagedJob> {
-  return trackInventoryAction(`compose:${name}`, operation, () => request<ManagedJob>(`/api/managed/projects/${encodeURIComponent(name)}/operations`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ operation, removeVolumes, removeImages, fingerprint }) }));
+export function runManagedOperation(
+  name: string,
+  operation: "start" | "stop" | "restart" | "pull" | "update" | "remove",
+  removeVolumes: boolean,
+  csrfToken: string,
+  fingerprint?: string,
+  removeImages = false,
+): Promise<ManagedJob> {
+  return trackInventoryAction(`compose:${name}`, operation, () =>
+    request<ManagedJob>(`/api/managed/projects/${encodeURIComponent(name)}/operations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      body: JSON.stringify({ operation, removeVolumes, removeImages, fingerprint }),
+    }),
+  );
 }
 
-export function getContainerInspection(id: string, signal?: AbortSignal): Promise<ContainerInspection> {
+export function getContainerInspection(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ContainerInspection> {
   return request<ContainerInspection>(`/api/containers/${encodeURIComponent(id)}`, { signal });
 }
 
@@ -269,28 +473,58 @@ export function containerLogsURL(id: string): string {
   return `/api/containers/${encodeURIComponent(id)}/logs`;
 }
 
-export type LogExportStatus = { available: boolean; directory?: string; filename?: string; exportedAt?: string; reason?: string };
-export function getLogExportStatus(projectID: string, signal?: AbortSignal): Promise<LogExportStatus> {
+export type LogExportStatus = {
+  available: boolean;
+  directory?: string;
+  filename?: string;
+  exportedAt?: string;
+  reason?: string;
+};
+export function getLogExportStatus(
+  projectID: string,
+  signal?: AbortSignal,
+): Promise<LogExportStatus> {
   return request(`/api/projects/${encodeURIComponent(projectID)}/logs/export`, { signal });
 }
-export function exportCurrentLogs(projectID: string, containerID: string, content: string, csrfToken: string): Promise<LogExportStatus> {
-  return request(`/api/projects/${encodeURIComponent(projectID)}/logs/export`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ confirm: true, containerID, content }) });
-}
-
-export function runContainerAction(id: string, action: LifecycleAction, csrfToken: string): Promise<LifecycleResult> {
-  return trackInventoryAction(`container:${id}`, action, () => request<LifecycleResult>(`/api/containers/${encodeURIComponent(id)}/actions`, {
+export function exportCurrentLogs(
+  projectID: string,
+  containerID: string,
+  content: string,
+  csrfToken: string,
+): Promise<LogExportStatus> {
+  return request(`/api/projects/${encodeURIComponent(projectID)}/logs/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ action }),
-  }));
+    body: JSON.stringify({ confirm: true, containerID, content }),
+  });
 }
 
-export function runProjectAction(id: string, action: LifecycleAction, csrfToken: string): Promise<LifecycleResult> {
-  return trackInventoryAction(id, action, () => request<LifecycleResult>(`/api/projects/${encodeURIComponent(id)}/actions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ action }),
-  }));
+export function runContainerAction(
+  id: string,
+  action: LifecycleAction,
+  csrfToken: string,
+): Promise<LifecycleResult> {
+  return trackInventoryAction(`container:${id}`, action, () =>
+    request<LifecycleResult>(`/api/containers/${encodeURIComponent(id)}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      body: JSON.stringify({ action }),
+    }),
+  );
+}
+
+export function runProjectAction(
+  id: string,
+  action: LifecycleAction,
+  csrfToken: string,
+): Promise<LifecycleResult> {
+  return trackInventoryAction(id, action, () =>
+    request<LifecycleResult>(`/api/projects/${encodeURIComponent(id)}/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      body: JSON.stringify({ action }),
+    }),
+  );
 }
 
 export function pullContainerImage(id: string, csrfToken: string): Promise<MaintenanceResult> {
@@ -307,31 +541,63 @@ export function pullProjectImages(id: string, csrfToken: string): Promise<Mainte
   });
 }
 
-export function previewRemoveContainer(id: string, removeVolumes = false, removeImages=false): Promise<RemovalPlan> {
-  return request<RemovalPlan>(`/api/containers/${encodeURIComponent(id)}/remove/preview?removeVolumes=${removeVolumes}&removeImages=${removeImages}`);
+export function previewRemoveContainer(
+  id: string,
+  removeVolumes = false,
+  removeImages = false,
+): Promise<RemovalPlan> {
+  return request<RemovalPlan>(
+    `/api/containers/${encodeURIComponent(id)}/remove/preview?removeVolumes=${removeVolumes}&removeImages=${removeImages}`,
+  );
 }
 
-export function previewRemoveProject(id: string, removeVolumes = false, removeImages=false): Promise<RemovalPlan> {
-  return request<RemovalPlan>(`/api/projects/${encodeURIComponent(id)}/remove/preview?removeVolumes=${removeVolumes}&removeImages=${removeImages}`);
+export function previewRemoveProject(
+  id: string,
+  removeVolumes = false,
+  removeImages = false,
+): Promise<RemovalPlan> {
+  return request<RemovalPlan>(
+    `/api/projects/${encodeURIComponent(id)}/remove/preview?removeVolumes=${removeVolumes}&removeImages=${removeImages}`,
+  );
 }
 
-export function removeContainer(id: string, fingerprint: string, csrfToken: string, removeVolumes = false, removeImages=false): Promise<RemovalReport> {
-  return trackInventoryAction(`container:${id}`, "remove", () => request<RemovalReport>(`/api/containers/${encodeURIComponent(id)}/remove`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ confirm: true, fingerprint, removeVolumes, removeImages }),
-  }));
+export function removeContainer(
+  id: string,
+  fingerprint: string,
+  csrfToken: string,
+  removeVolumes = false,
+  removeImages = false,
+): Promise<RemovalReport> {
+  return trackInventoryAction(`container:${id}`, "remove", () =>
+    request<RemovalReport>(`/api/containers/${encodeURIComponent(id)}/remove`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      body: JSON.stringify({ confirm: true, fingerprint, removeVolumes, removeImages }),
+    }),
+  );
 }
 
-export function removeProject(id: string, fingerprint: string, csrfToken: string, removeVolumes = false, removeImages=false): Promise<RemovalReport> {
-  return trackInventoryAction(id, "remove", () => request<RemovalReport>(`/api/projects/${encodeURIComponent(id)}/remove`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ confirm: true, fingerprint, removeVolumes, removeImages }),
-  }));
+export function removeProject(
+  id: string,
+  fingerprint: string,
+  csrfToken: string,
+  removeVolumes = false,
+  removeImages = false,
+): Promise<RemovalReport> {
+  return trackInventoryAction(id, "remove", () =>
+    request<RemovalReport>(`/api/projects/${encodeURIComponent(id)}/remove`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      body: JSON.stringify({ confirm: true, fingerprint, removeVolumes, removeImages }),
+    }),
+  );
 }
 
-export function revealContainerEnvironment(id: string, csrfToken: string, signal?: AbortSignal): Promise<ContainerInspection> {
+export function revealContainerEnvironment(
+  id: string,
+  csrfToken: string,
+  signal?: AbortSignal,
+): Promise<ContainerInspection> {
   return request<ContainerInspection>(`/api/containers/${encodeURIComponent(id)}/environment`, {
     method: "POST",
     headers: { "X-CSRF-Token": csrfToken },
@@ -368,35 +634,137 @@ export function signOut(csrfToken: string): Promise<void> {
   });
 }
 
-export type ProjectScheduleStatus = { targetID: string; enabled: boolean; timezone: string; time: string; eligible: boolean; reason?: string; nextAt?: number; lastAt?: number; lastOutcome?: string; lastReason?: string; lastJobID?: string };
+export type ProjectScheduleStatus = {
+  targetID: string;
+  enabled: boolean;
+  timezone: string;
+  time: string;
+  eligible: boolean;
+  reason?: string;
+  nextAt?: number;
+  lastAt?: number;
+  lastOutcome?: string;
+  lastReason?: string;
+  lastJobID?: string;
+};
 export function getProjectSchedule(target: string): Promise<ProjectScheduleStatus> {
   return request<ProjectScheduleStatus>(`/api/projects/${encodeURIComponent(target)}/schedule`);
 }
-export function setProjectSchedule(target: string, enabled: boolean, time: string, csrfToken: string): Promise<ProjectScheduleStatus> {
-  return request<ProjectScheduleStatus>(`/api/projects/${encodeURIComponent(target)}/schedule`, { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ enabled, time }) });
+export function setProjectSchedule(
+  target: string,
+  enabled: boolean,
+  time: string,
+  csrfToken: string,
+): Promise<ProjectScheduleStatus> {
+  return request<ProjectScheduleStatus>(`/api/projects/${encodeURIComponent(target)}/schedule`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ enabled, time }),
+  });
 }
 
-export type OverrideRequest={variables?:Record<string,string>;files?:Record<string,string>;action:"add"|"remove";source:ManagedSourceInput;path?:string;fingerprint:string;candidateFingerprint?:string};
-export type OverridePreview=OverrideRequest&{path:string;candidateFingerprint:string;before:string;after:string;composeFiles:string[]};
-export function previewProjectOverride(id:string,input:OverrideRequest,csrfToken:string):Promise<OverridePreview>{return request(`/api/projects/${encodeURIComponent(id)}/configuration/override-preview`,{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrfToken},body:JSON.stringify(input)});}
-export function applyProjectOverride(id:string,input:OverrideRequest,csrfToken:string):Promise<ProjectConfiguration>{const {action,path,source,fingerprint,candidateFingerprint,variables,files}=input;return request(`/api/projects/${encodeURIComponent(id)}/configuration/override-apply`,{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":csrfToken},body:JSON.stringify({action,path,source,fingerprint,candidateFingerprint,variables,files})});}
+export type OverrideRequest = {
+  variables?: Record<string, string>;
+  files?: Record<string, string>;
+  action: "add" | "remove";
+  source: ManagedSourceInput;
+  path?: string;
+  fingerprint: string;
+  candidateFingerprint?: string;
+};
+export type OverridePreview = OverrideRequest & {
+  path: string;
+  candidateFingerprint: string;
+  before: string;
+  after: string;
+  composeFiles: string[];
+};
+export function previewProjectOverride(
+  id: string,
+  input: OverrideRequest,
+  csrfToken: string,
+): Promise<OverridePreview> {
+  return request(`/api/projects/${encodeURIComponent(id)}/configuration/override-preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify(input),
+  });
+}
+export function applyProjectOverride(
+  id: string,
+  input: OverrideRequest,
+  csrfToken: string,
+): Promise<ProjectConfiguration> {
+  const { action, path, source, fingerprint, candidateFingerprint, variables, files } = input;
+  return request(`/api/projects/${encodeURIComponent(id)}/configuration/override-apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({
+      action,
+      path,
+      source,
+      fingerprint,
+      candidateFingerprint,
+      variables,
+      files,
+    }),
+  });
+}
 
-export type DockerLogEvent={stream:"stdout"|"stderr"|"combined";text:string;timestamp?:string;continuation?:boolean;lineEnd?:boolean};
-export type DockerLogPage={lines:DockerLogEvent[];next?:string;until:string;retention:string};
-export function loadDockerLogHistory(id:string,query:{since?:string;until?:string;cursor?:string},signal?:AbortSignal):Promise<DockerLogPage>{const params=new URLSearchParams();for(const [key,value]of Object.entries(query))if(value)params.set(key,value);return request(`/api/containers/${encodeURIComponent(id)}/logs/history?${params}`,{signal});}
+export type DockerLogEvent = {
+  stream: "stdout" | "stderr" | "combined";
+  text: string;
+  timestamp?: string;
+  continuation?: boolean;
+  lineEnd?: boolean;
+};
+export type DockerLogPage = {
+  lines: DockerLogEvent[];
+  next?: string;
+  until: string;
+  retention: string;
+};
+export function loadDockerLogHistory(
+  id: string,
+  query: { since?: string; until?: string; cursor?: string },
+  signal?: AbortSignal,
+): Promise<DockerLogPage> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) if (value) params.set(key, value);
+  return request(`/api/containers/${encodeURIComponent(id)}/logs/history?${params}`, { signal });
+}
 
 export type SuiteStatus = {
   status: string;
   ready: boolean;
-  deployments: { id: string; projectId: string; productId: string; service: string; state: string; message?: string; revision: number }[];
+  deployments: {
+    id: string;
+    projectId: string;
+    productId: string;
+    service: string;
+    state: string;
+    message?: string;
+    revision: number;
+  }[];
 };
 export async function getSuiteStatus(): Promise<SuiteStatus> {
   const value = await request<SuiteStatus>("/api/suite");
-  if (typeof value.status !== "string" || typeof value.ready !== "boolean" || !Array.isArray(value.deployments)) throw new Error("Suite status is unavailable.");
+  if (
+    typeof value.status !== "string" ||
+    typeof value.ready !== "boolean" ||
+    !Array.isArray(value.deployments)
+  )
+    throw new Error("Suite status is unavailable.");
   return value;
 }
-export function retrySuiteDeployment(id: string, revision: number, csrfToken: string): Promise<{ ok: boolean }> {
+export function retrySuiteDeployment(
+  id: string,
+  revision: number,
+  csrfToken: string,
+): Promise<{ ok: boolean }> {
   return request(`/api/suite/deployments/${encodeURIComponent(id)}/retry`, {
-    method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ revision }),
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+    body: JSON.stringify({ revision }),
   });
 }
