@@ -9,6 +9,7 @@ cd "$repo_root"
 run_check 'go test ./...' go test ./...
 run_check 'CI and runtime fixture regressions' python3 -m unittest discover -s scripts -p 'test_*.py'
 run_check 'CI and release tooling tests' node --test scripts/release.test.mjs scripts/ci-policy.test.mjs
+run_check 'Browser fixture composition' node --test scripts/browser-fixtures.test.mjs
 
 if [ ! -d web/node_modules ]; then
   printf '[FAIL] Frontend dependencies are missing. Run "npm ci --prefix web" first.\n' >&2

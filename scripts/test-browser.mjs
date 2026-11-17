@@ -6,22 +6,11 @@ import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { browserFixtures as tests, isolatedBrowserFixture } from "./browser-fixtures.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const session = "regression-" + randomUUID();
 const temp = path.join(root, ".tmp", session);
-const tests = [
-  "smoke-history.cjs",
-  "smoke-recreate.cjs",
-  "smoke-schedules.cjs",
-  "smoke-sessions.cjs",
-  "smoke-configuration.cjs",
-  "smoke-dashboard.cjs",
-  "smoke-drawers.cjs",
-  "smoke-machine.cjs",
-  "smoke-interface-updates.cjs",
-  "smoke-compose-parity.cjs",
-];
 const selectedTests = process.argv.slice(2);
 if (selectedTests.some((name) => !tests.includes(name))) throw new Error("Unknown browser fixture");
 const port = await new Promise((resolve, reject) => {
@@ -95,11 +84,7 @@ try {
     );
     // Each suite owns its storage, init scripts, routes, listeners and viewport.
     // A previous suite must not silently change the next suite's environment.
-    const code = `async (originalPage) => {
-    const context = await originalPage.context().browser().newContext({ viewport: { width: 1440, height: 1000 } });
-    try { await (${fixture})(await context.newPage()); }
-    finally { await context.close(); }
-  }`;
+    const code = isolatedBrowserFixture(fixture);
     const relative = `.tmp/${session}/${name}`;
     await writeFile(path.join(root, relative), code);
     const output = cli("run-code", "--filename", relative);
