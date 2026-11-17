@@ -1,4 +1,5 @@
 """Cleanup confinement and optional native-Linux ownership regressions."""
+
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,9 @@ from smoke_support import cleanup_fixture, create_fixture_output
 
 class FixtureCase(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory(dir=os.environ.get("NOX_CLEANUP_TEST_ROOT"))
+        self.directory = tempfile.TemporaryDirectory(
+            dir=os.environ.get("NOX_CLEANUP_TEST_ROOT")
+        )
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name).resolve()
         (self.root / ".tmp").mkdir()
@@ -78,25 +81,40 @@ class FixtureCleanupTests(FixtureCase):
             self.clean()
 
     def test_helper_failure_is_not_silenced(self):
-        with mock.patch("shutil.rmtree", side_effect=PermissionError), mock.patch(
-                "subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "unavailable")):
+        with (
+            mock.patch("shutil.rmtree", side_effect=PermissionError),
+            mock.patch(
+                "subprocess.run",
+                return_value=subprocess.CompletedProcess([], 1, "", "unavailable"),
+            ),
+        ):
             with self.assertRaisesRegex(RuntimeError, "cleanup helper"):
                 self.clean()
         self.assertTrue(self.base.exists())
 
     def test_helper_refuses_directory_still_mounted_by_container(self):
-        responses = [subprocess.CompletedProcess([], 0, "other-container\n", ""),
-                     subprocess.CompletedProcess([], 0, json.dumps([
-                         {"Mounts": [{"Source": str(self.base / "protected")}]}]), "")]
-        with mock.patch("shutil.rmtree", side_effect=PermissionError), mock.patch(
-                "subprocess.run", side_effect=responses):
+        responses = [
+            subprocess.CompletedProcess([], 0, "other-container\n", ""),
+            subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps([{"Mounts": [{"Source": str(self.base / "protected")}]}]),
+                "",
+            ),
+        ]
+        with (
+            mock.patch("shutil.rmtree", side_effect=PermissionError),
+            mock.patch("subprocess.run", side_effect=responses),
+        ):
             with self.assertRaisesRegex(RuntimeError, "Remove containers"):
                 self.clean()
         self.assertTrue(self.base.exists())
 
 
-@unittest.skipUnless(sys.platform == "linux" and os.environ.get("NOX_CLEANUP_TEST_IMAGE"),
-                     "set NOX_CLEANUP_TEST_IMAGE for native Linux Docker ownership checks")
+@unittest.skipUnless(
+    sys.platform == "linux" and os.environ.get("NOX_CLEANUP_TEST_IMAGE"),
+    "set NOX_CLEANUP_TEST_IMAGE for native Linux Docker ownership checks",
+)
 class LinuxFixtureCleanupTests(FixtureCase):
     # Exercise real UID ownership independently of the portable unit checks.
     def docker(self, *parts):
@@ -108,12 +126,26 @@ class LinuxFixtureCleanupTests(FixtureCase):
         self.sibling.mkdir()
         (self.sibling / "keep").write_text("keep")
         (self.base / "linked").symlink_to(self.sibling, target_is_directory=True)
-        self.docker("run", "--rm", "--pull", "never", "--network", "none",
-                    "--user", "0:0", "--label", "nox-yard.acceptance=" + self.name,
-                    "--mount", "type=bind,source=" + str(self.base) + ",target=/fixture",
-                    "--entrypoint", "sh", self.image, "-ec",
-                    "mkdir /fixture/protected; echo private > /fixture/protected/file; "
-                    "chown 0:0 /fixture/protected; chmod 000 /fixture/protected")
+        self.docker(
+            "run",
+            "--rm",
+            "--pull",
+            "never",
+            "--network",
+            "none",
+            "--user",
+            "0:0",
+            "--label",
+            "nox-yard.acceptance=" + self.name,
+            "--mount",
+            "type=bind,source=" + str(self.base) + ",target=/fixture",
+            "--entrypoint",
+            "sh",
+            self.image,
+            "-ec",
+            "mkdir /fixture/protected; echo private > /fixture/protected/file; "
+            "chown 0:0 /fixture/protected; chmod 000 /fixture/protected",
+        )
         # The local harness can run as root inside Linux; reproduce GitHub's
         # non-root caller while retaining its Docker-socket group access.
         self.previous_uid = os.geteuid()
@@ -125,8 +157,9 @@ class LinuxFixtureCleanupTests(FixtureCase):
         self.addCleanup(os.seteuid, self.previous_uid)
 
     def clean(self):
-        cleanup_fixture(self.base, self.root, self.name,
-                        os.environ["NOX_CLEANUP_TEST_IMAGE"])
+        cleanup_fixture(
+            self.base, self.root, self.name, os.environ["NOX_CLEANUP_TEST_IMAGE"]
+        )
 
     def test_nonroot_cleanup_of_actual_root_owned_bind_data(self):
         self.prepare_root_owned_data()
@@ -138,14 +171,31 @@ class LinuxFixtureCleanupTests(FixtureCase):
 
     def test_private_root_runner_output_remains_readable_by_nonroot_host(self):
         self.prepare_root_owned_data()
+
         # Reproduce the failing contract first: a root-created 0600 ledger is
         # unreadable to the same non-root caller that runs GitHub's scripts.
         def append(filename):
-            self.docker("run", "--rm", "--pull", "never", "--network", "none",
-                        "--user", "0:0", "--label", "nox-yard.acceptance=" + self.name,
-                        "--mount", "type=bind,source=" + str(self.base) + ",target=/fixture",
-                        "--entrypoint", "sh", self.image, "-ec",
-                        "umask 077; printf 'first\\nrepeated\\nrepeated\\n' >> /fixture/" + filename)
+            self.docker(
+                "run",
+                "--rm",
+                "--pull",
+                "never",
+                "--network",
+                "none",
+                "--user",
+                "0:0",
+                "--label",
+                "nox-yard.acceptance=" + self.name,
+                "--mount",
+                "type=bind,source=" + str(self.base) + ",target=/fixture",
+                "--entrypoint",
+                "sh",
+                self.image,
+                "-ec",
+                "umask 077; printf 'first\\nrepeated\\nrepeated\\n' >> /fixture/"
+                + filename,
+            )
+
         append("unprepared")
         with self.assertRaises(PermissionError):
             (self.base / "unprepared").read_text()
@@ -153,17 +203,31 @@ class LinuxFixtureCleanupTests(FixtureCase):
             output = self.base / filename
             create_fixture_output(output)
             append(filename)
-            self.assertEqual(output.read_text().splitlines(), ["first", "repeated", "repeated"])
+            self.assertEqual(
+                output.read_text().splitlines(), ["first", "repeated", "repeated"]
+            )
             self.assertEqual(output.stat().st_uid, os.geteuid())
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
         self.clean()
 
     def test_actual_mount_blocks_privileged_cleanup(self):
         self.prepare_root_owned_data()
-        identifier = self.docker("create", "--pull", "never", "--network", "none",
-                                 "--label", "nox-yard.acceptance=" + self.name,
-                                 "--mount", "type=bind,source=" + str(self.base) + ",target=/fixture",
-                                 "--entrypoint", "sh", self.image, "-c", "true")
+        identifier = self.docker(
+            "create",
+            "--pull",
+            "never",
+            "--network",
+            "none",
+            "--label",
+            "nox-yard.acceptance=" + self.name,
+            "--mount",
+            "type=bind,source=" + str(self.base) + ",target=/fixture",
+            "--entrypoint",
+            "sh",
+            self.image,
+            "-c",
+            "true",
+        )
         try:
             with self.assertRaisesRegex(RuntimeError, "Remove containers"):
                 self.clean()

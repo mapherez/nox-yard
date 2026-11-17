@@ -24,12 +24,12 @@ Local `include` (including long syntax), `extends`, `configs`, `secrets` and `la
 
 ## Uniform actions
 
-| Action | Effect |
-| --- | --- |
-| Start / Stop | Run the corresponding Compose operation with the active selection and dependencies; no configuration is applied. |
-| Restart | Native Compose restart, including selected stopped containers; completed initializers can run again. Saved edits are not applied. |
-| Pull | Read current configuration and download images, without replacing containers. |
-| Recreate | Apply current files and local cached images with `--no-build --pull never`; explicitly recreate even when image IDs are unchanged. |
+| Action       | Effect                                                                                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Start / Stop | Run the corresponding Compose operation with the active selection and dependencies; no configuration is applied.                   |
+| Restart      | Native Compose restart, including selected stopped containers; completed initializers can run again. Saved edits are not applied.  |
+| Pull         | Read current configuration and download images, without replacing containers.                                                      |
+| Recreate     | Apply current files and local cached images with `--no-build --pull never`; explicitly recreate even when image IDs are unchanged. |
 
 The UI has no Update action. The legacy update APIs and daily automatic jobs remain compatible and pull before applying the current configuration. URL Sync remains an explicitly previewed source refresh. Single-file legacy Sync reads its previous inputs from disk; multi-file projects use the individual file editors.
 

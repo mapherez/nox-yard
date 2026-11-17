@@ -103,19 +103,18 @@ If Docker is unavailable, show the inventory as unavailable instead of stale suc
 
 `internal/managed/compose_context.go` extends the existing managed/file protocol. It stages a bounded snapshot of the explicit ordered Compose sources and local dependencies, asks native Compose to resolve interpolation/profiles/selection, and retains the complete JSON execution document. Private transformations pin images and paths without round-tripping through the reduced inspection model. Browser, HTTP and MCP reach it through `internal/application`; schedules and independent workers persist/recheck the same context. Source selection edits use the existing durable operation journal/reservations. Individual containers and source-unavailable assessed fallbacks remain Engine operations. This is not a separate orchestration layer; see [configuration](Configuration-Files.md) and [operation contract](#operation-contract).
 
-
 ## Operation contract
 
 Docker Engine is runtime truth; persisted Yard metadata does not override observed containers. Compose owns source resolution and source-backed project operations. Existing applications remain visible without adoption; file editing uses the original host project paths.
 
-| Operation | Current behavior |
-| --- | --- |
-| Save / Add override | Validate and save only. Keep original source bytes; use a separate ordered override rather than silently rewriting the source. |
-| Pull | Download the selected configuration's images without building or recreating containers. |
-| Recreate | Apply saved configuration using local immutable images, without pulling/building; preserve previously stopped services and unrelated orphans. |
-| Service Recreate | Apply only the selected service and its replicas; do not mutate or recover unselected dependencies. |
+| Operation              | Current behavior                                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Save / Add override    | Validate and save only. Keep original source bytes; use a separate ordered override rather than silently rewriting the source.                                |
+| Pull                   | Download the selected configuration's images without building or recreating containers.                                                                       |
+| Recreate               | Apply saved configuration using local immutable images, without pulling/building; preserve previously stopped services and unrelated orphans.                 |
+| Service Recreate       | Apply only the selected service and its replicas; do not mutate or recover unselected dependencies.                                                           |
 | Start / Stop / Restart | Use the saved Compose context when available; individual container operations use Engine. Restart can start stopped services and rerun declared initializers. |
-| Remove | Show the actual selected resources. Keep images/volumes unless separately selected; preserve shared, external and unverified resources. |
+| Remove                 | Show the actual selected resources. Keep images/volumes unless separately selected; preserve shared, external and unverified resources.                       |
 
 The context binds the original directory, ordered Compose/dependency bytes, interpolation inputs, active profiles/services and source/runtime revisions. Preview and execution must agree on those inputs. Source changes and relevant runtime/image changes invalidate the previous review. Identical images do not trigger unnecessary replacement. Private transformations preserve the full resolved Compose document rather than reducing it to an inspection DTO.
 

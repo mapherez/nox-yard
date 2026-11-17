@@ -10,56 +10,111 @@ import { randomUUID } from "node:crypto";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const session = "regression-" + randomUUID();
 const temp = path.join(root, ".tmp", session);
-const tests = ["smoke-history.cjs", "smoke-recreate.cjs", "smoke-schedules.cjs", "smoke-sessions.cjs", "smoke-configuration.cjs", "smoke-dashboard.cjs", "smoke-drawers.cjs", "smoke-machine.cjs", "smoke-interface-updates.cjs", "smoke-compose-parity.cjs"];
+const tests = [
+  "smoke-history.cjs",
+  "smoke-recreate.cjs",
+  "smoke-schedules.cjs",
+  "smoke-sessions.cjs",
+  "smoke-configuration.cjs",
+  "smoke-dashboard.cjs",
+  "smoke-drawers.cjs",
+  "smoke-machine.cjs",
+  "smoke-interface-updates.cjs",
+  "smoke-compose-parity.cjs",
+];
 const selectedTests = process.argv.slice(2);
-if (selectedTests.some(name => !tests.includes(name))) throw new Error("Unknown browser fixture");
+if (selectedTests.some((name) => !tests.includes(name))) throw new Error("Unknown browser fixture");
 const port = await new Promise((resolve, reject) => {
- const server = createServer(); server.on("error", reject);
- server.listen(0, "127.0.0.1", () => { const port = server.address().port; server.close(() => resolve(port)); });
+  const server = createServer();
+  server.on("error", reject);
+  server.listen(0, "127.0.0.1", () => {
+    const port = server.address().port;
+    server.close(() => resolve(port));
+  });
 });
 const url = `http://127.0.0.1:${port}`;
 function cli(...args) {
- // Windows requires cmd for npx.cmd; arguments contain only fixed commands,
- // generated session IDs and relative fixture paths (no user input).
- const parts = ["--yes", "--package", "@playwright/cli@0.1.22", "playwright-cli", `-s=${session}`, ...args];
- const result = process.platform === "win32"
-  ? spawnSync("cmd.exe", ["/d", "/s", "/c", "npx.cmd " + parts.join(" ")], {cwd: root, encoding: "utf8", timeout: 180_000})
-  : spawnSync("npx", parts, {cwd: root, encoding: "utf8", timeout: 180_000});
- if (result.error || result.status !== 0 || /### Error\b/.test(result.stdout ?? "")) {
-  throw new Error((result.stdout ?? "") + (result.stderr ?? "") + (result.error?.message ?? "CLI failed"));
- }
- return result.stdout;
+  // Windows requires cmd for npx.cmd; arguments contain only fixed commands,
+  // generated session IDs and relative fixture paths (no user input).
+  const parts = [
+    "--yes",
+    "--package",
+    "@playwright/cli@0.1.22",
+    "playwright-cli",
+    `-s=${session}`,
+    ...args,
+  ];
+  const result =
+    process.platform === "win32"
+      ? spawnSync("cmd.exe", ["/d", "/s", "/c", "npx.cmd " + parts.join(" ")], {
+          cwd: root,
+          encoding: "utf8",
+          timeout: 180_000,
+        })
+      : spawnSync("npx", parts, { cwd: root, encoding: "utf8", timeout: 180_000 });
+  if (result.error || result.status !== 0 || /### Error\b/.test(result.stdout ?? "")) {
+    throw new Error(
+      (result.stdout ?? "") + (result.stderr ?? "") + (result.error?.message ?? "CLI failed"),
+    );
+  }
+  return result.stdout;
 }
 let preview;
 let opened = false;
 try {
- await mkdir(temp, {recursive: true});
- await mkdir(path.join(root, "output/playwright"), {recursive: true});
- await readFile(path.join(root, "web/dist/index.html"));
- preview = spawn(process.execPath, [path.join(root, "web/node_modules/vite-plus/bin/vp"), "preview", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {cwd: path.join(root, "web"), stdio: "ignore"});
- for (let attempt = 0; ; attempt++) {
-  try { if ((await fetch(url)).ok) break; } catch {}
-  if (attempt >= 100 || preview.exitCode !== null) throw new Error("Frontend preview did not become ready");
-  await new Promise(resolve => setTimeout(resolve, 100));
- }
- cli("open", "about:blank", "--browser", "chrome"); opened = true;
- for (const name of selectedTests.length ? selectedTests : tests) {
-  const fixture = (await readFile(path.join(root, "scripts", name), "utf8")).replaceAll("http://127.0.0.1:5173", url);
-  // Each suite owns its storage, init scripts, routes, listeners and viewport.
-  // A previous suite must not silently change the next suite's environment.
-  const code = `async (originalPage) => {
+  await mkdir(temp, { recursive: true });
+  await mkdir(path.join(root, "output/playwright"), { recursive: true });
+  await readFile(path.join(root, "web/dist/index.html"));
+  preview = spawn(
+    process.execPath,
+    [
+      path.join(root, "web/node_modules/vite-plus/bin/vp"),
+      "preview",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(port),
+      "--strictPort",
+    ],
+    { cwd: path.join(root, "web"), stdio: "ignore" },
+  );
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if ((await fetch(url)).ok) break;
+    } catch {}
+    if (attempt >= 100 || preview.exitCode !== null)
+      throw new Error("Frontend preview did not become ready");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  cli("open", "about:blank", "--browser", "chrome");
+  opened = true;
+  for (const name of selectedTests.length ? selectedTests : tests) {
+    const fixture = (await readFile(path.join(root, "scripts", name), "utf8")).replaceAll(
+      "http://127.0.0.1:5173",
+      url,
+    );
+    // Each suite owns its storage, init scripts, routes, listeners and viewport.
+    // A previous suite must not silently change the next suite's environment.
+    const code = `async (originalPage) => {
     const context = await originalPage.context().browser().newContext({ viewport: { width: 1440, height: 1000 } });
     try { await (${fixture})(await context.newPage()); }
     finally { await context.close(); }
   }`;
-  const relative = `.tmp/${session}/${name}`;
-  await writeFile(path.join(root, relative), code);
-  const output = cli("run-code", "--filename", relative);
-  if (!output.includes("PASS:")) throw new Error(name + " did not record successful assertions: " + output);
-  console.log("[pass] " + name);
- }
+    const relative = `.tmp/${session}/${name}`;
+    await writeFile(path.join(root, relative), code);
+    const output = cli("run-code", "--filename", relative);
+    if (!output.includes("PASS:"))
+      throw new Error(name + " did not record successful assertions: " + output);
+    console.log("[pass] " + name);
+  }
 } finally {
- if (opened) { try { cli("close"); } catch (error) {console.error(error.message);} }
- preview?.kill();
- await rm(temp, {recursive: true, force: true});
+  if (opened) {
+    try {
+      cli("close");
+    } catch (error) {
+      console.error(error.message);
+    }
+  }
+  preview?.kill();
+  await rm(temp, { recursive: true, force: true });
 }

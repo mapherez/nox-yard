@@ -11,7 +11,7 @@ fi
 
 hooks_dir=$(git rev-parse --git-path hooks)
 case "$hooks_dir" in
-  /*|[A-Za-z]:/*) ;;
+  /* | [A-Za-z]:/*) ;;
   *) hooks_dir="$repo_root/$hooks_dir" ;;
 esac
 
@@ -27,7 +27,8 @@ fi
 
 # Compatibility entry point: retire only the exact hook the old installer wrote.
 # Never overwrite or remove a user's custom hook. Accept Windows CRLF as well.
-legacy_hook=$(cat <<'HOOK'
+legacy_hook=$(
+  cat << 'HOOK'
 #!/bin/sh
 set -eu
 repo_root=$(git rev-parse --show-toplevel)

@@ -4,17 +4,17 @@ The supplied [Compose file](../../compose.yaml) and [.env.example](../../.env.ex
 
 ## Host settings
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `NOX_BIND_ADDRESS` | `127.0.0.1` | Host binding for the dashboard and Control API. Use `0.0.0.0` for LAN/VPN access. |
-| `NOX_PORT` | `8095` | Dashboard and Control API host port. |
-| `NOX_MCP_BIND_ADDRESS` | `127.0.0.1` | Independent MCP host binding. |
-| `NOX_MCP_PORT` | `8096` | Independent MCP host port; MCP itself starts disabled. |
-| `NOX_TIMEZONE` | `Etc/UTC` | Server timezone used by daily update schedules; use an IANA name such as `Europe/Lisbon`. |
-| `NOX_PUBLIC_URL` | Required | Exact Yard browser-facing HTTP(S) origin; used for the approved NoX Login callback and Origin/cookie policy. |
-| `NOX_AUTH_PUBLIC_URL` | Required | HTTPS origin of the running NoX Auth service; no Google secrets are configured in Yard. |
-| `NOX_SUITE_LOCAL_VOLUME_NAME` | `nox-suite-local` | Shared local transport volume; must match Auth. |
-| `NOX_AUTH_ADMIN_VOLUME_NAME` | `nox-auth-admin` | Existing administrative volume, mounted only by the one-shot setup service. |
+| Variable                      | Default           | Purpose                                                                                                      |
+| ----------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `NOX_BIND_ADDRESS`            | `127.0.0.1`       | Host binding for the dashboard and Control API. Use `0.0.0.0` for LAN/VPN access.                            |
+| `NOX_PORT`                    | `8095`            | Dashboard and Control API host port.                                                                         |
+| `NOX_MCP_BIND_ADDRESS`        | `127.0.0.1`       | Independent MCP host binding.                                                                                |
+| `NOX_MCP_PORT`                | `8096`            | Independent MCP host port; MCP itself starts disabled.                                                       |
+| `NOX_TIMEZONE`                | `Etc/UTC`         | Server timezone used by daily update schedules; use an IANA name such as `Europe/Lisbon`.                    |
+| `NOX_PUBLIC_URL`              | Required          | Exact Yard browser-facing HTTP(S) origin; used for the approved NoX Login callback and Origin/cookie policy. |
+| `NOX_AUTH_PUBLIC_URL`         | Required          | HTTPS origin of the running NoX Auth service; no Google secrets are configured in Yard.                      |
+| `NOX_SUITE_LOCAL_VOLUME_NAME` | `nox-suite-local` | Shared local transport volume; must match Auth.                                                              |
+| `NOX_AUTH_ADMIN_VOLUME_NAME`  | `nox-auth-admin`  | Existing administrative volume, mounted only by the one-shot setup service.                                  |
 
 MCP and the dashboard can use different host interfaces and ports. Publishing the MCP port does not enable MCP.
 

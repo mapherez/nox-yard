@@ -20,17 +20,17 @@ Keep the existing trusted LAN/VPN or HTTPS reverse-proxy deployment boundary. Th
 
 ## Endpoints
 
-| Method and path | Authentication | Behavior |
-| --- | --- | --- |
-| `GET /v1/health` | Public | Service/storage readiness and version. |
-| `GET /v1/info` | Public | Identity, version, activation, and capabilities. |
-| `GET /v1/status` | Bearer | Docker availability and lightweight counts. |
-| `GET /v1/projects` | Bearer | Projects with nested container summaries. |
-| `GET /v1/containers/{id}` | Bearer | Container ports, mounts, and networks. |
-| `POST /v1/containers/{id}/actions` | Bearer | Start, stop, or restart a container. |
-| `POST /v1/projects/{id}/actions` | Bearer | Start, stop, or restart a group. |
-| `POST /v1/containers/{id}/pull` | Bearer | Pull its current Compose service reference, or runtime reference when files are missing. |
-| `POST /v1/projects/{id}/pull` | Bearer | Pull current Compose file images, or distinct runtime references when files are missing. |
+| Method and path                    | Authentication | Behavior                                                                                 |
+| ---------------------------------- | -------------- | ---------------------------------------------------------------------------------------- |
+| `GET /v1/health`                   | Public         | Service/storage readiness and version.                                                   |
+| `GET /v1/info`                     | Public         | Identity, version, activation, and capabilities.                                         |
+| `GET /v1/status`                   | Bearer         | Docker availability and lightweight counts.                                              |
+| `GET /v1/projects`                 | Bearer         | Projects with nested container summaries.                                                |
+| `GET /v1/containers/{id}`          | Bearer         | Container ports, mounts, and networks.                                                   |
+| `POST /v1/containers/{id}/actions` | Bearer         | Start, stop, or restart a container.                                                     |
+| `POST /v1/projects/{id}/actions`   | Bearer         | Start, stop, or restart a group.                                                         |
+| `POST /v1/containers/{id}/pull`    | Bearer         | Pull its current Compose service reference, or runtime reference when files are missing. |
+| `POST /v1/projects/{id}/pull`      | Bearer         | Pull current Compose file images, or distinct runtime references when files are missing. |
 
 Only these methods are supported. HEAD and OPTIONS return 405 on known routes. Responses use JSON with `Cache-Control: no-store`. Unknown routes return JSON 404, never the frontend application. Route resolution precedes activation/authentication, then method checking and validation. An unauthenticated incorrect method on a protected route therefore returns an authentication error first. Noncanonical paths return JSON 404 instead of redirects.
 
@@ -39,7 +39,7 @@ Container IDs are full 64-character lowercase hexadecimal IDs. Project IDs are `
 Actions require `Content-Type: application/json` (an optional charset is accepted), one object at most 4 KiB, and exactly the supported action field:
 
 ```json
-{"action":"restart"}
+{ "action": "restart" }
 ```
 
 Only `start`, `stop`, and `restart` are accepted. Unknown fields, duplicate action keys, invalid JSON, missing/invalid actions, and trailing JSON are rejected. Field names are case-sensitive. Pull requests have an empty body and need no Content-Type header.
@@ -52,8 +52,11 @@ DTOs are independent of Docker SDK and internal structs. Fields use camelCase; t
 
 ```json
 {
-  "service": "nox-yard", "version": "git-<full SHA>", "apiVersion": "v1",
-  "ready": true, "storage": {"available": true}
+  "service": "nox-yard",
+  "version": "git-<full SHA>",
+  "apiVersion": "v1",
+  "ready": true,
+  "storage": { "available": true }
 }
 ```
 
@@ -65,12 +68,18 @@ Info returns:
 
 ```json
 {
-  "service": "nox-yard", "version": "git-<full SHA>", "apiVersion": "v1",
+  "service": "nox-yard",
+  "version": "git-<full SHA>",
+  "apiVersion": "v1",
   "apiEnabled": false,
   "capabilities": [
-    "docker-status", "project-inventory", "container-inspection",
-    "container-lifecycle", "project-lifecycle",
-    "container-image-pull", "project-image-pull"
+    "docker-status",
+    "project-inventory",
+    "container-inspection",
+    "container-lifecycle",
+    "project-lifecycle",
+    "container-image-pull",
+    "project-image-pull"
   ]
 }
 ```
@@ -81,11 +90,15 @@ Capabilities describe implemented operations, independent of activation and tran
 
 ```json
 {
-  "service": "nox-yard", "version": "...", "apiVersion": "v1",
-  "docker": {"available": true},
+  "service": "nox-yard",
+  "version": "...",
+  "apiVersion": "v1",
+  "docker": { "available": true },
   "inventory": {
     "collectedAt": "2026-10-03T10:00:00Z",
-    "projects": 4, "containers": 8, "runningContainers": 6
+    "projects": 4,
+    "containers": 8,
+    "runningContainers": 6
   }
 }
 ```
@@ -94,12 +107,12 @@ Status performs one snapshot/list request with a five-second overall deadline. I
 
 Projects returns `{"collectedAt":"...","projects":[...]}`. Each project has `id`, `name`, `kind`, `state`, `health`, optional `operation`, and `containers`. Each container has `id`, `name`, optional `service`, `image`, `state`, `health`, and optional `operation`.
 
-| Field | Values |
-| --- | --- |
-| Project kind | `managed-compose`, `external-compose`, `standalone`, `unknown` |
-| Project state | `running`, `stopped`, `partial`, `unknown` |
+| Field           | Values                                                                                |
+| --------------- | ------------------------------------------------------------------------------------- |
+| Project kind    | `managed-compose`, `external-compose`, `standalone`, `unknown`                        |
+| Project state   | `running`, `stopped`, `partial`, `unknown`                                            |
 | Container state | `created`, `running`, `paused`, `restarting`, `removing`, `exited`, `dead`, `unknown` |
-| Health | `none`, `healthy`, `unhealthy`, `starting`, `unknown` |
+| Health          | `none`, `healthy`, `unhealthy`, `starting`, `unknown`                                 |
 
 Unknown internal values map to `unknown`. Optional operation reflects the shared pending-operation view. No metrics, terminal capabilities, Compose sources, variables, job data, or managed configuration paths are included. Container listing is nested in projects; there is no separate collection endpoint.
 
@@ -116,11 +129,11 @@ Environment is completely omitted, including names and masked entries. Inspectio
 ### Actions and pulls
 
 ```json
-{"action":"restart","succeeded":2,"skipped":0,"failed":0,"queued":0,"failures":[]}
+{ "action": "restart", "succeeded": 2, "skipped": 0, "failed": 0, "queued": 0, "failures": [] }
 ```
 
 ```json
-{"succeeded":1,"failed":0,"images":["example/app:latest"],"failures":[]}
+{ "succeeded": 1, "failed": 0, "images": ["example/app:latest"], "failures": [] }
 ```
 
 Each failure has `target` (container ID or image reference), stable `code`, and sanitized `message`. Actions have a two-minute deadline, including waiting for serialized work. Pulls have a ten-minute deadline and extend only their response's write deadline. Pull updates the image cache without recreating containers.
@@ -136,31 +149,31 @@ Operations persist shared ownership/history records; uncertain interrupted actio
 ## Stable errors and partial completion
 
 ```json
-{"code":"TARGET_NOT_FOUND","message":"Target does not exist."}
+{ "code": "TARGET_NOT_FOUND", "message": "Target does not exist." }
 ```
 
 `code` is stable; `message` is informative English text and may evolve. Clients must not parse messages. Underlying Docker error strings and credentials are not returned.
 
-| HTTP | Code | Meaning |
-| --- | --- | --- |
-| 503 | `API_DISABLED` | Protected routes disabled. |
-| 401 | `AUTH_REQUIRED` | Authorization header absent. |
-| 401 | `AUTH_INVALID` | Invalid, ambiguous, or duplicate credentials. |
-| 400 | `INVALID_TARGET_ID` | Invalid target ID. |
-| 400 | `INVALID_PAYLOAD` | Invalid action/body. |
-| 415 | `UNSUPPORTED_MEDIA_TYPE` | Action Content-Type is not JSON. |
-| 413 | `PAYLOAD_TOO_LARGE` | Action body exceeds 4 KiB. |
-| 404 | `TARGET_NOT_FOUND` | Target no longer exists in the Engine. |
-| 409 | `TARGET_PROTECTED` | Operation blocked for this target. |
-| 409 | `OPERATION_CONFLICT` | State changed or maintenance conflicts. |
-| 503 | `DOCKER_UNAVAILABLE` | Docker cannot be reached/accessed. |
-| 504 | `OPERATION_TIMEOUT` | Deadline exceeded. |
-| 405 | `METHOD_NOT_ALLOWED` | Unsupported method; `Allow` gives the method. |
-| 404 | `ROUTE_NOT_FOUND` | Unknown route. |
-| 503 | `STORAGE_UNAVAILABLE` | Health storage check failed. |
-| 502 | `OPERATION_FAILED` | Execution failed or was canceled. |
-| 502 | `OPERATION_PARTIAL_FAILURE` | Some work completed and some failed. |
-| 500 | `INTERNAL_ERROR` | Unexpected internal/storage failure. |
+| HTTP | Code                        | Meaning                                       |
+| ---- | --------------------------- | --------------------------------------------- |
+| 503  | `API_DISABLED`              | Protected routes disabled.                    |
+| 401  | `AUTH_REQUIRED`             | Authorization header absent.                  |
+| 401  | `AUTH_INVALID`              | Invalid, ambiguous, or duplicate credentials. |
+| 400  | `INVALID_TARGET_ID`         | Invalid target ID.                            |
+| 400  | `INVALID_PAYLOAD`           | Invalid action/body.                          |
+| 415  | `UNSUPPORTED_MEDIA_TYPE`    | Action Content-Type is not JSON.              |
+| 413  | `PAYLOAD_TOO_LARGE`         | Action body exceeds 4 KiB.                    |
+| 404  | `TARGET_NOT_FOUND`          | Target no longer exists in the Engine.        |
+| 409  | `TARGET_PROTECTED`          | Operation blocked for this target.            |
+| 409  | `OPERATION_CONFLICT`        | State changed or maintenance conflicts.       |
+| 503  | `DOCKER_UNAVAILABLE`        | Docker cannot be reached/accessed.            |
+| 504  | `OPERATION_TIMEOUT`         | Deadline exceeded.                            |
+| 405  | `METHOD_NOT_ALLOWED`        | Unsupported method; `Allow` gives the method. |
+| 404  | `ROUTE_NOT_FOUND`           | Unknown route.                                |
+| 503  | `STORAGE_UNAVAILABLE`       | Health storage check failed.                  |
+| 502  | `OPERATION_FAILED`          | Execution failed or was canceled.             |
+| 502  | `OPERATION_PARTIAL_FAILURE` | Some work completed and some failed.          |
+| 500  | `INTERNAL_ERROR`            | Unexpected internal/storage failure.          |
 
 401 includes `WWW-Authenticate: Bearer`. Operation errors include `result` with counters and failures. Partial completion returns 502/`OPERATION_PARTIAL_FAILURE`; homogeneous total failures use their mapped code/status. Timeout takes precedence and retains any partial result. A nil internal Go error alone does not establish success. No automatic retries or additional rollback guarantees are introduced. Reconcile current state before retrying after timeout, cancellation, or an interrupted restart response.
 

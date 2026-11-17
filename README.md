@@ -45,13 +45,13 @@ curl -fsSLo .env https://raw.githubusercontent.com/mapherez/nox-yard/master/.env
 
 Open `.env` in a text editor. For browser access from your private network, configure:
 
-| Setting | What to enter |
-| --- | --- |
-| `NOX_BIND_ADDRESS` | `0.0.0.0` for LAN/VPN access, or keep `127.0.0.1` for access from the server itself. |
-| `NOX_PORT` | An unused host port; the supplied default is **8095**. |
-| `NOX_PUBLIC_URL` | The exact Yard address you will open in your browser, including its port when needed. |
-| `NOX_AUTH_PUBLIC_URL` | The HTTPS address of your running NoX Auth service. |
-| `NOX_TIMEZONE` | Your server's IANA timezone for scheduled updates. |
+| Setting               | What to enter                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| `NOX_BIND_ADDRESS`    | `0.0.0.0` for LAN/VPN access, or keep `127.0.0.1` for access from the server itself.  |
+| `NOX_PORT`            | An unused host port; the supplied default is **8095**.                                |
+| `NOX_PUBLIC_URL`      | The exact Yard address you will open in your browser, including its port when needed. |
+| `NOX_AUTH_PUBLIC_URL` | The HTTPS address of your running NoX Auth service.                                   |
+| `NOX_TIMEZONE`        | Your server's IANA timezone for scheduled updates.                                    |
 
 Google credentials and allowed accounts stay in Auth. Other settings can keep their defaults for a new installation using Auth's default volume names.
 
@@ -96,7 +96,7 @@ If you use, fork, or modify this code, you **must** provide attribution by linki
 
 ---
 
-*For more details on what you can and cannot do, please refer to the [LICENSE](LICENSE) file in this repository.*
+_For more details on what you can and cannot do, please refer to the [LICENSE](LICENSE) file in this repository._
 
 ## Disclaimer of Warranty
 

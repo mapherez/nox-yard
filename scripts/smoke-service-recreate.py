@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify service-only Recreate and recovery in a disposable local Compose project."""
+
 from smoke_support import write_text, trace_docker, cleanup_fixture
 from auth_fixture import cleanup_all as cleanup_auth_fixtures
 import argparse
@@ -34,38 +35,78 @@ mcp_origin = "http://127.0.0.1:" + str(mcp_port)
 mcp_token = ""
 sequence = 0
 
+
 @trace_docker(name, base)
 def docker(*parts):
     result = subprocess.run(["docker", *parts], capture_output=True, text=True)
     if result.returncode:
-        raise RuntimeError("Fixture Docker command failed: " + " ".join(parts[:3]) + "\n" + result.stderr)
+        raise RuntimeError(
+            "Fixture Docker command failed: "
+            + " ".join(parts[:3])
+            + "\n"
+            + result.stderr
+        )
     return result.stdout.strip()
 
+
 def compose(*parts):
-    return docker("run", "--rm", "--label", "nox-yard.acceptance=" + name,
-                  "--mount", "type=bind,source=" + str(base) + ",target=" + host,
-                  "--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
-                  "--entrypoint", "docker", args.image, "compose", "--project-directory", host,
-                  "-p", name, "-f", host + "/compose.yaml", *parts)
+    return docker(
+        "run",
+        "--rm",
+        "--label",
+        "nox-yard.acceptance=" + name,
+        "--mount",
+        "type=bind,source=" + str(base) + ",target=" + host,
+        "--mount",
+        "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
+        "--entrypoint",
+        "docker",
+        args.image,
+        "compose",
+        "--project-directory",
+        host,
+        "-p",
+        name,
+        "-f",
+        host + "/compose.yaml",
+        *parts,
+    )
+
 
 def rpc(method, params):
     global sequence
     sequence += 1
-    request = urllib.request.Request(mcp_origin + "/mcp", data=json.dumps({"jsonrpc": "2.0", "id": sequence, "method": method, "params": params}).encode(),
-        headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25", "Authorization": "Bearer " + mcp_token})
+    request = urllib.request.Request(
+        mcp_origin + "/mcp",
+        data=json.dumps(
+            {"jsonrpc": "2.0", "id": sequence, "method": method, "params": params}
+        ).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": "2025-11-25",
+            "Authorization": "Bearer " + mcp_token,
+        },
+    )
     with urllib.request.urlopen(request, timeout=65) as response:
         return json.load(response)["result"]
+
 
 def tool(name, arguments, error=None):
     result = rpc("tools/call", {"name": name, "arguments": arguments})
     value = result.get("structuredContent")
     if value is None:
-        value = json.loads(next(block["text"] for block in result["content"] if block["type"] == "text"))
+        value = json.loads(
+            next(
+                block["text"] for block in result["content"] if block["type"] == "text"
+            )
+        )
     if error:
         assert result.get("isError") and value["code"] == error, result
     else:
         assert not result.get("isError"), result
     return value
+
 
 def wait(condition, description, timeout=160):
     deadline = time.monotonic() + timeout
@@ -77,8 +118,9 @@ def wait(condition, description, timeout=160):
                 return result
         except Exception as error:
             last = error
-        time.sleep(.5)
+        time.sleep(0.5)
     raise RuntimeError(description + (": " + str(last) if last else ""))
+
 
 def runtime(service=None):
     filters = ["--filter", "label=com.docker.compose.project=" + name]
@@ -87,20 +129,47 @@ def runtime(service=None):
     ids = docker("ps", "-aq", *filters).splitlines()
     return json.loads(docker("inspect", *ids)) if ids else []
 
+
 def peers():
-    return sorted((item["Id"], item["State"]["Running"], item["State"]["StartedAt"], item["RestartCount"], item["Image"])
-                  for item in runtime() if item["Config"]["Labels"]["com.docker.compose.service"] != "app")
+    return sorted(
+        (
+            item["Id"],
+            item["State"]["Running"],
+            item["State"]["StartedAt"],
+            item["RestartCount"],
+            item["Image"],
+        )
+        for item in runtime()
+        if item["Config"]["Labels"]["com.docker.compose.service"] != "app"
+    )
+
 
 target = {"id": "compose:" + name, "operation": "recreate", "service": "app"}
 
+
 def recreate():
     preview = tool("yard_recreate_preview", target)
-    assert len(preview["items"]) == 2 and all(item["service"] == "app" for item in preview["items"]), preview
-    job = tool("yard_recreate_submit", {**target, "fingerprint": preview["fingerprint"], "confirm": True})
-    assert len(job["sourceImages"]) == 2 and all(item["service"] == "app" for item in job["sourceImages"]), job
-    return wait(lambda: value if (value := tool("yard_job", {"id": job["id"]}))["status"] != "running" else None, "service job did not finish")
+    assert len(preview["items"]) == 2 and all(
+        item["service"] == "app" for item in preview["items"]
+    ), preview
+    job = tool(
+        "yard_recreate_submit",
+        {**target, "fingerprint": preview["fingerprint"], "confirm": True},
+    )
+    assert len(job["sourceImages"]) == 2 and all(
+        item["service"] == "app" for item in job["sourceImages"]
+    ), job
+    return wait(
+        lambda: (
+            value
+            if (value := tool("yard_job", {"id": job["id"]}))["status"] != "running"
+            else None
+        ),
+        "service job did not finish",
+    )
 
-source = f'''services:
+
+source = f"""services:
   nox-yard:
     image: {json.dumps(args.image)}
     labels: {{nox-yard.acceptance: {name}}}
@@ -134,59 +203,126 @@ source = f'''services:
     deploy: {{replicas: 2}}
     depends_on: {{init: {{condition: service_completed_successfully}}, db: {{condition: service_started}}}}
     stop_grace_period: 1s
-'''
+"""
 source += "\nvolumes: {yard-state: {}}\n"
 try:
     write_text(base / "compose.yaml", source, newline="")
     write_text(base / ".env", "VALUE=initial\nFAIL=0\n", newline="")
     compose("up", "-d", "--no-build", "--pull", "never")
-    wait(lambda: urllib.request.urlopen(origin + "/healthz", timeout=3).status == 200, "Yard did not start")
+    wait(
+        lambda: urllib.request.urlopen(origin + "/healthz", timeout=3).status == 200,
+        "Yard did not start",
+    )
     _, _, mcp_token = bootstrap_mcp(origin, docker=docker)
-    rpc("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "service-fixture", "version": "1"}})
+    rpc(
+        "initialize",
+        {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "service-fixture", "version": "1"},
+        },
+    )
     initial_peers = peers()
     initial_runs = (base / "state/init-runs").read_text()
     old_ids = {item["Id"] for item in runtime("app")}
     # Make the unrelated database image unavailable in the current file. Scoped
     # recreation must neither inspect/pull it nor recreate that dependency.
-    edited = source.replace("  db:\n    image: " + json.dumps(args.image), "  db:\n    image: 127.0.0.1:1/unavailable:never")
+    edited = source.replace(
+        "  db:\n    image: " + json.dumps(args.image),
+        "  db:\n    image: 127.0.0.1:1/unavailable:never",
+    )
     write_text(base / "compose.yaml", edited, newline="")
     write_text(base / ".env", "VALUE=from-current-file\nFAIL=0\n", newline="")
     result = recreate()
     assert result["status"] == "succeeded", result
     assert {item["Id"] for item in runtime("app")}.isdisjoint(old_ids)
-    assert all("VALUE=from-current-file" in item["Config"]["Env"] for item in runtime("app"))
-    assert peers() == initial_peers and (base / "state/init-runs").read_text() == initial_runs
+    assert all(
+        "VALUE=from-current-file" in item["Config"]["Env"] for item in runtime("app")
+    )
+    assert (
+        peers() == initial_peers
+        and (base / "state/init-runs").read_text() == initial_runs
+    )
     assert (base / "compose.yaml").read_text() == edited and "build:" in edited
-    print("PASS: two service replicas use current env/local images with image+build; dependencies, initializer, Yard and source files remain unchanged", flush=True)
+    print(
+        "PASS: two service replicas use current env/local images with image+build; dependencies, initializer, Yard and source files remain unchanged",
+        flush=True,
+    )
 
     reviewed = tool("yard_recreate_preview", target)
-    tool("yard_recreate_submit", {**target, "service": "db", "fingerprint": reviewed["fingerprint"], "confirm": True}, error="OPERATION_CONFLICT")
-    tool("yard_recreate_preview", {**target, "service": "missing"}, error="INVALID_PAYLOAD")
+    tool(
+        "yard_recreate_submit",
+        {
+            **target,
+            "service": "db",
+            "fingerprint": reviewed["fingerprint"],
+            "confirm": True,
+        },
+        error="OPERATION_CONFLICT",
+    )
+    tool(
+        "yard_recreate_preview",
+        {**target, "service": "missing"},
+        error="INVALID_PAYLOAD",
+    )
     assert peers() == initial_peers
-    print("PASS: unknown services and confirmation scope changes fail without widening to the project", flush=True)
+    print(
+        "PASS: unknown services and confirmation scope changes fail without widening to the project",
+        flush=True,
+    )
 
-    peer = docker("run", "-d", "--label", "nox-yard.acceptance=" + name, "--network", "container:" + runtime("app")[0]["Id"], args.image, "sh", "-c", "exec sleep 600")
+    peer = docker(
+        "run",
+        "-d",
+        "--label",
+        "nox-yard.acceptance=" + name,
+        "--network",
+        "container:" + runtime("app")[0]["Id"],
+        args.image,
+        "sh",
+        "-c",
+        "exec sleep 600",
+    )
     try:
         tool("yard_recreate_preview", target, error="UNSUPPORTED_CONFIGURATION")
     finally:
         docker("rm", "-f", peer)
-    print("PASS: a container outside the Compose project sharing the target namespace blocks recreation before mutation", flush=True)
+    print(
+        "PASS: a container outside the Compose project sharing the target namespace blocks recreation before mutation",
+        flush=True,
+    )
 
     write_text(base / ".env", "VALUE=failing-candidate\nFAIL=1\n", newline="")
     result = recreate()
     assert result["status"] == "failed" and result["rollback"] == "restored", result
-    assert all(item["State"]["Running"] and "VALUE=from-current-file" in item["Config"]["Env"] for item in runtime("app"))
-    assert peers() == initial_peers and (base / "state/init-runs").read_text() == initial_runs
-    print("PASS: failed replacement restores only selected replicas; dependency IDs/start times and initializer run count are preserved", flush=True)
+    assert all(
+        item["State"]["Running"] and "VALUE=from-current-file" in item["Config"]["Env"]
+        for item in runtime("app")
+    )
+    assert (
+        peers() == initial_peers
+        and (base / "state/init-runs").read_text() == initial_runs
+    )
+    print(
+        "PASS: failed replacement restores only selected replicas; dependency IDs/start times and initializer run count are preserved",
+        flush=True,
+    )
 
     write_text(base / ".env", "VALUE=stopped-candidate\nFAIL=0\n", newline="")
     for item in runtime("app"):
         docker("stop", "--time", "1", item["Id"])
     result = recreate()
     assert result["status"] == "succeeded", result
-    assert all(not item["State"]["Running"] and "VALUE=stopped-candidate" in item["Config"]["Env"] for item in runtime("app"))
+    assert all(
+        not item["State"]["Running"]
+        and "VALUE=stopped-candidate" in item["Config"]["Env"]
+        for item in runtime("app")
+    )
     assert peers() == initial_peers
-    print("PASS: a stopped service remains stopped after current-file recreation", flush=True)
+    print(
+        "PASS: a stopped service remains stopped after current-file recreation",
+        flush=True,
+    )
 
     # Missing-file fallback uses the runtime of the selected service, retaining
     # the same scope and its dependencies through the Engine worker.
@@ -196,20 +332,40 @@ try:
     old_ids = {item["Id"] for item in runtime("app")}
     result = recreate()
     assert result["status"] == "succeeded", result
-    wait(lambda: len(items := runtime("app")) == 2 and {item["Id"] for item in items}.isdisjoint(old_ids), "Engine retained-container cleanup did not finish")
+    wait(
+        lambda: (
+            len(items := runtime("app")) == 2
+            and {item["Id"] for item in items}.isdisjoint(old_ids)
+        ),
+        "Engine retained-container cleanup did not finish",
+    )
     assert peers() == initial_peers
-    print("PASS: missing Compose files retain service-only Engine fallback without mutating peers", flush=True)
+    print(
+        "PASS: missing Compose files retain service-only Engine fallback without mutating peers",
+        flush=True,
+    )
 finally:
     cleanup_auth_fixtures()
-    ids = docker("ps", "-aq", "--filter", "label=nox-yard.acceptance=" + name).splitlines()
+    ids = docker(
+        "ps", "-aq", "--filter", "label=nox-yard.acceptance=" + name
+    ).splitlines()
     if ids:
         docker("rm", "-f", *ids)
-    for worker in docker("ps", "-aq", "--filter", "label=nox-yard.role=operation-worker").splitlines():
+    for worker in docker(
+        "ps", "-aq", "--filter", "label=nox-yard.role=operation-worker"
+    ).splitlines():
         info = json.loads(docker("inspect", worker))[0]
-        if any(mount.get("Name") == name + "_yard-state" for mount in info.get("Mounts", [])):
+        if any(
+            mount.get("Name") == name + "_yard-state"
+            for mount in info.get("Mounts", [])
+        ):
             docker("rm", "-f", worker)
-    networks = docker("network", "ls", "-q", "--filter", "label=com.docker.compose.project=" + name).splitlines()
+    networks = docker(
+        "network", "ls", "-q", "--filter", "label=com.docker.compose.project=" + name
+    ).splitlines()
     if networks:
         docker("network", "rm", *networks)
-    subprocess.run(["docker", "volume", "rm", name + "_yard-state"],capture_output=True)
+    subprocess.run(
+        ["docker", "volume", "rm", name + "_yard-state"], capture_output=True
+    )
     cleanup_fixture(base, root, name, args.image)

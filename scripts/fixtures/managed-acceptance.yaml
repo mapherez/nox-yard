@@ -2,10 +2,10 @@
 services:
   healthy:
     image: alpine:3.23
-    command: [sleep, '600']
+    command: [sleep, "600"]
     stop_grace_period: 1s
     healthcheck:
-      test: [CMD, 'true']
+      test: [CMD, "true"]
       interval: 1s
       timeout: 1s
       retries: 1
@@ -15,16 +15,16 @@ services:
   unhealthy:
     image: alpine:3.23
     profiles: [unhealthy]
-    command: [sleep, '600']
+    command: [sleep, "600"]
     stop_grace_period: 1s
     healthcheck:
-      test: [CMD, 'false']
+      test: [CMD, "false"]
       interval: 1s
       timeout: 1s
       retries: 1
   oneshot:
     image: alpine:3.23
-    command: [sh, -c, 'exit 0']
+    command: [sh, -c, "exit 0"]
     labels:
       nox-yard.lifecycle: oneshot
   failed-pull:

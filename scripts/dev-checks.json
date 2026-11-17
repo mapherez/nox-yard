@@ -1,26 +1,12 @@
 {
   "policy": "scripts/ci-policy.mjs",
   "go": true,
-  "vite": [
-    "web"
-  ],
+  "vite": ["web"],
   "check": [
     {
       "command": "sh",
-      "args": [
-        "scripts/check.sh"
-      ],
+      "args": ["scripts/check.sh"],
       "cwd": "."
-    }
-  ],
-  "format": [
-    {
-      "command": "npm",
-      "args": [
-        "run",
-        "format"
-      ],
-      "cwd": "web"
     }
   ],
   "yard": true

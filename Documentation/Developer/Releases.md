@@ -45,10 +45,10 @@ Commit implementation changes first. The command rejects tracked, staged or untr
 
 CI accepts the request only when the marker, commit subject, package version, annotated tag, annotation and exact target SHA agree, and the release commit changes only the version in `package.json`. An ordinary version bump, old release commit without the marker, or manually pushed tag does not request publication. These are provenance checks within the repository's existing trusted-push model, not a cryptographic proof of which client command was used.
 
-| Version | GHCR tags | GitHub Release |
-| --- | --- | --- |
-| `1.2.0` | `v1.2.0`, `latest` | Stable |
-| `1.2.0-rc.1` | `v1.2.0-rc.1` only | Prerelease |
+| Version      | GHCR tags          | GitHub Release |
+| ------------ | ------------------ | -------------- |
+| `1.2.0`      | `v1.2.0`, `latest` | Stable         |
+| `1.2.0-rc.1` | `v1.2.0-rc.1` only | Prerelease     |
 
 Stable publication cannot move `latest` behind a newer published stable version. Installation and Yard self-update continue to use `ghcr.io/mapherez/nox-yard:latest`.
 

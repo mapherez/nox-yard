@@ -1,25 +1,10 @@
+import type { FormatConfig } from "vite-plus/fmt";
+import formatOptions from "./format-options.json" with { type: "json" };
 import { defineConfig, loadEnv, lazyPlugins } from "vite-plus";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => ({
-  fmt: {
-    insertFinalNewline: true,
-    endOfLine: "lf",
-    useTabs: false,
-    tabWidth: 2,
-    sortPackageJson: false,
-    ignorePatterns: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/build/**",
-      "**/target/**",
-      "**/vendor/**",
-      "**/*.md",
-      "**/*.mdx",
-      "**/package-lock.json",
-      "**/pnpm-lock.yaml",
-    ],
-  },
+  fmt: formatOptions as FormatConfig,
   staged: { "*": "vp check --fix" },
   lint: {
     ignorePatterns: [

@@ -10,11 +10,11 @@ Choose a card grid or compact table, search by project/container/service name, a
 
 ## Workload types
 
-| Type | Meaning |
-| --- | --- |
-| Managed Compose | Deployed or adopted by Yard, with saved Compose definitions and additional management capabilities. |
-| External Compose | An existing Compose project discovered automatically, without import. Supported projects can be adopted. |
-| Standalone container | A Docker container outside a Compose project. |
+| Type                 | Meaning                                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------------------- |
+| Managed Compose      | Deployed or adopted by Yard, with saved Compose definitions and additional management capabilities.      |
+| External Compose     | An existing Compose project discovered automatically, without import. Supported projects can be adopted. |
+| Standalone container | A Docker container outside a Compose project.                                                            |
 
 Available actions depend on the workload and whether its configuration can be safely read and reproduced. Yard rejects unsupported replacements instead of guessing at missing configuration. See the [feature reference](../Developer/Features.md) for detailed limits.
 

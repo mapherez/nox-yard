@@ -3,38 +3,41 @@ name: CI
 on:
   push:
     branches:
-      - '**'
+      - "**"
     # Keep this allowlist aligned with triggersCI in scripts/ci-policy.mjs.
     paths:
-      - 'cmd/**'
-      - 'internal/**'
-      - 'go.mod'
-      - 'go.sum'
-      - 'web/src/**'
-      - 'web/public/**'
-      - 'web/index.html'
-      - 'web/package.json'
-      - 'web/package-lock.json'
-      - 'web/.npmrc'
-      - 'web/vite.config.*'
-      - 'web/tsconfig*.json'
-      - '.nvmrc'
-      - 'Dockerfile'
-      - 'compose.yaml'
-      - 'compose.dev.yaml'
-      - '.env.example'
-      - 'package.json'
-      - 'scripts/**'
-      - '.github/workflows/**'
-      - '.githooks/**'
-      - '.gitattributes'
-      - 'third_party/cosign/LICENSE'
-      - '!**/*.md'
-      - '!**/*.mdx'
-      - '!**/*.rst'
-      - '!**/README*'
-      - '!**/CHANGELOG*'
-      - '!**/.gitkeep'
+      - "cmd/**"
+      - "internal/**"
+      - "go.mod"
+      - "go.sum"
+      - "web/src/**"
+      - "web/public/**"
+      - "web/index.html"
+      - "web/package.json"
+      - "web/package-lock.json"
+      - "web/.npmrc"
+      - "web/vite.config.*"
+      - "web/format-options.json"
+      - "web/tsconfig*.json"
+      - ".nvmrc"
+      - "Dockerfile"
+      - "compose.yaml"
+      - "compose.dev.yaml"
+      - ".env.example"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.mjs"
+      - "scripts/**"
+      - ".github/workflows/**"
+      - ".githooks/**"
+      - ".gitattributes"
+      - "third_party/cosign/LICENSE"
+      - "!**/*.md"
+      - "!**/*.mdx"
+      - "!**/*.rst"
+      - "!**/README*"
+      - "!**/CHANGELOG*"
+      - "!**/.gitkeep"
   # Explicit validation for otherwise ignored inputs, or expired CI evidence.
   # A manual run validates only; it never publishes a release.
   workflow_dispatch:
@@ -185,7 +188,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ['1', '2', '3']
+        group: ["1", "2", "3"]
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -228,18 +231,38 @@ jobs:
         if: always()
         run: docker volume rm nox-yard-c2-go-cache nox-yard-c2-build-cache
 
+  formatting:
+    name: Formatting
+    needs: plan
+    if: needs.plan.outputs.mode == 'full'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          package-manager-cache: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run format:check
+      - run: npm run test:format
+
   approved:
     name: CI approved (policy v1)
-    needs: [plan, validate, image, runtime]
+    needs: [plan, validate, image, runtime, formatting]
     if: ${{ !cancelled() && needs.plan.outputs.mode == 'full' }}
     runs-on: ubuntu-latest
     steps:
       - name: Require every source, architecture and runtime gate
         env:
+          FORMATTING: ${{ needs.formatting.result }}
           VALIDATE: ${{ needs.validate.result }}
           IMAGE: ${{ needs.image.result }}
           RUNTIME: ${{ needs.runtime.result }}
-        run: test "$VALIDATE/$IMAGE/$RUNTIME" = success/success/success
+        run: test "$VALIDATE/$IMAGE/$RUNTIME/$FORMATTING" = success/success/success/success
       - name: Check out the approved source
         uses: actions/checkout@v6
         with:

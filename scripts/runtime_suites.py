@@ -1,7 +1,11 @@
 """One runtime-suite inventory for local acceptance and CI."""
 
 SUITES = [
-    ("same-host Suite pairing with published Backend and Auth", "smoke-suite.py", False),
+    (
+        "same-host Suite pairing with published Backend and Auth",
+        "smoke-suite.py",
+        False,
+    ),
     ("NoX Login enrollment and previous-image rollback", "smoke-nox-login.py", False),
     ("upgrade/password recovery/backup restore", "smoke-upgrade.py", True),
     ("durable jobs and interruption", "smoke-jobs.py", False),
@@ -19,14 +23,28 @@ SUITES = [
 # Parallel CI groups share this inventory with the unsharded local runner.
 # The split balances measured suite durations; every current suite runs once.
 CI_GROUPS = {
-    "1": ("smoke-suite.py", "smoke-nox-login.py", "smoke-recreate.py", "smoke-schedules.py", "smoke-machine.py"),
+    "1": (
+        "smoke-suite.py",
+        "smoke-nox-login.py",
+        "smoke-recreate.py",
+        "smoke-schedules.py",
+        "smoke-machine.py",
+    ),
     "2": ("smoke-managed.py", "smoke-mcp.py", "smoke-self-update.py"),
-    "3": ("smoke-jobs.py", "smoke-native-parity.py", "smoke-configuration.py", "smoke-service-recreate.py"),
+    "3": (
+        "smoke-jobs.py",
+        "smoke-native-parity.py",
+        "smoke-configuration.py",
+        "smoke-service-recreate.py",
+    ),
 }
+
 
 def ci_suites(group):
     selected = [script for scripts in CI_GROUPS.values() for script in scripts]
     current = [script for _, script, legacy in SUITES if not legacy]
     if sorted(selected) != sorted(current) or len(selected) != len(set(selected)):
-        raise ValueError("CI groups must partition every current runtime suite exactly once")
+        raise ValueError(
+            "CI groups must partition every current runtime suite exactly once"
+        )
     return CI_GROUPS[group]

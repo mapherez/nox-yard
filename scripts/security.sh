@@ -10,7 +10,7 @@ scanner_dir=$(mktemp -d)
 scanner_bin="$scanner_dir/govulncheck$(go env GOEXE)"
 trap 'rm -f "$scanner_bin"; rmdir "$scanner_dir"' EXIT
 scanner_install_dir="$scanner_dir"
-if command -v cygpath >/dev/null 2>&1; then
+if command -v cygpath > /dev/null 2>&1; then
   scanner_install_dir=$(cygpath -w "$scanner_dir")
 fi
 GOBIN="$scanner_install_dir" go install golang.org/x/vuln/cmd/govulncheck@v1.8.0

@@ -5,6 +5,7 @@ Requires Docker, Python 3 and images for the current source and v1.0.1.
 Creates only random, explicitly tracked fixtures; never uses an existing Yard.
 Runs natively on a Linux Pi 5/amd64 host or through Linux Docker Desktop.
 """
+
 from smoke_support import trace_docker, cleanup_fixture
 from auth_fixture import cleanup_all as cleanup_auth_fixtures
 import argparse
@@ -40,15 +41,24 @@ workers = set()
 tools = name + ":tools"
 password = secrets.token_urlsafe(24)
 replacement = secrets.token_urlsafe(24)
-(base / "passwords.json").write_text(json.dumps([password, replacement]), encoding="utf-8")
+(base / "passwords.json").write_text(
+    json.dumps([password, replacement]), encoding="utf-8"
+)
 os.chmod(base / "passwords.json", 0o600)
 
 
 @trace_docker(name, base)
 def docker(*parts, input=None):
-    result = subprocess.run(["docker", *parts], input=input, text=True, capture_output=True)
+    result = subprocess.run(
+        ["docker", *parts], input=input, text=True, capture_output=True
+    )
     if result.returncode:
-        raise RuntimeError("Fixture Docker command failed: " + " ".join(parts[:2]) + "\n" + result.stderr)
+        raise RuntimeError(
+            "Fixture Docker command failed: "
+            + " ".join(parts[:2])
+            + "\n"
+            + result.stderr
+        )
     return result.stdout.strip()
 
 
@@ -71,35 +81,69 @@ def request(path, body=None, method=None, expected=200, authenticated=True):
         headers["X-CSRF-Token"] = csrf
     if body is not None:
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url + path, data=None if body is None else json.dumps(body).encode(), headers=headers, method=method)
+    req = urllib.request.Request(
+        url + path,
+        data=None if body is None else json.dumps(body).encode(),
+        headers=headers,
+        method=method,
+    )
     try:
         response = opener.open(req, timeout=15)
     except urllib.error.HTTPError as error:
         response = error
     with response:
-        assert response.status == expected, "Unexpected HTTP status for " + path + ": " + str(response.status)
+        assert response.status == expected, (
+            "Unexpected HTTP status for " + path + ": " + str(response.status)
+        )
         content = response.read()
         return json.loads(content) if content else None
 
 
 def helper(code, extra=()):
-    return docker("run", "--rm", "--label", "nox-yard.acceptance=" + name,
-                  "--mount", "type=volume,source=" + state + ",target=/data",
-                  "--mount", "type=bind,source=" + str(base.resolve()) + ",target=/fixture",
-                  *extra, tools, "python", "-c", code)
+    return docker(
+        "run",
+        "--rm",
+        "--label",
+        "nox-yard.acceptance=" + name,
+        "--mount",
+        "type=volume,source=" + state + ",target=/data",
+        "--mount",
+        "type=bind,source=" + str(base.resolve()) + ",target=/fixture",
+        *extra,
+        tools,
+        "python",
+        "-c",
+        code,
+    )
 
 
 def serve(image):
     global url
-    identifier = docker("create", "--name", name + "-yard-" + str(len(containers)),
-        "--label", "nox-yard.acceptance=" + name, "--publish", "127.0.0.1::8080",
-        "--mount", "type=volume,source=" + state + ",target=/data",
-        "--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
-        "--env", "NOX_DATA_DIR=/data", "--env", "TZ=Europe/Lisbon", image)
+    identifier = docker(
+        "create",
+        "--name",
+        name + "-yard-" + str(len(containers)),
+        "--label",
+        "nox-yard.acceptance=" + name,
+        "--publish",
+        "127.0.0.1::8080",
+        "--mount",
+        "type=volume,source=" + state + ",target=/data",
+        "--mount",
+        "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
+        "--env",
+        "NOX_DATA_DIR=/data",
+        "--env",
+        "TZ=Europe/Lisbon",
+        image,
+    )
     containers.append(identifier)
     docker("start", identifier)
     info = json.loads(docker("inspect", identifier))[0]
-    url = "http://127.0.0.1:" + info["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostPort"]
+    url = (
+        "http://127.0.0.1:"
+        + info["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostPort"]
+    )
     until(lambda: request("/healthz", authenticated=False), "Yard readiness")
     return identifier
 
@@ -112,74 +156,199 @@ def completed_job(identifier):
 
 
 def assert_data():
-    ids = docker("ps", "-aq", "--no-trunc", "--filter", "label=com.docker.compose.project=" + name).splitlines()
+    ids = docker(
+        "ps",
+        "-aq",
+        "--no-trunc",
+        "--filter",
+        "label=com.docker.compose.project=" + name,
+    ).splitlines()
     assert ids == original_ids, "Upgrade or restore replaced application containers"
     assert docker("exec", ids[0], "cat", "/volume/keep") == "volume-before-upgrade"
     assert docker("exec", ids[0], "cat", "/bind/keep") == "bind-before-upgrade"
     for relative, digest in source_hashes.items():
-        assert hashlib.sha256((projects / name / relative).read_bytes()).hexdigest() == digest, "Project source or env file changed"
+        assert (
+            hashlib.sha256((projects / name / relative).read_bytes()).hexdigest()
+            == digest
+        ), "Project source or env file changed"
 
 
 try:
     for image in (args.image, args.legacy_image):
         info = json.loads(docker("image", "inspect", image))[0]
         assert info["Os"] == "linux", "Acceptance requires Linux images"
-    assert json.loads(docker("image", "inspect", args.image))[0]["Architecture"] == json.loads(docker("image", "inspect", args.legacy_image))[0]["Architecture"], "Use the same native architecture for both images"
-    (base / "Dockerfile").write_text("FROM " + args.image + " AS yard\nFROM python:3.13-alpine\nCOPY --from=yard /usr/local/bin/nox-yard /usr/local/bin/nox-yard\nENV NOX_DATA_DIR=/data\n", encoding="utf-8")
+    assert (
+        json.loads(docker("image", "inspect", args.image))[0]["Architecture"]
+        == json.loads(docker("image", "inspect", args.legacy_image))[0]["Architecture"]
+    ), "Use the same native architecture for both images"
+    (base / "Dockerfile").write_text(
+        "FROM "
+        + args.image
+        + " AS yard\nFROM python:3.13-alpine\nCOPY --from=yard /usr/local/bin/nox-yard /usr/local/bin/nox-yard\nENV NOX_DATA_DIR=/data\n",
+        encoding="utf-8",
+    )
     docker("build", "-t", tools, str(base))
     docker("volume", "create", "--label", "nox-yard.acceptance=" + name, state)
     volumes.append(state)
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(CookieJar())
+    )
     csrf = ""
     old = serve(args.legacy_image)
     assert request("/api/bootstrap", authenticated=False)["needsSetup"]
-    csrf = request("/api/setup", {"username": "owner", "password": password}, expected=201, authenticated=False)["csrfToken"]
-    request("/api/managed/settings", {"projectsBase": host_base + "/projects"}, method="PUT")
+    csrf = request(
+        "/api/setup",
+        {"username": "owner", "password": password},
+        expected=201,
+        authenticated=False,
+    )["csrfToken"]
+    request(
+        "/api/managed/settings", {"projectsBase": host_base + "/projects"}, method="PUT"
+    )
     (projects / name / "files").mkdir(parents=True)
     (projects / name / "files/keep").write_text("bind-before-upgrade", encoding="utf-8")
-    source = ("services:\n  demo:\n    image: ${APP_IMAGE}\n    command: [sleep, '600']\n    stop_grace_period: 1s\n    env_file: env/runtime.env\n    labels:\n      nox-yard.acceptance: " + name + "\n    volumes:\n      - data:/volume\n      - ./files:/bind\nvolumes:\n  data:\n    name: " + app_volume + "\n    labels:\n      nox-yard.acceptance: " + name + "\nnetworks:\n  default:\n    labels:\n      nox-yard.acceptance: " + name + "\n")
-    input = {"name": name, "source": {"kind": "paste", "yaml": source}, "variables": {"APP_IMAGE": "alpine:3.23"}, "envFiles": {"env/runtime.env": "TOKEN=private-upgrade-fixture\n"}, "mode": "new"}
+    source = (
+        "services:\n  demo:\n    image: ${APP_IMAGE}\n    command: [sleep, '600']\n    stop_grace_period: 1s\n    env_file: env/runtime.env\n    labels:\n      nox-yard.acceptance: "
+        + name
+        + "\n    volumes:\n      - data:/volume\n      - ./files:/bind\nvolumes:\n  data:\n    name: "
+        + app_volume
+        + "\n    labels:\n      nox-yard.acceptance: "
+        + name
+        + "\nnetworks:\n  default:\n    labels:\n      nox-yard.acceptance: "
+        + name
+        + "\n"
+    )
+    input = {
+        "name": name,
+        "source": {"kind": "paste", "yaml": source},
+        "variables": {"APP_IMAGE": "alpine:3.23"},
+        "envFiles": {"env/runtime.env": "TOKEN=private-upgrade-fixture\n"},
+        "mode": "new",
+    }
     docker("pull", "alpine:3.23")
     preview = request("/api/managed/preview", input)
     input["fingerprint"] = preview["fingerprint"]
     job = request("/api/managed/deploy", input, expected=202)
-    assert until(lambda: completed_job(job["id"]), "v1.0.1 deployment")["status"] == "succeeded"
+    assert (
+        until(lambda: completed_job(job["id"]), "v1.0.1 deployment")["status"]
+        == "succeeded"
+    )
     volumes.append(app_volume)
-    original_ids = docker("ps", "-aq", "--no-trunc", "--filter", "label=com.docker.compose.project=" + name).splitlines()
+    original_ids = docker(
+        "ps",
+        "-aq",
+        "--no-trunc",
+        "--filter",
+        "label=com.docker.compose.project=" + name,
+    ).splitlines()
     assert len(original_ids) == 1
-    docker("exec", original_ids[0], "sh", "-c", "printf volume-before-upgrade > /volume/keep")
-    source_hashes = {p: hashlib.sha256((projects / name / p).read_bytes()).hexdigest() for p in ("compose.yml", "env/runtime.env", "files/keep")}
+    docker(
+        "exec",
+        original_ids[0],
+        "sh",
+        "-c",
+        "printf volume-before-upgrade > /volume/keep",
+    )
+    source_hashes = {
+        p: hashlib.sha256((projects / name / p).read_bytes()).hexdigest()
+        for p in ("compose.yml", "env/runtime.env", "files/keep")
+    }
     docker("stop", old)
     # Add representative interrupted and pre-host-directory legacy records to
     # the actual schema initialized and exercised by the released source.
-    helper("import sqlite3,time; db=sqlite3.connect('/data/nox-yard.sqlite'); assert db.execute('PRAGMA user_version').fetchone()[0]==6; now=int(time.time()); db.execute(\"INSERT INTO managed_jobs VALUES (?,?,?,?,?,?,?)\", ('legacy-interrupted','" + name + "','update','running','',now,0)); db.execute(\"INSERT INTO managed_projects(name,source_kind,yaml,variables_json,created_at,updated_at) VALUES(?,?,?,?,?,?)\", ('" + name + "-missing','paste','services: {}','{}',now,now)); db.commit(); db.close()")
+    helper(
+        "import sqlite3,time; db=sqlite3.connect('/data/nox-yard.sqlite'); assert db.execute('PRAGMA user_version').fetchone()[0]==6; now=int(time.time()); db.execute(\"INSERT INTO managed_jobs VALUES (?,?,?,?,?,?,?)\", ('legacy-interrupted','"
+        + name
+        + "','update','running','',now,0)); db.execute(\"INSERT INTO managed_projects(name,source_kind,yaml,variables_json,created_at,updated_at) VALUES(?,?,?,?,?,?)\", ('"
+        + name
+        + "-missing','paste','services: {}','{}',now,now)); db.commit(); db.close()"
+    )
     # Stop writers before taking a consistent three-part backup.
-    helper("import sqlite3,shutil,pathlib; source=sqlite3.connect('/data/nox-yard.sqlite'); dest=sqlite3.connect('/fixture/backup.sqlite'); source.backup(dest); assert dest.execute('PRAGMA integrity_check').fetchone()[0]=='ok'; dest.close(); source.close(); shutil.copytree('/fixture/projects','/fixture/backup-projects')")
-    helper("import shutil; shutil.copytree('/application','/fixture/backup-application')", ("--mount", "type=volume,source=" + app_volume + ",target=/application,readonly"))
-    print("PASS: real v1.0.1 setup/deployment, schema 6, consistent SQLite/source/env/application backup", flush=True)
+    helper(
+        "import sqlite3,shutil,pathlib; source=sqlite3.connect('/data/nox-yard.sqlite'); dest=sqlite3.connect('/fixture/backup.sqlite'); source.backup(dest); assert dest.execute('PRAGMA integrity_check').fetchone()[0]=='ok'; dest.close(); source.close(); shutil.copytree('/fixture/projects','/fixture/backup-projects')"
+    )
+    helper(
+        "import shutil; shutil.copytree('/application','/fixture/backup-application')",
+        (
+            "--mount",
+            "type=volume,source=" + app_volume + ",target=/application,readonly",
+        ),
+    )
+    print(
+        "PASS: real v1.0.1 setup/deployment, schema 6, consistent SQLite/source/env/application backup",
+        flush=True,
+    )
     current = serve(args.image)
-    assert not request("/api/bootstrap", authenticated=False)["authenticated"], "Legacy password session admitted by current Yard"
+    assert not request("/api/bootstrap", authenticated=False)["authenticated"], (
+        "Legacy password session admitted by current Yard"
+    )
     from auth_fixture import login as fixture_login
+
     opener, auth_session = fixture_login(url, docker=docker)
     csrf = auth_session["csrfToken"]
     assert_data()
-    history = until(lambda: next((j for j in request('/api/jobs?target=compose:' + name) if j['id']=='legacy-interrupted' and j['status']=='failed'), None), "interrupted legacy reconciliation")
-    assert history["outcome"] == "recovery_required" and history["stage"] == "awaiting_recovery", "Interrupted legacy work was claimed successful"
+    history = until(
+        lambda: next(
+            (
+                j
+                for j in request("/api/jobs?target=compose:" + name)
+                if j["id"] == "legacy-interrupted" and j["status"] == "failed"
+            ),
+            None,
+        ),
+        "interrupted legacy reconciliation",
+    )
+    assert (
+        history["outcome"] == "recovery_required"
+        and history["stage"] == "awaiting_recovery"
+    ), "Interrupted legacy work was claimed successful"
     # Fixture originals and source hashes were reviewed above; no worker exists.
-    request("/api/jobs/legacy-interrupted/recovery", {"confirm": True, "updatedAt": history["updatedAt"]})
-    missing = request("/api/managed/projects/" + name + "-missing/operations", {"operation": "update", "removeVolumes": False}, expected=202)
+    request(
+        "/api/jobs/legacy-interrupted/recovery",
+        {"confirm": True, "updatedAt": history["updatedAt"]},
+    )
+    missing = request(
+        "/api/managed/projects/" + name + "-missing/operations",
+        {"operation": "update", "removeVolumes": False},
+        expected=202,
+    )
     refused = until(lambda: completed_job(missing["id"]), "missing-directory refusal")
-    assert refused["status"] == "failed" and "directory" in refused.get("error", "").lower(), "Legacy missing directory did not fail safely"
-    assert not docker("ps", "-aq", "--filter", "label=com.docker.compose.project=" + name + "-missing"), "Missing directory created host resources"
+    assert (
+        refused["status"] == "failed"
+        and "directory" in refused.get("error", "").lower()
+    ), "Legacy missing directory did not fail safely"
+    assert not docker(
+        "ps", "-aq", "--filter", "label=com.docker.compose.project=" + name + "-missing"
+    ), "Missing directory created host resources"
     schedule = request("/api/projects/compose:" + name + "/schedule")
     assert not schedule["enabled"], "Upgrade enabled automatic updates"
-    updated = request("/api/managed/projects/" + name + "/operations", {"operation": "update", "removeVolumes": False}, expected=202)
+    updated = request(
+        "/api/managed/projects/" + name + "/operations",
+        {"operation": "update", "removeVolumes": False},
+        expected=202,
+    )
     outcome = until(lambda: completed_job(updated["id"]), "upgraded unchanged update")
     assert outcome["status"] == "succeeded" and outcome["outcome"] == "unchanged"
     assert_data()
-    print("PASS: schema 6 to 9, account/session/project/history persistence, interrupted-job recovery, missing-directory refusal, default-off and unchanged update", flush=True)
+    print(
+        "PASS: schema 6 to 9, account/session/project/history persistence, interrupted-job recovery, missing-directory refusal, default-off and unchanged update",
+        flush=True,
+    )
     # CLI must refuse piped credentials without modifying authentication state.
-    denied = subprocess.run(["docker", "run", "--rm", "--mount", "type=volume,source=" + state + ",target=/data", args.image, "nox-yard", "reset-admin-password"], text=True, capture_output=True)
+    denied = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--mount",
+            "type=volume,source=" + state + ",target=/data",
+            args.image,
+            "nox-yard",
+            "reset-admin-password",
+        ],
+        text=True,
+        capture_output=True,
+    )
     assert denied.returncode != 0 and "interactive terminal" in denied.stderr
     assert request("/api/bootstrap")["authenticated"]
     # Run the actual CLI with a Linux pseudo-terminal; verify no password echo.
@@ -206,35 +375,70 @@ finally:
  os.close(master)
 """
     helper(reset)
-    assert request("/api/bootstrap")["authenticated"], "Changing a legacy password affected NoX Login"
-    request("/api/login", {"username": "owner", "password": password}, expected=405, authenticated=False)
+    assert request("/api/bootstrap")["authenticated"], (
+        "Changing a legacy password affected NoX Login"
+    )
+    request(
+        "/api/login",
+        {"username": "owner", "password": password},
+        expected=405,
+        authenticated=False,
+    )
     docker("restart", current)
-    port = json.loads(docker("inspect", current))[0]["NetworkSettings"]["Ports"]["8080/tcp"][0]["HostPort"]
+    port = json.loads(docker("inspect", current))[0]["NetworkSettings"]["Ports"][
+        "8080/tcp"
+    ][0]["HostPort"]
     url = "http://127.0.0.1:" + port
     until(lambda: request("/healthz"), "restart after password reset")
     assert request("/api/bootstrap")["authenticated"]
-    print("PASS: legacy-password recovery without echo remains separate from NoX Login; local login endpoint unavailable", flush=True)
+    print(
+        "PASS: legacy-password recovery without echo remains separate from NoX Login; local login endpoint unavailable",
+        flush=True,
+    )
     docker("stop", current)
     cleanup_auth_fixtures()
     # Corrupt only our disposable fixture data, then restore all backup parts.
-    helper("import pathlib; pathlib.Path('/application/keep').write_text('after-backup'); pathlib.Path('/fixture/projects/" + name + "/files/keep').write_text('after-backup')", ("--mount", "type=volume,source=" + app_volume + ",target=/application",))
-    helper("import pathlib,shutil; [p.unlink() for p in pathlib.Path('/data').glob('nox-yard.sqlite*')]; shutil.copy2('/fixture/backup.sqlite','/data/nox-yard.sqlite'); shutil.copytree('/fixture/backup-projects','/fixture/projects',dirs_exist_ok=True); [p.unlink() for p in pathlib.Path('/application').iterdir()]; [shutil.copy2(p,'/application/'+p.name) for p in pathlib.Path('/fixture/backup-application').iterdir()]", ("--mount", "type=volume,source=" + app_volume + ",target=/application",))
+    helper(
+        "import pathlib; pathlib.Path('/application/keep').write_text('after-backup'); pathlib.Path('/fixture/projects/"
+        + name
+        + "/files/keep').write_text('after-backup')",
+        (
+            "--mount",
+            "type=volume,source=" + app_volume + ",target=/application",
+        ),
+    )
+    helper(
+        "import pathlib,shutil; [p.unlink() for p in pathlib.Path('/data').glob('nox-yard.sqlite*')]; shutil.copy2('/fixture/backup.sqlite','/data/nox-yard.sqlite'); shutil.copytree('/fixture/backup-projects','/fixture/projects',dirs_exist_ok=True); [p.unlink() for p in pathlib.Path('/application').iterdir()]; [shutil.copy2(p,'/application/'+p.name) for p in pathlib.Path('/fixture/backup-application').iterdir()]",
+        (
+            "--mount",
+            "type=volume,source=" + app_volume + ",target=/application",
+        ),
+    )
     restored = serve(args.image)
     opener, auth_session = fixture_login(url, docker=docker)
     csrf = auth_session["csrfToken"]
     assert request("/api/bootstrap")["authenticated"]
     assert_data()
-    helper("import sqlite3; db=sqlite3.connect('/data/nox-yard.sqlite'); assert db.execute('PRAGMA user_version').fetchone()[0]==9; assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'; db.close()")
-    print("PASS: restore of baseline database, source/env files, relative bind and named-volume data; repeat migration and original credentials", flush=True)
+    helper(
+        "import sqlite3; db=sqlite3.connect('/data/nox-yard.sqlite'); assert db.execute('PRAGMA user_version').fetchone()[0]==9; assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'; db.close()"
+    )
+    print(
+        "PASS: restore of baseline database, source/env files, relative bind and named-volume data; repeat migration and original credentials",
+        flush=True,
+    )
 finally:
     cleanup_auth_fixtures()
     for identifier in workers:
         subprocess.run(["docker", "rm", "-f", identifier], capture_output=True)
-    identifiers = docker("ps", "-aq", "--filter", "label=nox-yard.acceptance=" + name).splitlines()
+    identifiers = docker(
+        "ps", "-aq", "--filter", "label=nox-yard.acceptance=" + name
+    ).splitlines()
     if identifiers:
         docker("rm", "-f", *identifiers)
     for kind in ("network", "volume"):
-        identifiers = docker(kind, "ls", "-q", "--filter", "label=nox-yard.acceptance=" + name).splitlines()
+        identifiers = docker(
+            kind, "ls", "-q", "--filter", "label=nox-yard.acceptance=" + name
+        ).splitlines()
         if identifiers:
             docker(kind, "rm", *identifiers)
     subprocess.run(["docker", "image", "rm", tools], capture_output=True)

@@ -109,12 +109,12 @@ The scripts mock API responses in the test browser only; they check reload/reope
 
 Automatic branch pushes trigger CI only for these paths:
 
-| Inputs | Paths |
-| --- | --- |
-| Backend and dependencies | `cmd/**`, `internal/**`, `go.mod`, `go.sum` |
-| Frontend | `web/src/**`, `web/public/**`, `web/index.html`, `web/package.json`, `web/package-lock.json`, `web/.npmrc`, `web/vite.config.*`, `web/tsconfig*.json`, `.nvmrc` |
-| Image contents | `Dockerfile`, `third_party/cosign/LICENSE` |
-| CI, tests and release tooling | `scripts/**`, `.github/workflows/**`, `package.json`, `.gitattributes` |
+| Inputs                        | Paths                                                                                                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend and dependencies      | `cmd/**`, `internal/**`, `go.mod`, `go.sum`                                                                                                                     |
+| Frontend                      | `web/src/**`, `web/public/**`, `web/index.html`, `web/package.json`, `web/package-lock.json`, `web/.npmrc`, `web/vite.config.*`, `web/tsconfig*.json`, `.nvmrc` |
+| Image contents                | `Dockerfile`, `third_party/cosign/LICENSE`                                                                                                                      |
+| CI, tests and release tooling | `scripts/**`, `.github/workflows/**`, `package.json`, `.gitattributes`                                                                                          |
 
 Markdown/reStructuredText, README/CHANGELOG files and `.gitkeep` are excluded even inside those directories. Documentation, `.gitignore`, `.dockerignore`, `compose.yaml`, `compose.dev.yaml`, other Compose examples and `.env.example` do not trigger automatic CI. A push mixing code and documentation still runs CI. Root `package.json` must remain a trigger so version-only script release requests can select the short publication path. `.gitignore`/`.dockerignore` themselves do not configure Actions triggers.
 

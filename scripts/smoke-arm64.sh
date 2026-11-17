@@ -3,13 +3,17 @@ set -eu
 
 image=${1:?Usage: sh scripts/smoke-arm64.sh IMAGE [amd64|arm64]}
 architecture=${2:-arm64}
-case "$architecture" in amd64|arm64) ;; *) echo 'Unsupported smoke architecture' >&2; exit 2 ;; esac
+case "$architecture" in amd64 | arm64) ;; *)
+  echo 'Unsupported smoke architecture' >&2
+  exit 2
+  ;;
+esac
 binary=$(mktemp)
 container_id=
 
 cleanup() {
   if [ -n "$container_id" ]; then
-    docker rm -f "$container_id" >/dev/null 2>&1 || true
+    docker rm -f "$container_id" > /dev/null 2>&1 || true
   fi
   rm -f "$binary"
 }
@@ -21,12 +25,12 @@ container_id=$(docker create --platform "linux/$architecture" \
   "$image")
 docker cp "$container_id:/usr/local/bin/nox-yard" "$binary"
 
-if command -v python3 >/dev/null 2>&1; then
+if command -v python3 > /dev/null 2>&1; then
   python_command=python3
 else
   python_command=python
 fi
-"$python_command" - "$binary" "$architecture" <<'PY'
+"$python_command" - "$binary" "$architecture" << 'PY'
 import sys
 
 with open(sys.argv[1], "rb") as executable:
@@ -38,12 +42,12 @@ if (len(header) != 20 or header[:4] != b"\x7fELF" or header[4] != 2
 print("Confirmed Linux " + sys.argv[2] + " executable")
 PY
 
-docker start "$container_id" >/dev/null
+docker start "$container_id" > /dev/null
 docker exec "$container_id" /usr/local/bin/cosign version
 address=$(docker port "$container_id" 8080/tcp)
 attempt=0
 while [ "$attempt" -lt 45 ]; do
-  if curl --fail --silent --show-error "http://$address/healthz" 2>/dev/null | grep -q '"status":"ok"'; then
+  if curl --fail --silent --show-error "http://$address/healthz" 2> /dev/null | grep -q '"status":"ok"'; then
     echo "$architecture container started and /healthz responded"
     exit 0
   fi

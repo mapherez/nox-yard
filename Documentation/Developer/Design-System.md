@@ -29,14 +29,14 @@ Treat this as an evolution of the existing product, not a new landing-page desig
 
 Recommended naming groups:
 
-| Group | Examples | Purpose |
-| --- | --- | --- |
-| Canvas and surfaces | `--color-canvas`, `--color-surface-1`, `--color-surface-2` | Page, cards, overlays. |
-| Content | `--color-text-primary`, `--color-text-muted`, `--color-border` | Legible text and boundaries. |
-| Intent | `--color-accent`, `--color-success`, `--color-warning`, `--color-danger` | Actions and status. |
-| Subdued states | `--color-accent-subtle`, `--color-accent-border`, `--color-success-subtle`, `--color-warning-subtle` | Selection and status backgrounds without saturated fills. |
-| Layout | `--space-1` through `--space-16`, `--radius-sm`, `--radius-md` | Reusable rhythm and shape. |
-| Motion and elevation | `--duration-fast`, `--duration-normal`, `--shadow-card`, `--shadow-panel`, `--color-backdrop` | Subtle card depth, overlay separation, and consistent transitions. |
+| Group                | Examples                                                                                             | Purpose                                                            |
+| -------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Canvas and surfaces  | `--color-canvas`, `--color-surface-1`, `--color-surface-2`                                           | Page, cards, overlays.                                             |
+| Content              | `--color-text-primary`, `--color-text-muted`, `--color-border`                                       | Legible text and boundaries.                                       |
+| Intent               | `--color-accent`, `--color-success`, `--color-warning`, `--color-danger`                             | Actions and status.                                                |
+| Subdued states       | `--color-accent-subtle`, `--color-accent-border`, `--color-success-subtle`, `--color-warning-subtle` | Selection and status backgrounds without saturated fills.          |
+| Layout               | `--space-1` through `--space-16`, `--radius-sm`, `--radius-md`                                       | Reusable rhythm and shape.                                         |
+| Motion and elevation | `--duration-fast`, `--duration-normal`, `--shadow-card`, `--shadow-panel`, `--color-backdrop`        | Subtle card depth, overlay separation, and consistent transitions. |
 
 Use `:root { color-scheme: dark; }` and `<meta name="color-scheme" content="dark">` so native controls and the initial page canvas match the sole supported theme. Keep a single source of truth for dark tokens; do not create unused light-theme overrides. New themes, if ever approved, should override semantic tokens without rewriting component CSS.
 
@@ -46,17 +46,17 @@ The account avatar and small status dots are intentionally circular. Status dots
 
 ### Styling source files
 
-| File | Responsibility |
-| --- | --- |
-| [`tokens.css`](../../web/src/styles/tokens.css) | Canonical palette, semantic colors, spacing, radii, shadows, motion, and forced-color overrides. Read actual values here rather than maintaining a second palette in documentation. |
-| [`global.css`](../../web/src/styles/global.css) | Base page styles, native control typography, focus outlines, text selection, and scroll locking. |
-| [`App.module.css`](../../web/src/App.module.css) | Authentication, app shell, project cards, settings, details, dialogs, and log/terminal surfaces. |
-| [`NewProjectDrawer.module.css`](../../web/src/NewProjectDrawer.module.css) | Source selection, Compose fields, environment forms, and deployment preview. |
-| [`ProjectConfiguration.module.css`](../../web/src/ProjectConfiguration.module.css) | Inline variable controls and collapsed host-file editors. |
-| [`ProjectSchedule.module.css`](../../web/src/ProjectSchedule.module.css) | Daily project and Yard schedule controls. |
-| [`LogsPanel.module.css`](../../web/src/LogsPanel.module.css) | Full-height log output, search highlights and snapshot export confirmation. |
-| [`SettingsDrawer.module.css`](../../web/src/SettingsDrawer.module.css) | Grouped Settings sections, responsive directory form, path examples and update facts. |
-| [`main.tsx`](../../web/src/main.tsx) | Global stylesheet and self-hosted icon-font imports. |
+| File                                                                               | Responsibility                                                                                                                                                                      |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`tokens.css`](../../web/src/styles/tokens.css)                                    | Canonical palette, semantic colors, spacing, radii, shadows, motion, and forced-color overrides. Read actual values here rather than maintaining a second palette in documentation. |
+| [`global.css`](../../web/src/styles/global.css)                                    | Base page styles, native control typography, focus outlines, text selection, and scroll locking.                                                                                    |
+| [`App.module.css`](../../web/src/App.module.css)                                   | Authentication, app shell, project cards, settings, details, dialogs, and log/terminal surfaces.                                                                                    |
+| [`NewProjectDrawer.module.css`](../../web/src/NewProjectDrawer.module.css)         | Source selection, Compose fields, environment forms, and deployment preview.                                                                                                        |
+| [`ProjectConfiguration.module.css`](../../web/src/ProjectConfiguration.module.css) | Inline variable controls and collapsed host-file editors.                                                                                                                           |
+| [`ProjectSchedule.module.css`](../../web/src/ProjectSchedule.module.css)           | Daily project and Yard schedule controls.                                                                                                                                           |
+| [`LogsPanel.module.css`](../../web/src/LogsPanel.module.css)                       | Full-height log output, search highlights and snapshot export confirmation.                                                                                                         |
+| [`SettingsDrawer.module.css`](../../web/src/SettingsDrawer.module.css)             | Grouped Settings sections, responsive directory form, path examples and update facts.                                                                                               |
+| [`main.tsx`](../../web/src/main.tsx)                                               | Global stylesheet and self-hosted icon-font imports.                                                                                                                                |
 
 ## Component and CSS rules
 

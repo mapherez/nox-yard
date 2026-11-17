@@ -11,18 +11,18 @@ Start here:
 
 ## Technical references
 
-| Document | Responsibility |
-| --- | --- |
-| [Configuration files](Configuration-Files.md) | Host source of truth, file editors, concurrency, ownership and uniform actions. |
-| [Durable operations](Operation-Jobs.md) | Worker lifetime, reservations, history and reviewed recovery. |
-| [Managed updates](Managed-Updates.md) | Compose deployment, image comparison, source sync and rollback. |
-| [External updates](External-Updates.md) | Assessed Engine fallback, replacement, removal and recovery limits. |
-| [Project schedules](Project-Schedules.md) | Daily project/Yard updates, timezone and failed-image suppression. |
-| [Self-update](Self-Update.md) | Yard image trust, installation, health checks and SQLite/runtime recovery. |
-| [Suite integration](Suite-Integration.md) | Same-host pairing, participating services, scoped deployment registration, lifecycle and recovery. |
-| [MCP](MCP.md) | Direct/Suite access, unchanged tools, private human menus and shared-library maintenance. |
-| [Control API](Control-API.md) | Versioned machine endpoints, Bearer access and response contracts. |
-| [Design system](Design-System.md) | UI conventions, tokens, responsive behavior and visual QA. |
+| Document                                      | Responsibility                                                                                     |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| [Configuration files](Configuration-Files.md) | Host source of truth, file editors, concurrency, ownership and uniform actions.                    |
+| [Durable operations](Operation-Jobs.md)       | Worker lifetime, reservations, history and reviewed recovery.                                      |
+| [Managed updates](Managed-Updates.md)         | Compose deployment, image comparison, source sync and rollback.                                    |
+| [External updates](External-Updates.md)       | Assessed Engine fallback, replacement, removal and recovery limits.                                |
+| [Project schedules](Project-Schedules.md)     | Daily project/Yard updates, timezone and failed-image suppression.                                 |
+| [Self-update](Self-Update.md)                 | Yard image trust, installation, health checks and SQLite/runtime recovery.                         |
+| [Suite integration](Suite-Integration.md)     | Same-host pairing, participating services, scoped deployment registration, lifecycle and recovery. |
+| [MCP](MCP.md)                                 | Direct/Suite access, unchanged tools, private human menus and shared-library maintenance.          |
+| [Control API](Control-API.md)                 | Versioned machine endpoints, Bearer access and response contracts.                                 |
+| [Design system](Design-System.md)             | UI conventions, tokens, responsive behavior and visual QA.                                         |
 
 ## Documentation rules
 

@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """C4 isolated Engine recreation with a disposable registry and Linux runner."""
-from smoke_support import write_text, trace_docker, cleanup_fixture, create_fixture_output
+
+from smoke_support import (
+    write_text,
+    trace_docker,
+    cleanup_fixture,
+    create_fixture_output,
+)
 import argparse
 import pathlib
 import secrets
@@ -17,12 +23,19 @@ base.mkdir(parents=True)
 images = []
 references = []
 
+
 @trace_docker(name, base)
 def docker(*parts, stream=False):
     result = subprocess.run(["docker", *parts], text=True, capture_output=not stream)
     if result.returncode:
-        raise RuntimeError("Fixture Docker command failed: " + " ".join(parts[:3]) + "\n" + (result.stderr or ""))
+        raise RuntimeError(
+            "Fixture Docker command failed: "
+            + " ".join(parts[:3])
+            + "\n"
+            + (result.stderr or "")
+        )
     return (result.stdout or "").strip()
+
 
 try:
     create_fixture_output(base / "anonymous-volumes")
@@ -32,19 +45,43 @@ try:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         app_port = str(probe.getsockname()[1])
-    registry = docker("create", "--name", name + "-registry", "--label", "nox-yard.acceptance=" + name,
-        "--publish", "127.0.0.1:" + port + ":5000", "--tmpfs", "/var/lib/registry", "registry:3")
+    registry = docker(
+        "create",
+        "--name",
+        name + "-registry",
+        "--label",
+        "nox-yard.acceptance=" + name,
+        "--publish",
+        "127.0.0.1:" + port + ":5000",
+        "--tmpfs",
+        "/var/lib/registry",
+        "registry:3",
+    )
     docker("start", registry)
     reference = "127.0.0.1:" + port + "/" + name
     versions = {}
     for version in ("V1", "V2", "BAD", "EXTRA"):
         image = name + ":" + version.lower()
         images.append(image)
-        write_text(base / "start", "#!/bin/sh\n" + ("touch /tmp/ready\n" if version != "BAD" else "") + "exec sleep 600\n", newline="")
-        write_text(base / "Dockerfile", "FROM alpine:3.23\nLABEL nox-yard.acceptance=" + name + " fixture.version=" + version +
-            "\nCOPY start /app/start\nRUN chmod +x /app/start\n" +
-            "VOLUME /anonymous\n" + ("VOLUME /extra\n" if version == "EXTRA" else "") +
-            "HEALTHCHECK --interval=1s --timeout=1s --retries=1 CMD test -f /tmp/ready\nCMD [\"/app/start\"]\n", newline="")
+        write_text(
+            base / "start",
+            "#!/bin/sh\n"
+            + ("touch /tmp/ready\n" if version != "BAD" else "")
+            + "exec sleep 600\n",
+            newline="",
+        )
+        write_text(
+            base / "Dockerfile",
+            "FROM alpine:3.23\nLABEL nox-yard.acceptance="
+            + name
+            + " fixture.version="
+            + version
+            + "\nCOPY start /app/start\nRUN chmod +x /app/start\n"
+            + "VOLUME /anonymous\n"
+            + ("VOLUME /extra\n" if version == "EXTRA" else "")
+            + 'HEALTHCHECK --interval=1s --timeout=1s --retries=1 CMD test -f /tmp/ready\nCMD ["/app/start"]\n',
+            newline="",
+        )
         docker("build", "-t", image, str(base))
         versions[version] = image
     for tag in ("app", "db", "web", "recovery"):
@@ -54,44 +91,97 @@ try:
         docker("push", ref)
     runner = name + ":runner"
     images.append(runner)
-    write_text(base / "Dockerfile", "FROM " + args.image + " AS tools\nFROM golang:1.26-alpine\n" +
-        "COPY --from=tools /usr/bin/docker /usr/bin/docker\n" +
-        "COPY --from=tools /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose\n", newline="")
+    write_text(
+        base / "Dockerfile",
+        "FROM "
+        + args.image
+        + " AS tools\nFROM golang:1.26-alpine\n"
+        + "COPY --from=tools /usr/bin/docker /usr/bin/docker\n"
+        + "COPY --from=tools /usr/libexec/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose\n",
+        newline="",
+    )
     docker("build", "-t", runner, str(base))
     host_base = str(base).replace("\\", "/")
     if host_base[1:2] == ":":
-        host_base = "/run/desktop/mnt/host/" + host_base[0].lower() + "/" + host_base[3:]
-    env = {"NOX_RECREATE_BASE": host_base, "NOX_RECREATE_NAME": name, "NOX_RECREATE_IMAGE": reference,
-        "NOX_RECREATE_REGISTRY": registry, "NOX_RECREATE_PORT": app_port}
+        host_base = (
+            "/run/desktop/mnt/host/" + host_base[0].lower() + "/" + host_base[3:]
+        )
+    env = {
+        "NOX_RECREATE_BASE": host_base,
+        "NOX_RECREATE_NAME": name,
+        "NOX_RECREATE_IMAGE": reference,
+        "NOX_RECREATE_REGISTRY": registry,
+        "NOX_RECREATE_PORT": app_port,
+    }
     env.update({"NOX_RECREATE_" + key: value for key, value in versions.items()})
-    command = ["run", "--rm", "--name", name + "-runner", "--label", "nox-yard.acceptance=" + name,
-        "--mount", "type=bind,source=" + str(root) + ",target=/src,readonly",
-        "--mount", "type=bind,source=" + str(base) + ",target=" + host_base,
-        "--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
-        "--mount", "type=volume,source=nox-yard-c2-go-cache,target=/go/pkg",
-        "--mount", "type=volume,source=nox-yard-c2-build-cache,target=/root/.cache/go-build", "--workdir", "/src"]
+    command = [
+        "run",
+        "--rm",
+        "--name",
+        name + "-runner",
+        "--label",
+        "nox-yard.acceptance=" + name,
+        "--mount",
+        "type=bind,source=" + str(root) + ",target=/src,readonly",
+        "--mount",
+        "type=bind,source=" + str(base) + ",target=" + host_base,
+        "--mount",
+        "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
+        "--mount",
+        "type=volume,source=nox-yard-c2-go-cache,target=/go/pkg",
+        "--mount",
+        "type=volume,source=nox-yard-c2-build-cache,target=/root/.cache/go-build",
+        "--workdir",
+        "/src",
+    ]
     for key, value in env.items():
         command += ["--env", key + "=" + value]
-    docker(*command, runner, "go", "test", "-v", "-count=1", "-timeout=15m", "-run", "^TestRecreateDockerAcceptance$", "./internal/recreate", stream=True)
+    docker(
+        *command,
+        runner,
+        "go",
+        "test",
+        "-v",
+        "-count=1",
+        "-timeout=15m",
+        "-run",
+        "^TestRecreateDockerAcceptance$",
+        "./internal/recreate",
+        stream=True,
+    )
 finally:
-    identifiers = docker("ps", "-aq", "--filter", "label=nox-yard.acceptance=" + name).splitlines()
+    identifiers = docker(
+        "ps", "-aq", "--filter", "label=nox-yard.acceptance=" + name
+    ).splitlines()
     # Image VOLUME declarations create anonymous volumes without labels.
     # Capture only names actually mounted by this disposable fixture.
     anonymous = set()
     recorded = base / "anonymous-volumes"
     if recorded.exists():
         import re
-        anonymous.update(value for value in recorded.read_text().splitlines() if re.fullmatch(r"[0-9a-f]{64}", value))
+
+        anonymous.update(
+            value
+            for value in recorded.read_text().splitlines()
+            if re.fullmatch(r"[0-9a-f]{64}", value)
+        )
     if identifiers:
         import json
+
         for item in json.loads(docker("inspect", *identifiers)):
-            anonymous.update(m["Name"] for m in item.get("Mounts", []) if m["Type"] == "volume" and len(m.get("Name", "")) == 64)
+            anonymous.update(
+                m["Name"]
+                for m in item.get("Mounts", [])
+                if m["Type"] == "volume" and len(m.get("Name", "")) == 64
+            )
     if identifiers:
         docker("rm", "-f", *identifiers)
     for volume in anonymous:
         subprocess.run(["docker", "volume", "rm", volume], capture_output=True)
     for kind in ("network", "volume"):
-        identifiers = docker(kind, "ls", "-q", "--filter", "label=nox-yard.acceptance=" + name).splitlines()
+        identifiers = docker(
+            kind, "ls", "-q", "--filter", "label=nox-yard.acceptance=" + name
+        ).splitlines()
         if identifiers:
             docker(kind, "rm", *identifiers)
     for image in references + list(reversed(images)):
